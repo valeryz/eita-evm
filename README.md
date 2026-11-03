@@ -220,8 +220,11 @@ interface, documented there.
   consensus client, plugged into the same block-source interface — the natural public path
   from a verifying replayer to a full execution client.
 - The proof obligations listed in `scripts/generated/refinement-coverage.md`, down to zero.
-- The x86-64 JIT at parity with ARM64; Block-STM parallel execution (spec in
-  `lean/Evm/Parallel`, proved) in the replay.
+- The x86-64 JIT's proofs at parity with ARM64: the chunk's head charge, op sites,
+  terminators and trampolines under the x86-64 semantics (the handlers, gas routines and
+  region flush are proved; the x86-64 JIT already passes the same test batteries); and JIT
+  images for Leanless builds, which run the interpreter tier today.
+- Block-STM parallel execution (spec in `lean/Evm/Parallel`, proved) in the replay.
 - Amsterdam (staged in `lean/Evm/Amsterdam`).
 
 ## Contributing
