@@ -1,0 +1,97 @@
+'Evm.IR.Soundness.compile_sound_vs_effect' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.IR.Soundness.compile_sound_vs_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.IR.Soundness.compileProgram_sound_vs_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.IR.SymExpr.symStep_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectBlockProof.credits_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectCall.call_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectCall.call_spec_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectCall.afterPlan_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectCall.finish_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectCreate.create_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectCreate.create_spec_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectCreate.finish_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectEndTx.endTx_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSelfdestruct.selfdestruct_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSettle.settle_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSload.sload_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSstore.sstore_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSstore.tail_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSystem.system_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectSystem.checked_refines' depends on axioms: [propext, Quot.sound]
+'Evm.CL.EffectTx.apply_tx_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.EffectTx.tx_refines' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.AsmCore.memExpand_acc_refines' depends on axioms: [propext]
+'Evm.CL.GasEmitLondon.initialBaseFee_eq_spec' depends on axioms: [propext]
+'Evm.CL.GasEmitLondon.nextBaseFee_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCancun.blobBaseFee_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec' does not depend on any axioms
+'Evm.CL.GasEmitPrague.calldataFloor_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitPrague.intrinsicCall_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitPrague.intrinsicCreate_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitPrague.txGasUsed_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.HeaderEmit.blockDifficulty_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.HeaderEmit.headerViolation_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.Flags.charge_is_spec' depends on axioms: [propext]
+'Evm.CL.ForkEmit.mainnetForkOrd_eq_spec' depends on axioms: [propext]
+'Evm.CL.BlobEnv.blobbasefee_is_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.BlobEnv.blobhash_is_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.HostEmit.createCollision_eq_spec' does not depend on any axioms
+'Evm.Arc.Spec.BlockSystem.nextBaseFeeExpr_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.ARM64.SstoreGasDenote.eip1283_eq_spec' depends on axioms: [propext,
+ Quot.sound,
+ Evm.CL.ARM64.SstoreGasDenote.clearRef1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.dirtyCost1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.noopCost1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetCost1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetNzR1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetZeroR1283_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.setCost1283_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.SstoreGasDenote.eip2200_eq_spec' depends on axioms: [propext,
+ Quot.sound,
+ Evm.CL.ARM64.SstoreGasDenote.clearRef2200_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetCost2200_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetNzR2200_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.resetZeroR2200_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.setCost2200_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.sloadCost2200_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.SstoreGasDenote.berlin_eq_spec' depends on axioms: [propext,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_clearRef_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_coldSurch_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_resetNzA_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_resetZeroA_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_reset_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_set_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.berlin_warm_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.SstoreGasDenote.london_eq_spec' depends on axioms: [propext,
+ Evm.CL.ARM64.SstoreGasDenote.london_clearRef_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_coldSurch_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_resetNzA_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_resetZeroA_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_reset_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_set_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.SstoreGasDenote.london_warm_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.MemCommitSem.ecost_eq_spec' does not depend on any axioms
+'Evm.CL.ARM64.MemCommitSem.mcost_eq_spec' does not depend on any axioms
+'Evm.CL.ARM64.CallGasDenote.planFrontier_eq_spec' depends on axioms: [propext,
+ Evm.CL.ARM64.CallGasDenote.fBase_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.fNewAcctFee_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.fStipend_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.fValueFee_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.CallGasDenote.planTangerine_eq_spec' depends on axioms: [propext,
+ Quot.sound,
+ Evm.CL.ARM64.CallGasDenote.tBase_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.tNewAcctFee_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.tStipend_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.tValueFee_eq._native.native_decide.ax_1_1]
+'Evm.CL.ARM64.CallGasDenote.plan_eq_spec' depends on axioms: [propext,
+ Quot.sound,
+ Evm.CL.ARM64.CallGasDenote.baseCold_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.baseWarm_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.newAcctFee_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.stipendC_eq._native.native_decide.ax_1_1,
+ Evm.CL.ARM64.CallGasDenote.valueFee_eq._native.native_decide.ax_1_1]
+'Evm.Parallel.BlockSTM.blockSTM_refines_seq' depends on axioms: [propext]

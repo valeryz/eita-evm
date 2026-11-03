@@ -1,0 +1,6 @@
+# Gas-schedule numbers in hand-written replay code that are NOT gas charges.
+# scripts/check-derived-gas.py fails on any other. Format: file  regex  -- reason
+# An entry that stops matching anything also fails the check (delete it).
+src/evm/frames.lisp  \+block-gas-limit\+\)\s+2600\)  -- arena sizing: most cold accounts a block can touch, not a charge
+src/evm/frames.lisp  \+block-gas-limit\+\)\s+2100\)  -- arena sizing: most cold slots a block can touch, not a charge
+src/evm/frames.lisp  \+block-gas-limit\+\)\s+32000\) -- arena sizing: most CREATEs a block can hold, not a charge

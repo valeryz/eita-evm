@@ -1,0 +1,190 @@
+# Fixture tests that fail by design: src/fixtures/runner.lisp reports them XFAIL (and XPASS, a
+# failure, if one starts to pass). One test name per line; '#' starts a comment; a '#!' line
+# gives the reason for the names after it.
+#
+#! EIP-7610 not applied: execution-specs #3417, src/fixtures/expected-failures.txt
+# EIP-7610 is not applied (owner decision 2026-10-26, every chain): ethereum/execution-specs
+# #3417 (merged 2026-08-25, commit 2ce2191562; EIP-7610 declined per EIP-7773) removed the
+# storage leg of the CREATE collision rule and these fixtures upstream; #3508 (merged
+# 2026-09-23, commit faf6637766) wipes the target's storage at creation instead. The local
+# ethereum/tests corpora still expect EIP-7610's abort. The older-fork variants of the same
+# tests that still pass expect a post-state both rules produce.
+BlockchainTests/GeneralStateTests/stCreate2/RevertInCreateInInitCreate2Paris.json::RevertInCreateInInitCreate2Paris-fork_Cancun-d0g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Cancun-d0g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Cancun-d1g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Cancun-d2g0v0
+BlockchainTests/GeneralStateTests/stExtCodeHash/dynamicAccountOverwriteEmpty_Paris.json::dynamicAccountOverwriteEmpty_Paris-fork_Cancun-d0g0v0
+BlockchainTests/GeneralStateTests/stRevertTest/RevertInCreateInInit_Paris.json::RevertInCreateInInit_Paris-fork_Cancun-d0g0v0
+# The Prague variants of the same six (run since the fixture runner has the Prague block pipeline).
+BlockchainTests/GeneralStateTests/stCreate2/RevertInCreateInInitCreate2Paris.json::RevertInCreateInInitCreate2Paris-fork_Prague-d0g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Prague-d0g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Prague-d1g0v0
+BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Prague-d2g0v0
+BlockchainTests/GeneralStateTests/stExtCodeHash/dynamicAccountOverwriteEmpty_Paris.json::dynamicAccountOverwriteEmpty_Paris-fork_Prague-d0g0v0
+BlockchainTests/GeneralStateTests/stRevertTest/RevertInCreateInInit_Paris.json::RevertInCreateInInit_Paris-fork_Prague-d0g0v0
+# stSStoreTest's InitCollisionParis (the legacy corpus' InitCollisionParis_d*_Cancun below), as the
+# ethereum/tests tgz names it.
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Cancun-d0g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Cancun-d1g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Cancun-d2g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Cancun-d3g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Prague-d0g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Prague-d1g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Prague-d2g0v0
+BlockchainTests/GeneralStateTests/stSStoreTest/InitCollisionParis.json::InitCollisionParis-fork_Prague-d3g0v0
+InitCollisionParis_d0g0v0_Berlin
+InitCollisionParis_d0g0v0_Cancun
+InitCollisionParis_d0g0v0_Istanbul
+InitCollisionParis_d0g0v0_London
+InitCollisionParis_d0g0v0_Paris
+InitCollisionParis_d0g0v0_Shanghai
+InitCollisionParis_d1g0v0_Berlin
+InitCollisionParis_d1g0v0_Cancun
+InitCollisionParis_d1g0v0_Istanbul
+InitCollisionParis_d1g0v0_London
+InitCollisionParis_d1g0v0_Paris
+InitCollisionParis_d1g0v0_Shanghai
+InitCollisionParis_d2g0v0_Berlin
+InitCollisionParis_d2g0v0_Cancun
+InitCollisionParis_d2g0v0_Istanbul
+InitCollisionParis_d2g0v0_London
+InitCollisionParis_d2g0v0_Paris
+InitCollisionParis_d2g0v0_Shanghai
+InitCollisionParis_d3g0v0_Berlin
+InitCollisionParis_d3g0v0_Cancun
+InitCollisionParis_d3g0v0_Istanbul
+InitCollisionParis_d3g0v0_London
+InitCollisionParis_d3g0v0_Paris
+InitCollisionParis_d3g0v0_Shanghai
+InitCollision_d0g0v0_Berlin
+InitCollision_d0g0v0_Istanbul
+InitCollision_d0g0v0_London
+InitCollision_d1g0v0_Berlin
+InitCollision_d1g0v0_Istanbul
+InitCollision_d1g0v0_London
+InitCollision_d2g0v0_Berlin
+InitCollision_d2g0v0_Istanbul
+InitCollision_d2g0v0_London
+InitCollision_d3g0v0_Berlin
+InitCollision_d3g0v0_Istanbul
+InitCollision_d3g0v0_London
+RevertInCreateInInitCreate2Paris_d0g0v0_Berlin
+RevertInCreateInInitCreate2Paris_d0g0v0_Cancun
+RevertInCreateInInitCreate2Paris_d0g0v0_Istanbul
+RevertInCreateInInitCreate2Paris_d0g0v0_London
+RevertInCreateInInitCreate2Paris_d0g0v0_Paris
+RevertInCreateInInitCreate2Paris_d0g0v0_Shanghai
+RevertInCreateInInitCreate2_d0g0v0_Berlin
+RevertInCreateInInitCreate2_d0g0v0_Constantinople
+RevertInCreateInInitCreate2_d0g0v0_ConstantinopleFix
+RevertInCreateInInitCreate2_d0g0v0_Istanbul
+RevertInCreateInInitCreate2_d0g0v0_London
+RevertInCreateInInit_Paris_d0g0v0_Berlin
+RevertInCreateInInit_Paris_d0g0v0_Cancun
+RevertInCreateInInit_Paris_d0g0v0_Istanbul
+RevertInCreateInInit_Paris_d0g0v0_London
+RevertInCreateInInit_Paris_d0g0v0_Paris
+RevertInCreateInInit_Paris_d0g0v0_Shanghai
+RevertInCreateInInit_d0g0v0_Berlin
+RevertInCreateInInit_d0g0v0_Byzantium
+RevertInCreateInInit_d0g0v0_Constantinople
+RevertInCreateInInit_d0g0v0_ConstantinopleFix
+RevertInCreateInInit_d0g0v0_Istanbul
+RevertInCreateInInit_d0g0v0_London
+create2collisionStorageParis_d0g0v0_Berlin
+create2collisionStorageParis_d0g0v0_Cancun
+create2collisionStorageParis_d0g0v0_Istanbul
+create2collisionStorageParis_d0g0v0_London
+create2collisionStorageParis_d0g0v0_Paris
+create2collisionStorageParis_d0g0v0_Shanghai
+create2collisionStorageParis_d1g0v0_Berlin
+create2collisionStorageParis_d1g0v0_Cancun
+create2collisionStorageParis_d1g0v0_Istanbul
+create2collisionStorageParis_d1g0v0_London
+create2collisionStorageParis_d1g0v0_Paris
+create2collisionStorageParis_d1g0v0_Shanghai
+create2collisionStorageParis_d2g0v0_Berlin
+create2collisionStorageParis_d2g0v0_Cancun
+create2collisionStorageParis_d2g0v0_Istanbul
+create2collisionStorageParis_d2g0v0_London
+create2collisionStorageParis_d2g0v0_Paris
+create2collisionStorageParis_d2g0v0_Shanghai
+create2collisionStorage_d0g0v0_Berlin
+create2collisionStorage_d0g0v0_Constantinople
+create2collisionStorage_d0g0v0_ConstantinopleFix
+create2collisionStorage_d0g0v0_Istanbul
+create2collisionStorage_d0g0v0_London
+create2collisionStorage_d1g0v0_Berlin
+create2collisionStorage_d1g0v0_Constantinople
+create2collisionStorage_d1g0v0_ConstantinopleFix
+create2collisionStorage_d1g0v0_Istanbul
+create2collisionStorage_d1g0v0_London
+create2collisionStorage_d2g0v0_Berlin
+create2collisionStorage_d2g0v0_Constantinople
+create2collisionStorage_d2g0v0_ConstantinopleFix
+create2collisionStorage_d2g0v0_Istanbul
+create2collisionStorage_d2g0v0_London
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_Berlin
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_Cancun
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_Istanbul
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_London
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_Paris
+dynamicAccountOverwriteEmpty_Paris_d0g0v0_Shanghai
+dynamicAccountOverwriteEmpty_d0g0v0_Berlin
+dynamicAccountOverwriteEmpty_d0g0v0_Istanbul
+dynamicAccountOverwriteEmpty_d0g0v0_London
+
+#! RIPEMD-160 exemption after an exceptional halt not applied (docs/effect-layer-derivation.md §4.8)
+# EELS incorporate_child_on_error keeps 0x03 touched when it is in the failed child's touched
+# set; the spec's child run returns no environment for an exceptional halt, so that leg is
+# applied to a REVERTed child only (Call.lean). Here 0x03 exists empty in the pre-state, a
+# child touches it and then halts: EELS sweeps 0x03 at the end of the tx, the replay keeps
+# it (a state-root difference; found by the presence check of compare-post).
+RevertPrecompiledTouch_d0g0v0_Berlin
+RevertPrecompiledTouch_d0g0v0_Byzantium
+RevertPrecompiledTouch_d0g0v0_Constantinople
+RevertPrecompiledTouch_d0g0v0_ConstantinopleFix
+RevertPrecompiledTouch_d0g0v0_Istanbul
+RevertPrecompiledTouch_d0g0v0_London
+RevertPrecompiledTouch_d3g0v0_Berlin
+RevertPrecompiledTouch_d3g0v0_Byzantium
+RevertPrecompiledTouch_d3g0v0_Constantinople
+RevertPrecompiledTouch_d3g0v0_ConstantinopleFix
+RevertPrecompiledTouch_d3g0v0_Istanbul
+RevertPrecompiledTouch_d3g0v0_London
+RevertPrecompiledTouch_storage_d0g0v0_Berlin
+RevertPrecompiledTouch_storage_d0g0v0_Byzantium
+RevertPrecompiledTouch_storage_d0g0v0_Constantinople
+RevertPrecompiledTouch_storage_d0g0v0_ConstantinopleFix
+RevertPrecompiledTouch_storage_d0g0v0_Istanbul
+RevertPrecompiledTouch_storage_d0g0v0_London
+RevertPrecompiledTouch_storage_d3g0v0_Berlin
+RevertPrecompiledTouch_storage_d3g0v0_Byzantium
+RevertPrecompiledTouch_storage_d3g0v0_Constantinople
+RevertPrecompiledTouch_storage_d3g0v0_ConstantinopleFix
+RevertPrecompiledTouch_storage_d3g0v0_Istanbul
+RevertPrecompiledTouch_storage_d3g0v0_London
+
+#! retesteth unit test: the fixture's expected post-state is wrong by design
+# ethereum/tests BlockchainTests/InvalidBlocks/bcExpectSection (the tgz corpus): fixtures whose
+# _info.comment reads "This is a unit test for retesteth logic" (wrongStorage's filler is the
+# same family) — they test that the FILLER reports a wrong expect section, so the post-state
+# they carry (a balance, nonce, code or slot) is not what any client computes.
+BlockchainTests/InvalidBlocks/bcExpectSection/filling_unexpectedException.json::filling_unexpectedException_Cancun
+BlockchainTests/InvalidBlocks/bcExpectSection/filling_unexpectedException.json::filling_unexpectedException_Prague
+unexpectedAccount_Istanbul
+wrongAccount_Istanbul
+filling_wrongStorage_Istanbul
+
+#! EELS accepts it: a gas limit of 2^63 is no consensus rule (EELS expected_fail)
+# bcInvalidHeaderTest/GasLimitHigherThan2p63m1: the parent's gas limit is 2^63-1, the block's
+# 2^63 — inside check_gas_limit's window (parent +/- parent//1024), and EELS's Header.gas_limit
+# is a Uint with no other bound. The fixture expects geth's 2^63-1 cap (a client limit). EELS
+# lists the test as incorrect: tests/json_loader/helpers/exceptional_test_patterns.py
+# expected_fail "GasLimitHigherThan2p63m1_{fork}". The replay follows EELS: accepted.
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_Berlin
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_Cancun
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_Istanbul
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_London
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_Paris
+LegacyTests/Cancun/BlockchainTests/InvalidBlocks/bcInvalidHeaderTest/GasLimitHigherThan2p63m1.json::GasLimitHigherThan2p63m1_Shanghai

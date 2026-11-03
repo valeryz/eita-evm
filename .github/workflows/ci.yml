@@ -1,0 +1,138 @@
+name: CI
+
+# Lean build with every proof, the axiom-closure audit, the refinement-coverage ratchet,
+# the emitted-artifact drift check, libeita, and a BlockchainTests sample on both tiers
+# (the threaded interpreter and the JIT) plus the Lean interpreter's own replay.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # provision-linux.sh installs mcl/secp256k1 here (the lakefile's Linux link path)
+  LD_LIBRARY_PATH: /usr/local/lib:/usr/lib
+  # Pinned corpus commit: a moving corpus must not turn CI red or green without a commit here.
+  LEGACYTESTS_SHA: 1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install elan (pinned release; the toolchain is pinned by lean/lean-toolchain)
+        env:
+          ELAN_RELEASE: v4.2.4
+        run: |
+          curl -sSfL "https://github.com/leanprover/elan/releases/download/${ELAN_RELEASE}/elan-x86_64-unknown-linux-gnu.tar.gz" | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: C dependencies (secp256k1, mcl, OpenSSL, blst), SBCL, ocicl
+        env:
+          OCICL_RELEASE: v2.20.0
+        run: |
+          sudo scripts/provision-linux.sh
+          sudo apt-get install -y -qq sbcl zlib1g-dev
+          # ocicl (the Lisp dependencies are pinned by ocicl.csv; build.sh installs them)
+          git clone -q --depth 1 --branch "$OCICL_RELEASE" https://github.com/ocicl/ocicl /tmp/ocicl
+          ( cd /tmp/ocicl && sbcl --non-interactive --load setup.lisp )
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/ocicl" setup > /dev/null
+
+      - name: Cache .lake (mathlib source + project oleans)
+        uses: actions/cache@v4
+        with:
+          path: lean/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-${{ hashFiles('lean/**/*.lean') }}
+          restore-keys: |
+            lake-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}-
+            lake-${{ runner.os }}-
+
+      - name: Build (Lean emitters, generated code, libeita, bin/eita)
+        run: ./build.sh
+
+      - name: The whole Lean spec and its proofs
+        run: cd lean && lake build
+
+      - name: Axiom-closure audit
+        run: scripts/verify-axioms.sh
+
+      - name: Refinement-coverage ratchet
+        run: scripts/verify-coverage.sh
+
+      - name: Emitted-artifact drift, effect proofs, derived-gas lint, test_interp
+        run: scripts/verify-host-emit.sh
+
+      - name: Fetch the BlockchainTests sample (pinned commit)
+        run: |
+          git init -q /tmp/legacytests
+          git -C /tmp/legacytests remote add origin https://github.com/ethereum/legacytests
+          git -C /tmp/legacytests fetch -q --depth 1 --filter=blob:none origin "$LEGACYTESTS_SHA"
+          git -C /tmp/legacytests checkout -q FETCH_HEAD
+          git -C /tmp/legacytests sparse-checkout set Cancun/BlockchainTests/ValidBlocks Constantinople/BlockchainTests/ValidBlocks
+
+      # The full corpus needs ~16 GB per SBCL (docs/testing.md); hosted runners have ~16 GB
+      # in total, so CI runs a fixed sample and the full battery stays a manual gate.
+      - name: BlockchainTests sample, interpreter tier and JIT tier
+        run: |
+          V=/tmp/legacytests/Cancun/BlockchainTests/ValidBlocks
+          fail=0
+          for d in bcExample bcStateTests bcEIP1559 bcEIP4844-blobtransactions bcUncleTest bcEIP1153-transientStorage; do
+            for tier in interp jit; do
+              if [ $tier = interp ]; then export EITA_NO_JIT=1; else unset EITA_NO_JIT; fi
+              out=$(bin/eita --dynamic-space-size 4GB --end-runtime-options fixtures "$V/$d" 2>&1 | grep -v '^;')
+              echo "$d [$tier]: $(echo "$out" | grep '^summary:')"
+              echo "$out" | grep -q '^summary: .* fail=0 ' || { echo "$out" | grep -E '^(FAIL|XPASS|ERROR)' | head; fail=1; }
+            done
+          done
+          exit $fail
+
+      - name: The Lisp test suites (asdf:test-system), the fixture sample included
+        env:
+          EITA_TEST_FIXTURES: /tmp/legacytests/Cancun/BlockchainTests/ValidBlocks
+        run: |
+          sbcl --dynamic-space-size 8192 --non-interactive --no-userinit \
+               --load "$HOME/.local/share/ocicl/ocicl-runtime.lisp" \
+               --eval '(push (truename ".") asdf:*central-registry*)' \
+               --eval '(asdf:test-system "eita")'
+
+      - name: REPL quickstart runs
+        run: |
+          bin/eita repl --load examples/quickstart.lisp < /dev/null | grep -q '^state root: 0x'
+
+      - name: The Lean interpreter's own replay (sample)
+        run: |
+          cd lean
+          fail=0
+          for s in bcBlockGasLimitTest bcExploitTest bcGasPricerTest bcWalletTest; do
+            lake exe replay "/tmp/legacytests/Constantinople/BlockchainTests/ValidBlocks/$s" || fail=1
+          done
+          exit $fail
+
+  leanless-macos:
+    # libeita from the committed generated files, interpreter tier, on Apple Silicon.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Dependencies
+        run: |
+          brew install sbcl ocicl secp256k1 openssl@3 cmake rust
+          ocicl setup > /dev/null
+          git clone -q --depth 1 https://github.com/herumi/mcl /tmp/mcl
+          cmake -S /tmp/mcl -B /tmp/mcl/build -DMCL_FP_BIT=384 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/homebrew >/dev/null
+          cmake --build /tmp/mcl/build -j4 >/dev/null && cmake --install /tmp/mcl/build >/dev/null
+      - name: Build (Leanless)
+        run: ./build.sh --leanless
+      - name: Quickstart, interpreter tier
+        env:
+          EITA_NO_JIT: "1"
+          DYLD_LIBRARY_PATH: /opt/homebrew/lib
+        run: |
+          bin/eita repl --load examples/quickstart.lisp < /dev/null | grep -q '^state root: 0x'

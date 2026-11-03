@@ -1,0 +1,26 @@
+# eita-pq — a C-ABI shim over the SAME SLH-DSA implementation arc-node uses.
+#
+# Arc's PQ precompile (0x1800…0004) verifies SLH-DSA-SHA2-128s signatures via the
+# `slh-dsa` crate (arc-node/crates/pq-precompile). SPHINCS+ round-3.1 and FIPS 205
+# SLH-DSA are DIFFERENT functions — FIPS 205 prefixes the message with a domain
+# separator and context length — so a round-3.1 C library would return `false`
+# where the chain returns `true`: a wrong bool, a wrong execution path and a wrong
+# state root, with identical gas. Linking the same crate at the same version makes
+# that class of divergence unrepresentable rather than tested-for.
+#
+# Version is pinned to arc-node's Cargo.lock (slh-dsa 0.2.0-rc.5).
+[package]
+name = "eita-pq"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "eita_pq"
+crate-type = ["cdylib"]
+
+[dependencies]
+slh-dsa = "=0.2.0-rc.5"
+
+[profile.release]
+opt-level = 3
