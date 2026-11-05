@@ -15,6 +15,7 @@
 (defstartup *u256-scratch-v* (foreign-alloc :uint8 :count 32))
 (defstartup *u256-scratch-o* (foreign-alloc :uint8 :count 32))
 
+(declaim (inline current-arena))
 (defun current-arena ()
   "The TxArena journal scope for the running frame — its cb_ctx (offset
    504) — or the root arena when no frame is active (reset-tx-state,

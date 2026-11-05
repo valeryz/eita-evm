@@ -462,10 +462,19 @@
         (mem-ref state :uint64 560)  *tx-blob-count*)
   (u256-write (inc-pointer state 568) *tx-blob-base-fee*))
 
-(defun populate-sub-env (sub-state)
+(defun populate-sub-env (sub-state &optional (parent (null-pointer)))
   "Write tx-level env (origin, gasprice, chainid, coinbase, timestamp,
-number, gaslimit, basefee, prev_randao) into a freshly-allocated
-sub-frame state so opcodes like ORIGIN/COINBASE/etc. work in sub-calls."
+number, gaslimit, basefee, prev_randao, the blob env) into a freshly-allocated
+sub-frame state so opcodes like ORIGIN/COINBASE/etc. work in sub-calls. A sub-frame's
+PARENT (any frame of the tx) holds exactly that env: it is copied over word by word
+instead of rewritten field by field (EvmState: origin 176, gasprice..basefee 272..496,
+prev_randao 512, blob_hashes..blob_base_fee 552..600)."
+  (unless (null-pointer-p parent)
+    (macrolet ((copy (from to)
+                 `(loop for o of-type fixnum from ,from below ,to by 8
+                        do (setf (sb-sys:sap-ref-64 sub-state o) (sb-sys:sap-ref-64 parent o)))))
+      (copy 176 208) (copy 272 496) (copy 512 544) (copy 552 600))
+    (return-from populate-sub-env sub-state))
   (u256-write (inc-pointer sub-state 176) *tx-origin*)
   (u256-write (inc-pointer sub-state 272) *tx-gasprice*)
   (u256-write (inc-pointer sub-state 304) *tx-chainid*)

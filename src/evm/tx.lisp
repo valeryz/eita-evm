@@ -106,10 +106,14 @@
            (code-len (length code))
            (calldata-bytes (if create #() data))
            (calldata-len (length calldata-bytes))
-           (calldata (if (plusp calldata-len) (alloc-zeroed calldata-len) (null-pointer)))
            (egp (or (getf block-ctx :effective-gas-price) 0)))
+      ;; The frame reads its calldata in place: the tx data vector, pinned for the frame
+      ;; (a copy only for a vector that is not a simple octet vector).
+      (sb-sys:with-pinned-objects (calldata-bytes)
+      (let ((calldata (cond ((zerop calldata-len) (null-pointer))
+                            ((typep calldata-bytes 'octets) (sb-sys:vector-sap calldata-bytes))
+                            (t (bytes->foreign (alloc-zeroed calldata-len) calldata-bytes calldata-len)))))
       (with-frame-code (state code code-len)
-      (when (plusp calldata-len) (bytes->foreign calldata calldata-bytes calldata-len))
       (setf (mem-ref state :uint64 8)   gas)
       (setf (mem-ref state :pointer 32) stack)
       (setf (mem-ref state :pointer 40) mem)
@@ -158,10 +162,10 @@
         (setf *last-tx-output* output)
         (zero-bytes *memory-arena* 0 (mem-ref state :uint64 48))
         (setf *current-state* (null-pointer))
-        (when (plusp calldata-len) (foreign-free calldata))
+        (when (and (plusp calldata-len) (not (typep calldata-bytes 'octets))) (foreign-free calldata))
         ;; #250: the top frame ended — free the returndata of its last call.
         (free-frame-returndata state)
-        (list status gas-left output))))))
+        (list status gas-left output))))))))
 
 (defun precompile-run-bytes! (addr data gas)
   "EffectIR `runPreTx`: the fork's precompile at ADDR on the tx's DATA with GAS
