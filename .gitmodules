@@ -1,3 +1,6 @@
 [submodule "vendor/blst"]
 	path = vendor/blst
 	url = https://github.com/supranational/blst.git
+[submodule "vendor/secp256k1"]
+	path = vendor/secp256k1
+	url = https://github.com/bitcoin-core/secp256k1

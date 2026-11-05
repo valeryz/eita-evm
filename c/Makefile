@@ -21,6 +21,10 @@ BREW   := /opt/homebrew
 ## compiles -fPIC so the static archive links into this shared library.
 BLST   := ../vendor/blst
 BLST_A := $(BLST)/libblst.a
+## libsecp256k1 (ECRECOVER, EIP-7702 authorities, sender recovery): the pinned release, static,
+## upstream's own flags. Debian's 0.2.0 recovered in 35.5 us, v0.8.0 in 30.6 (x300, 2026-11-05).
+SECP   := ../vendor/secp256k1
+SECP_A := $(SECP)/build/lib/libsecp256k1.a
 
 ifeq ($(UNAME_S),Darwin)
   LIBEXT   := dylib
@@ -75,9 +79,9 @@ else
   ASM := $(BUILD)/handlers-elf.S
 endif
 
-CFLAGS   := $(ARCHFLAG) $(MARCH) -fPIC -O2 -DEITA_NO_LEAN_WRAPPER $(INCDIRS) -I$(BLST)/bindings
+CFLAGS   := $(ARCHFLAG) $(MARCH) -fPIC -O2 -DEITA_NO_LEAN_WRAPPER -I$(SECP)/include $(INCDIRS) -I$(BLST)/bindings
 CXXFLAGS := $(CFLAGS) -std=c++17 -DMCL_FP_BIT=384
-LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lsecp256k1 -lmcl -lcrypto
+LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lmcl -lcrypto
 
 C_SRCS   := eita_compute.c tx_state.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
             $(LEAN_C)/ripemd160.c $(LEAN_C)/ecrecover.c \
@@ -128,7 +132,7 @@ $(BUILD)/handlers-elf.S: handlers.S | $(BUILD)
 	sed -E 's/^\.section __TEXT,__text,regular,pure_instructions$$/.text/; s/_eita/eita/g; s/([A-Za-z0-9_]+)@PAGEOFF/:lo12:\1/g; s/@PAGE//g' $< > $@
 	printf '.protected %s\n' $(ELF_PROTECTED) >> $@
 
-$(LIB): $(ASM) $(C_OBJS) $(CXX_OBJS) $(BLST_A)
+$(LIB): $(ASM) $(C_OBJS) $(CXX_OBJS) $(BLST_A) $(SECP_A)
 	$(CXX) $(LDFLAGS) -o $@ $^
 	$(POSTLINK) $@
 
@@ -136,6 +140,12 @@ $(LIB): $(ASM) $(C_OBJS) $(CXX_OBJS) $(BLST_A)
 ## submodule was not initialised: git submodule update --init vendor/blst
 $(BLST_A):
 	cd $(BLST) && ./build.sh
+## Likewise: git submodule update --init vendor/secp256k1 (needs cmake)
+$(SECP_A):
+	cmake -S $(SECP) -B $(SECP)/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+	  -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
+	  -DSECP256K1_BUILD_TESTS=OFF -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF -DSECP256K1_BUILD_BENCHMARK=OFF >/dev/null
+	cmake --build $(SECP)/build >/dev/null
 
 ## #249 Phase 2: threaded-interp validation (no Lisp/Lean/precompile libs).
 test_interp: $(BUILD)/test_interp

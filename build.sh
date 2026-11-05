@@ -35,13 +35,18 @@ LEANLESS=0
 [ "${1:-}" = "--leanless" ] && LEANLESS=1
 command -v lake >/dev/null 2>&1 || { echo "lake not found -> Leanless build (interp-only)"; LEANLESS=1; }
 
-echo "[0/6] vendor/blst (BLS12-381; the Lean executables and libeita link it)"
+echo "[0/6] vendor/blst (BLS12-381; the Lean executables and libeita link it), vendor/secp256k1"
 if [ ! -f vendor/blst/bindings/blst.h ]; then
   echo "ERROR: vendor/blst is empty: clone with --recurse-submodules, or run" >&2
   echo "       git submodule update --init vendor/blst" >&2
   exit 1
 fi
 [ -f vendor/blst/libblst.a ] || ( cd vendor/blst && ./build.sh >/dev/null )
+## vendor/secp256k1: the pinned libsecp256k1 release (c/Makefile builds it static, with cmake)
+if [ ! -f vendor/secp256k1/include/secp256k1_recovery.h ]; then
+  echo "ERROR: vendor/secp256k1 is empty: git submodule update --init vendor/secp256k1" >&2
+  exit 1
+fi
 
 if [ "$LEANLESS" = 0 ]; then
   echo "[1/6] mathlib olean cache (no-op when up to date)"
