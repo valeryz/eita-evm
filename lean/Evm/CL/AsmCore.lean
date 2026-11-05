@@ -737,6 +737,20 @@ def expGasInstrs (cost byteCost : Nat) : List AInstr :=
     .label ".Lexp_do_gas", .movImm .x15 byteCost, .mulReg .x14 .x14 .x15,
     .addImm .x14 .x14 cost, .subsReg .x22 .x22 .x14, .bloOog ]
 
+/-- CLZ (EIP-7939) of the 256-bit TOS into x6 (l3 = most significant limb in x9):
+    clz(l3) if l3 ≠ 0, else 64 + clz(l2) if l2 ≠ 0, else 128 + clz(l1), else 192 + clz(l0)
+    (clz(0) = 64 on AArch64, so the all-zero word yields 256); x7-x9 zeroed. Branch-free,
+    on the SCRATCH registers x0/x14/x15/x17 — on both backends. It used to compute in
+    x10-x13 ("free in a unary op"), but on ARM64 those are the register-cached NOS, which
+    a unary op must keep: the next AND read the clobbered x10 (mainnet 26,042,126 tx 135,
+    `clz(x) & ~1` in a sqrt gave 0x40 for 0xe0; x86-64 keeps NOS in memory and was right).
+    `ARM64.Interp.handler_stack_cache_coherent` now checks every body for it. -/
+def clzReduceInstrs : List AInstr :=
+  [ .clzReg .x0 .x9, .clzReg .x14 .x8, .clzReg .x15 .x7, .clzReg .x17 .x6,
+    .addImm .x14 .x14 64, .addImm .x15 .x15 128, .addImm .x17 .x17 192,
+    .cmpImm .x7 0, .cselNe .x15 .x15 .x17, .cmpImm .x8 0, .cselNe .x14 .x14 .x15,
+    .cmpImm .x9 0, .cselNe .x6 .x0 .x14, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+
 /-- The register of TOS limb `k` (x6 = limb 0, least significant … x9 = limb 3). -/
 def tosLimb : Nat → Reg
   | 0 => .x6 | 1 => .x7 | 2 => .x8 | _ => .x9
@@ -924,17 +938,7 @@ def Op.emit : Op → String
   | .iszeroReduce =>
       "    orr   x14, x6, x7\n    orr   x15, x8, x9\n    orr   x14, x14, x15\n" ++
       "    cmp   x14, #0\n    cset  x6, eq\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .clzReduce =>
-      -- leading zeros of the 256-bit TOS (l3 = most significant limb in x9):
-      -- clz(l3) if l3 ≠ 0, else 64 + clz(l2) if l2 ≠ 0, else 128 + clz(l1), else 192 + clz(l0)
-      -- (clz(0) = 64 on AArch64, so the all-zero word yields 256). Branch-free: x10-x13 are
-      -- free in a unary op (NOS is not loaded).
-      "    clz   x10, x9\n    clz   x11, x8\n    clz   x12, x7\n    clz   x13, x6\n" ++
-      "    add   x11, x11, #64\n    add   x12, x12, #128\n    add   x13, x13, #192\n" ++
-      "    cmp   x7, #0\n    csel  x12, x12, x13, ne\n" ++
-      "    cmp   x8, #0\n    csel  x11, x11, x12, ne\n" ++
-      "    cmp   x9, #0\n    csel  x6, x10, x11, ne\n" ++
-      "    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
+  | .clzReduce => String.join (clzReduceInstrs.map AInstr.emitARM64)
   | .notLimbs =>
       "    mvn   x6, x6\n    mvn   x7, x7\n    mvn   x8, x8\n    mvn   x9, x9\n"
   | .spInc =>

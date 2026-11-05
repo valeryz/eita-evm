@@ -564,6 +564,29 @@ theorem callback_args_rejects_inherited_len :
       ((taggedBody Op.instrs? extcodecopyBody).filter (·.2 != .ldrBase .x4 .x14))).isEmpty = false := by
   native_decide
 
+open Evm.CL.AsmCore Evm.CL.OpInstrs in
+/-- **Every body keeps the register-cached stack coherent** (ARM64): entered with
+    x6-x9 = stack[sp-1] and x10-x13 = stack[sp-2], every `br x27` leaves them so for the
+    sp it leaves (`cacheCoherent`, a value numbering over the instructions). CLZ
+    computed in x10-x13 and broke it: `clz(x) & ~1` read a clobbered NOS (mainnet
+    26,042,126 tx 135). `Op.denote` keeps `nos` apart from the registers, so
+    `clz_correct` could not see it. -/
+theorem handler_stack_cache_coherent :
+    ((handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2)).all cacheCoherent = true := by
+  native_decide
+
+open Evm.CL.AsmCore Evm.CL.OpInstrs in
+/-- …and it rejects the bug: the CLZ body on the former x10-x13 temporaries. -/
+theorem cache_coherence_rejects_clz_on_nos :
+    (cacheIncoherent ((clzBody 5).flatMap fun o =>
+      if o == .clzReduce then
+        [ .clzReg .x10 .x9, .clzReg .x11 .x8, .clzReg .x12 .x7, .clzReg .x13 .x6,
+          .addImm .x11 .x11 64, .addImm .x12 .x12 128, .addImm .x13 .x13 192,
+          .cmpImm .x7 0, .cselNe .x12 .x12 .x13, .cmpImm .x8 0, .cselNe .x11 .x11 .x12,
+          .cmpImm .x9 0, .cselNe .x6 .x10 .x11, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+      else (Op.instrs? o).getD [])).isEmpty = false := by
+  native_decide
+
 /-- The forks that get their own dispatch table, in `Fork.ord` order
     (ords 0..15). Cancun and later reuse the default
     `_eita_dispatch_table` — the registry is pinned there. -/

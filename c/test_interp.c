@@ -266,6 +266,13 @@ int main(void) {
     check_extcodecopy();
     check_push_end_cases();
     check_blob_ops();
+    /* CLZ keeps the cached NOS (Osaka): PUSH1 7, PUSH1 1, CLZ, AND → 255 & 7 = 7. The
+     * ARM64 CLZ once computed in x10-x13, and AND then read 64 = clz(0) as NOS
+     * (mainnet 26,042,126). */
+    eita_set_fork(18);
+    uint8_t cz[] = {0x60,7, 0x60,1, 0x1e, 0x16, 0x60,0, 0x52, 0x60,32, 0x60,0, 0xf3};
+    check_word("CLZ-NOS", cz, sizeof cz, 7);
+    eita_set_fork(6);
     printf("---\ninterp test: %s (%d failures)\n", g_fail ? "FAIL" : "PASS", g_fail);
     return g_fail ? 1 : 0;
 }

@@ -344,11 +344,7 @@ def Op.instrs? : Op → Option (List AInstr)
          .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
        reloadNosIf2 s!"L_callret_{name}" s!"L_callret_{name}" ++
        [ .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr, .spAdd 192, .brCont ])
-  | .clzReduce        => some
-      [ .clzReg .x10 .x9, .clzReg .x11 .x8, .clzReg .x12 .x7, .clzReg .x13 .x6,
-        .addImm .x11 .x11 64, .addImm .x12 .x12 128, .addImm .x13 .x13 192,
-        .cmpImm .x7 0, .cselNe .x12 .x12 .x13, .cmpImm .x8 0, .cselNe .x11 .x11 .x12,
-        .cmpImm .x9 0, .cselNe .x6 .x10 .x11, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+  | .clzReduce        => some clzReduceInstrs
   -- the stack family (stage 4l). On x86-64 `tosToNos` vanishes (spScale drops
   -- NOS writes: the old TOS is already in memory by the invariant that every
   -- TOS-producing handler ends with storeTos) and `nosToTos` becomes four
@@ -651,13 +647,7 @@ def Op.instrsX86? : Op → Option (List AInstr)
   -- x86-64: the continuation is the return address, so "sync and return to
   -- the host" is `ret` — the dispatcher continues from pc (rbp)
   | .jumpSyncRet      => some [.bSymU "_eita_sync_and_ret"]   -- an EXIT, not a continue: the frame tells them apart
-  -- CLZ uses x10-x13 as temporaries on ARM64 (a unary op: NOS is not loaded);
-  -- on x86-64 those are memory, so real scratch (x0, x14, x15, x17) instead
-  | .clzReduce        => some
-      [ .clzReg .x0 .x9, .clzReg .x14 .x8, .clzReg .x15 .x7, .clzReg .x17 .x6,
-        .addImm .x14 .x14 64, .addImm .x15 .x15 128, .addImm .x17 .x17 192,
-        .cmpImm .x7 0, .cselNe .x15 .x15 .x17, .cmpImm .x8 0, .cselNe .x14 .x14 .x15,
-        .cmpImm .x9 0, .cselNe .x6 .x0 .x14, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+  | .clzReduce        => some clzReduceInstrs   -- scratch only, as on ARM64
   | .copyCbPop3 h     => some
       [ .movReg .x3 .x20,
         .subImm .x2 .x23 32, .addReg .x2 .x24 .x2,
@@ -1036,5 +1026,178 @@ def callArgsDefined (p : Prog) : Bool :=
   p.all (fun o => (Op.instrs? o).isSome && (Op.instrsX86? o).isSome) &&
   (callArgsBad false (taggedBody Op.instrs? p)).isEmpty &&
   (callArgsBad true (taggedBody Op.instrsX86? p)).isEmpty
+
+/-! ## The register-cached stack stays coherent
+
+On ARM64 the top two stack words are cached in registers — x6-x9 (TOS) and x10-x13
+(NOS) — and the stack memory holds every word as well. A body is entered with x6-x9 =
+stack[sp-1] and x10-x13 = stack[sp-2] (`_eita_run` loads them, every body keeps them)
+and must leave by `br x27` the same way for the sp it leaves (TOS only if sp ≥ 1, NOS
+only if sp ≥ 2). CLZ broke it: it computed in x10-x13 ("free in a unary op") and kept
+no NOS, so the next AND read the clobbered x10 (mainnet 26,042,126 tx 135; x86-64
+caches no NOS and was right). `Op.denote` keeps `nos` as a field of its own, so
+`clz_correct` held — the emit/denote gap of the #260 family.
+
+The check is a value numbering over the flattened body, per path: a register or stack
+limb holds a symbolic value (`CV`) — an entry stack limb, an sp-relative index or stack
+address (`sub x14, x23, #k` / `add x14, x24, x14, lsl #5`), or the opaque result of one
+instruction; a join of two different values is a `phi` keyed by both, so a register
+and a limb that were equal on both sides stay equal. A store to a stack address moves
+the stored value into the limb, a load reads it; a call kills the caller-saved
+registers (x10-x13 among them on ARM64) and, by the ABI of the C helpers and host
+callbacks, writes no word of the frame's stack; stores through any other base are not
+the stack (state fields, EVM memory, the C scratch frame). `cmp x23, #k ; b.lt` is the
+guarded reload: on its taken edge sp < k, so the words below are not owed. At every
+`br x27` the cached registers must equal the limbs they cache. -/
+
+inductive CV where
+  | cell (c : Int) (l : Nat)       -- limb l of stack word sp₀+c as it was at entry
+  | idx (c : Int)                  -- the integer sp₀+c
+  | addr (c : Int)                 -- the address of stack word sp₀+c
+  | fresh (j : Nat) (r : Reg)      -- what instruction j wrote into r
+  | phi (j : Nat) (a b : CV)       -- a at one predecessor of j, b at the other
+  deriving DecidableEq, Repr, Inhabited
+
+/-- One path's state: sp − sp₀, the known register values, the stack limbs written so
+    far (the rest hold their entry value), the known bound sp < `lt`, and `bad` when the
+    body moved sp in a way the analysis does not follow. -/
+structure CS where
+  off  : Int
+  regs : List (Reg × CV)
+  mem  : List ((Int × Nat) × CV)
+  lt   : Option Int
+  bad  : Bool
+  deriving DecidableEq, Repr, Inhabited
+
+def tosRegs : List Reg := [.x6, .x7, .x8, .x9]
+def nosRegs : List Reg := [.x10, .x11, .x12, .x13]
+
+def CS.rv (s : CS) (r : Reg) : Option CV :=
+  if r == .x23 then some (.idx s.off) else (s.regs.find? (·.1 == r)).map (·.2)
+def CS.mv (s : CS) (c : Int) (l : Nat) : CV :=
+  ((s.mem.find? (·.1 == (c, l))).map (·.2)).getD (.cell c l)
+def CS.setR (s : CS) (r : Reg) (v : Option CV) : CS :=
+  { s with regs := (match v with | some v => [(r, v)] | none => []) ++ s.regs.filter (·.1 != r) }
+def CS.setM (s : CS) (c : Int) (l : Nat) (v : CV) : CS :=
+  { s with mem := ((c, l), v) :: s.mem.filter (·.1 != (c, l)) }
+
+def CS.entry : CS :=
+  { off := 0, mem := [], lt := none, bad := false,
+    regs := (tosRegs.zipIdx.map fun (r, l) => (r, CV.cell (-1) l)) ++
+            (nosRegs.zipIdx.map fun (r, l) => (r, CV.cell (-2) l)) }
+
+/-- The stack word a base register addresses, if it is one. -/
+def CS.word (s : CS) (b : Reg) : Option Int :=
+  match s.rv b with | some (.addr c) => some c | _ => none
+
+/-- Store `r` into limb l of word c (an unknown register gets a name first). -/
+def CS.store (j : Nat) (s : CS) (c : Int) (l : Nat) (r : Reg) : CS :=
+  match s.rv r with
+  | some v => s.setM c l v
+  | none => (s.setR r (some (.fresh j r))).setM c l (.fresh j r)
+
+/-- The transfer of instruction j. -/
+def cstep (j : Nat) (i : AInstr) (s : CS) : CS :=
+  let writeAll (s : CS) : CS := (defs i).foldl (fun s d => s.setR d (some (.fresh j d))) s
+  match i with
+  | .subImm .x23 .x23 k => { s with off := s.off - k, lt := s.lt.map (· - k) }
+  | .addImm .x23 .x23 k => { s with off := s.off + k, lt := s.lt.map (· + k) }
+  | .subImm d .x23 k => s.setR d (some (.idx (s.off - k)))
+  | .addImm d .x23 k => s.setR d (some (.idx (s.off + k)))
+  | .addLsl5 d .x24 a =>
+      s.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d))
+  | .movReg d a => s.setR d (s.rv a)
+  | .ldpOff a b base o =>
+      match s.word base with
+      | some c => if o == 0 || o == 16 then (s.setR a (some (s.mv c (o / 8)))).setR b (some (s.mv c (o / 8 + 1)))
+                  else writeAll s
+      | none => writeAll s
+  | .ldrOff d base o =>
+      match s.word base with
+      | some c => if o % 8 == 0 && o < 32 then s.setR d (some (s.mv c (o / 8))) else writeAll s
+      | none => writeAll s
+  | .ldrBase d base =>
+      match s.word base with | some c => s.setR d (some (s.mv c 0)) | none => writeAll s
+  | .stpOff a b base o =>
+      match s.word base with
+      | some c => if o == 0 || o == 16 then (CS.store j (CS.store j s c (o / 8) a) c (o / 8 + 1) b)
+                  else { s with bad := true }
+      | none => s
+  | .strOff r base o =>
+      match s.word base with
+      | some c => if o % 8 == 0 && o < 32 then CS.store j s c (o / 8) r else { s with bad := true }
+      | none => s
+  | .strBase r base => match s.word base with | some c => CS.store j s c 0 r | none => s
+  | .blSym _ | .blr _ | .blFar _ =>
+      let s := (callerSaved false).foldl (fun s r => s.setR r none) s
+      s.setR .x0 (some (.fresh j .x0))
+  | _ => if (defs i).contains .x23 then { s with bad := true } else writeAll s
+
+/-- Join at j: equal values stay, different ones become `phi j`; a side on which the TOS
+    (sp < 1) or NOS (sp < 2) word is not owed takes the other side's registers and limb. -/
+def cmeet (j : Nat) (a b : CS) : CS :=
+  if a.bad || b.bad || a.off != b.off then { a with bad := true } else
+  let vac (s : CS) (k : Int) : Bool := s.lt.any (· ≤ k)
+  let grp (r : Reg) : Int := if tosRegs.contains r then 1 else if nosRegs.contains r then 2 else 0
+  let pick (k : Int) (va vb : Option CV) : Option CV :=
+    if k > 0 && vac a k then vb else if k > 0 && vac b k then va else
+    match va, vb with
+    | some x, some y => some (if x == y then x else .phi j x y)
+    | _, _ => none
+  let rs := (a.regs.map (·.1) ++ b.regs.map (·.1)).eraseDups
+  let ms := (a.mem.map (·.1) ++ b.mem.map (·.1)).eraseDups
+  { off := a.off, bad := false,
+    lt := match a.lt, b.lt with | some x, some y => some (max x y) | _, _ => none,
+    regs := rs.filterMap fun r => (pick (grp r) (a.rv r) (b.rv r)).map (r, ·),
+    mem := ms.filterMap fun (c, l) =>
+      let k : Int := if c == a.off - 1 then 1 else if c == a.off - 2 then 2 else 0
+      (pick k (some (a.mv c l)) (some (b.mv c l))).map ((c, l), ·) }
+
+/-- The out-edges of instruction j: (target, state on that edge). -/
+def cedges (is : List AInstr) (j : Nat) (i : AInstr) (s : CS) : List (Nat × CS) :=
+  let out := cstep j i s
+  let taken : CS :=
+    match i, (if j = 0 then none else is[j - 1]?) with
+    | .bcLbl .lt _, some (.cmpImm .x23 k) =>
+        { out with lt := some (match out.lt with | some x => min x k | none => k) }
+    | _, _ => out
+  (if noFallthrough i then [] else [(j + 1, out)]) ++
+  (match (localBranch i).bind (labelTarget is j) with | some k => [(k, taken)] | none => [])
+
+/-- The state before each instruction (Jacobi iteration over the predecessors, so a
+    join is recomputed, never re-joined; the bodies are acyclic). -/
+def creach (is : List AInstr) : Array (Option CS) :=
+  let n := is.length
+  let pass (st : Array (Option CS)) : Array (Option CS) := Id.run do
+    let mut nxt : Array (Option CS) := (List.replicate (n + 1) none).toArray
+    nxt := nxt.set! 0 (some CS.entry)
+    for j in [0:n] do
+      match st[j]!, is[j]? with
+      | some s, some i =>
+        for (k, e) in cedges is j i s do
+          if k ≤ n then nxt := nxt.set! k (match nxt[k]! with | none => some e | some x => some (cmeet k x e))
+      | _, _ => pure ()
+    return nxt
+  let rec fix : Nat → Array (Option CS) → Array (Option CS)
+    | 0, st => st
+    | fuel + 1, st => let st' := pass st; if st' == st then st else fix fuel st'
+  fix (n + 2) (((List.replicate (n + 1) (none : Option CS)).toArray).set! 0 (some CS.entry))
+
+/-- Indices of the `br x27` exits where a cached register is not the limb it caches
+    (or the analysis lost sp) — empty when the body keeps the cache coherent. -/
+def cacheIncoherent (is : List AInstr) : List Nat :=
+  let st := creach is
+  let ok (s : CS) (rs : List Reg) (c : Int) : Bool :=
+    rs.zipIdx.all fun (r, l) => s.rv r == some (s.mv c l)
+  (List.range is.length).filter fun j =>
+    match is[j]?, st[j]! with
+    | some .brCont, some s =>
+        s.bad || !((s.lt.any (· ≤ 1) || ok s tosRegs (s.off - 1)) &&
+                   (s.lt.any (· ≤ 2) || ok s nosRegs (s.off - 2)))
+    | _, _ => false
+
+/-- Every op lowers, and the ARM64 body keeps the stack cache coherent. -/
+def cacheCoherent (p : Prog) : Bool :=
+  p.all (fun o => (Op.instrs? o).isSome) && (cacheIncoherent (bodyInstrs p)).isEmpty
 
 end Evm.CL.OpInstrs

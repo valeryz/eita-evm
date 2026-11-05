@@ -419,19 +419,19 @@ _eita_handler_iszero:
 _eita_handler_clz:
     cmp   x23, #1
     b.lo  _eita_stack_underflow
-    clz   x10, x9
-    clz   x11, x8
-    clz   x12, x7
-    clz   x13, x6
-    add   x11, x11, #64
-    add   x12, x12, #128
-    add   x13, x13, #192
+    clz   x0, x9
+    clz   x14, x8
+    clz   x15, x7
+    clz   x17, x6
+    add   x14, x14, #64
+    add   x15, x15, #128
+    add   x17, x17, #192
     cmp   x7, #0
-    csel  x12, x12, x13, ne
+    csel  x15, x15, x17, ne
     cmp   x8, #0
-    csel  x11, x11, x12, ne
+    csel  x14, x14, x15, ne
     cmp   x9, #0
-    csel  x6, x10, x11, ne
+    csel  x6, x0, x14, ne
     mov   x7, #0
     mov   x8, #0
     mov   x9, #0
@@ -6217,19 +6217,19 @@ _eita_handler_iszero_f:
 _eita_handler_clz_f:
     cmp   x23, #1
     b.lo  _eita_stack_underflow
-    clz   x10, x9
-    clz   x11, x8
-    clz   x12, x7
-    clz   x13, x6
-    add   x11, x11, #64
-    add   x12, x12, #128
-    add   x13, x13, #192
+    clz   x0, x9
+    clz   x14, x8
+    clz   x15, x7
+    clz   x17, x6
+    add   x14, x14, #64
+    add   x15, x15, #128
+    add   x17, x17, #192
     cmp   x7, #0
-    csel  x12, x12, x13, ne
+    csel  x15, x15, x17, ne
     cmp   x8, #0
-    csel  x11, x11, x12, ne
+    csel  x14, x14, x15, ne
     cmp   x9, #0
-    csel  x6, x10, x11, ne
+    csel  x6, x0, x14, ne
     mov   x7, #0
     mov   x8, #0
     mov   x9, #0
