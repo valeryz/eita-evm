@@ -88,6 +88,8 @@
 (defcfun ("eita_ts_reset" %ts-reset) :void (ts :pointer))
 (defcfun ("eita_ts_access_addr" %ts-access-addr) :uint64
   (ts :pointer) (ar :pointer) (addr :pointer))
+(defcfun ("eita_ts_access_addrs" %ts-access-addrs) :void
+  (ts :pointer) (ar :pointer) (addrs :pointer) (n :uint64))
 (defcfun ("eita_ts_access_slot" %ts-access-slot) :uint64
   (ts :pointer) (ar :pointer) (addr :pointer) (slot :pointer))
 ;; (eita_ts_tload/tstore have no Lisp binding: the TLOAD/TSTORE

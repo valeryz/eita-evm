@@ -77,6 +77,11 @@ uint64_t eita_ts_access_addr(TxState *ts, TxArena *ar, const u256_t *addr) {
                            &ts->addr_count, EITA_J_ACCESS_ADDR, addr);
 }
 
+/* N addresses warmed in order, one crossing for the tx seed's precompiles (warm-tx-seed!). */
+void eita_ts_access_addrs(TxState *ts, TxArena *ar, const u256_t *addrs, uint64_t n) {
+    for (uint64_t i = 0; i < n; i++) eita_ts_access_addr(ts, ar, &addrs[i]);
+}
+
 uint64_t eita_ts_created_insert(TxState *ts, TxArena *ar, const u256_t *addr) {
     return addr_set_insert(ts, ar, ts->created, ts->created_mask,
                            &ts->created_count, EITA_J_CREATED_NEW, addr);

@@ -146,6 +146,7 @@ void eita_ts_reset(TxState *ts);
 /* EIP-2929. Return 1 if cold (first access this frame-tree, insert +
  * journal), 0 if warm. */
 uint64_t eita_ts_access_addr(TxState *ts, TxArena *ar, const u256_t *addr);
+void eita_ts_access_addrs(TxState *ts, TxArena *ar, const u256_t *addrs, uint64_t n);
 uint64_t eita_ts_access_slot(TxState *ts, TxArena *ar,
                              const u256_t *addr, const u256_t *slot);
 

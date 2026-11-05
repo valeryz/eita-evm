@@ -25,7 +25,7 @@
            #:%eita-bn254-add #:%eita-bn254-mul #:%eita-bn254-pairing #:%eita-ecrecover
            #:%eita-modexp #:%eita-p256-verify #:%eita-point-evaluation #:%jumpdest-map #:%mmap
            #:%mprotect #:%ripemd160-hash #:%run-program #:%set-fork #:%sha256-hash
-           #:%ts-access-addr #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
+           #:%ts-access-addr #:%ts-access-addrs #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
            #:%ts-orig-get #:%ts-orig-record #:%ts-refund-add #:%ts-reset #:%ts-revert
            #:*image-p* #:at-startup #:code-version #:code-version-manifest #:defstartup
            #:dir-of #:eita-file #:eita-home #:eita-keccak256 #:eita-lib-ext #:eita-run

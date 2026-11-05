@@ -56,18 +56,31 @@
   "Return data of the most recent tx's top frame (a system call's output, e.g. a request
    predeploy's payload or ProtocolConfig.feeParams(); system-call returns it).")
 
+(defvar *precompile-seeds* '() "((max p256 list . u256-buffer) ...): one entry per precompile set seen.")
+
+(defun precompile-seed (&aux (max (precompile-max-for-fork)) (p256 (precompile-address-p 256)))
+  "This fork's precompile seed: (max p256 list . buffer), the list and its u256s in foreign
+   memory, built once per set (a tx used to cons the list and warm it one crossing at a time:
+   6 % of the x86 replay thread's allocation, 2026-11-05)."
+  (or (find-if (lambda (e) (and (eql (first e) max) (eq (second e) p256))) *precompile-seeds*)
+      (let* ((l (append (loop for i from 1 to max collect i) (when p256 (list 256))))
+             (buf (foreign-alloc :uint64 :count (* 4 (length l)))))
+        (loop for a in l for i from 0 do (u256-write (inc-pointer buf (* 32 i)) a))
+        (car (push (list* max p256 l buf) *precompile-seeds*)))))
+
 (defun precompile-seed-addrs ()
   "The fork's precompile addresses EIP-2929 warms (precompile-max-for-fork, and 0x100 when it
    is one — Osaka, OP Fjord). Contract: = the spec's Tx.precompileAddrs."
-  (append (loop for i from 1 to (precompile-max-for-fork) collect i)
-          (when (precompile-address-p 256) (list 256))))
+  (third (precompile-seed)))
 
 (defun warm-tx-seed! (sender target coinbase access-list)
   "EffectIR `warmTx`: EIP-2929's precompiles, the sender, the target, from Shanghai the
    coinbase (EIP-3651), EIP-2930's access-list addresses and slots, in that order. Journaled
    natively, below the tx's snapshot. Contract: = the spec's Tx.seedAddrs / Tx.seedSlots
    inserted in order."
-  (dolist (a (precompile-seed-addrs)) (access-addr! a))
+  (when (>= *fork-ord* 10)               ; = (dolist (a (precompile-seed-addrs)) (access-addr! a)), one crossing
+    (let ((s (precompile-seed)))
+      (%ts-access-addrs *tx-state* (current-arena) (cdddr s) (length (third s)))))
   (access-addr! sender)
   (access-addr! target)
   (when (>= *fork-ord* 15) (access-addr! coinbase))
