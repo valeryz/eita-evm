@@ -207,13 +207,32 @@
    1 when ADDR was already marked present). Balance is restored by its own type-2 entry."
   (journal-push! arena 10 addr 0 (if (account-marked-p *current-world* addr) 1 0)))
 
-(defun reset-tx-state ()
+(defun ts-table-mask (gas-limit min-gas cap)
+  "The probe mask of a per-tx table for a tx of GAS-LIMIT whose every entry costs at least
+   MIN-GAS (+256 free entries: the seeded precompiles, sender, target, coinbase, a chain's
+   prewarm), at most half full; never above the table's CAP (sized from +block-gas-limit+)."
+  (1- (min cap (max 1024 (next-pow2 (* 2 (+ 256 (ceiling gas-limit min-gas))))))))
+
+(defun reset-tx-state (&optional gas-limit)
   "Reset per-tx native state — O(1) epoch bump (eita_ts_reset): the journal, the EIP-2929
    accessed sets, EIP-1153's transient storage, the refund counter, the created set, the
    accounts_to_delete and EIP-161's touched set. The tx's warm-ups are the derived effect's
-   (warm-tx-seed!, in spec-tx-effect)."
+   (warm-tx-seed!, in spec-tx-effect).
+   GAS-LIMIT (a user tx, Berlin+): the tables are probed over the part the tx's gas can fill
+   (an access costs >= 1900 gas — a cold access 2100/2600 or an access-list entry 1900/2400 —
+   a TSTORE >= 100, a CREATE >= 32000) instead of the whole 200M-gas table: a tx's random
+   probes then stay in a few cache-resident pages, not 0.5 GB. Without it (system calls,
+   deposits, pre-Berlin where originals are recorded at 50-gas SLOADs): the whole tables.
+   The native inserts still abort on an over-full table."
   (ensure-arenas)
   (setf *current-state* (null-pointer))
   (setf (mem-ref *tx-arena-root* :uint64 0) 0)   ; journal_count = 0
+  (let ((ts *tx-state*) (g (and gas-limit (>= *fork-ord* 10) gas-limit)))
+    (flet ((mask (min-gas cap) (if g (ts-table-mask g min-gas cap) (1- cap))))
+      (setf (mem-ref ts :uint64 16) (mask 1900 +ts-addr-cap+)
+            (mem-ref ts :uint64 24) (mask 1900 +ts-slot-cap+)
+            (mem-ref ts :uint64 32) (mask 100 +ts-tstore-cap+)
+            (mem-ref ts :uint64 40) (mask 32000 +ts-created-cap+)
+            (mem-ref ts :uint64 48) (mask 1900 +ts-orig-cap+))))
   (%ts-reset *tx-state*)
   (forget-tx-sets!))                    ; EIP-161 touched set is per-tx (#252)

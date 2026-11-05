@@ -65,7 +65,7 @@
     (when (eql (tx-type tx) 4) (incf (getf *stats* :type4)))
     (when (and receipt (getf receipt :effective-gas-price))
       (gate blk idx "effectiveGasPrice" (getf receipt :effective-gas-price) egp))
-    (reset-tx-state)
+    (reset-tx-state gas-limit)
     ;; A chain's pre-execution warming (Arc: blocklist slots) — the creation's address is
     ;; derived here for it only.
     (when *chain-tx-prewarm-hook*
