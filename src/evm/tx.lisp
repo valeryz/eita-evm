@@ -331,10 +331,32 @@
             (loop for i from 12 below 32 do (setf a (logior (ash a 8) (mem-aref out-buf :uint8 i))))
             a))))))
 
+(defvar *authorities-ahead* (make-hash-table :test 'equal :synchronized t)
+  "(chain-id addr nonce y-parity r s) -> the authority (or :none), recovered by the block
+   decoder ahead of execution (`recover-authority-ahead!`); taken by `recover-authority`.")
+
+(defun recover-authority-ahead! (chain-id addr nonce y-parity r s)
+  "On the decoder thread: recover a tuple's authority now, so the replay thread does not run
+   the ecrecover (EELS's checks around it stay where the effect makes them). A table grown
+   past its bound (tuples whose tx never ran) is dropped: a miss only recovers again."
+  (when (and (integerp chain-id) (integerp addr) (integerp nonce) (integerp y-parity) (< y-parity 2)
+             (integerp r) (integerp s) (< 0 r +secp256k1-n+) (< 0 s +secp256k1-n+))
+    (let ((tab *authorities-ahead*))
+      (when (> (hash-table-count tab) 100000) (clrhash tab))
+      (setf (gethash (list chain-id addr nonce y-parity r s) tab)
+            (or (%recover-authority chain-id addr nonce y-parity r s) :none)))))
+
 (defun recover-authority (chain-id addr nonce y-parity r s)
   "EELS recover_authority: keccak(MAGIC || rlp([chain_id, address, nonce])) signed by
    (y_parity, r, s) → the authority address, or NIL when recovery fails. Scalar bounds
-   (r, s ∈ (0, n); s ≤ n/2; y_parity ∈ {0,1}) are the caller's."
+   (r, s ∈ (0, n); s ≤ n/2; y_parity ∈ {0,1}) are the caller's. The decoder has usually
+   recovered it already (`recover-authority-ahead!`): the same function, earlier."
+  (let* ((key (list chain-id addr nonce y-parity r s))
+         (hit (gethash key *authorities-ahead*)))
+    (cond (hit (remhash key *authorities-ahead*) (if (eq hit :none) nil hit))
+          (t (%recover-authority chain-id addr nonce y-parity r s)))))
+
+(defun %recover-authority (chain-id addr nonce y-parity r s)
   (let ((rlp (rlp-encode-list (list (rlp-encode-bytes (int-to-be-bytes chain-id))
                                     (rlp-encode-bytes (addr-to-bytes addr))
                                     (rlp-encode-bytes (int-to-be-bytes nonce))))))

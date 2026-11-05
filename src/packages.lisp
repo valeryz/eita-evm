@@ -59,7 +59,7 @@
            #:+fork-ord-prague+ #:access-addr! #:access-slot! #:account-dead-p #:apply-tx
            #:attach-subscriber! #:block-blob-base-fee #:block-invalid #:cb-call
            #:check-cached-foreign-pointers! #:child-gas #:code-hash-int #:current-arena
-           #:destroyed-p #:ecrecover-address #:effective-gas-price #:el-fork
+           #:destroyed-p #:ecrecover-address #:recover-authority-ahead! #:effective-gas-price #:el-fork
            #:calldata-byte-counts #:engine-code-version #:forget-tx-sets! #:fw-drain #:fw-push #:intrinsic-gas
            #:invalid! #:invalid-kind #:journal-balance! #:journal-push! #:jval #:load-observer!
            #:make-observer #:make-pipe #:make-tx #:make-verdict #:mpt-touch! #:mpt-touch-all!

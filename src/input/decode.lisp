@@ -313,6 +313,8 @@
 (defdecoder decode-authorization (chain-id addr nonce y-parity v r s)
     (("chainId" chain-id jint) ("address" addr jint) ("nonce" nonce jint) ("yParity" y-parity jint)
      ("v" v jint) ("r" r jint) ("s" s jint))
+  ;; the authority's ecrecover here, on the decoder thread (recover-authority takes it)
+  (recover-authority-ahead! chain-id addr nonce (or y-parity v) r s)
   (list :chain-id chain-id :address addr :nonce nonce :y-parity (or y-parity v) :r r :s s))
 
 ;; The tx object at I as a TX — an RPC tx, or a fixture's (gasLimit, data, sender, a typed
