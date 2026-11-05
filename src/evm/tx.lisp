@@ -24,20 +24,24 @@
   (type 0) sender to (nonce 0) (gas-limit 0) (gas-price 0) max-fee max-priority (value 0)
   (data #()) access-list blob-hashes max-blob-fee mint (auth-count 0) auth-list
   (hash 0) chain-id v r s source-hash system-p
-  (zero-bytes nil))                     ; (zero . nonzero), counted on first use
+  (zero-bytes nil))                     ; #(zero nonzero al-addrs al-keys), counted on first use
 
 (defun calldata-byte-counts (tx)
-  "Seam: (values zero-bytes nonzero-bytes) of the tx data."
+  "Seam: (values zero-bytes nonzero-bytes access-list-addresses access-list-keys) of TX,
+   counted once: a block decoder asks as it decodes (off the replay thread)."
   (let ((c (tx-zero-bytes tx)))
     (unless c
-      (let ((zero 0) (data (tx-data tx)))
-        (declare (type fixnum zero))
+      (let ((zero 0) (data (tx-data tx)) (al-addrs 0) (al-keys 0))
+        (declare (type fixnum zero al-addrs al-keys))
         (if (typep data '(simple-array (unsigned-byte 8) (*)))
             (locally (declare (type (simple-array (unsigned-byte 8) (*)) data) (optimize speed))
               (dotimes (i (length data)) (when (zerop (aref data i)) (incf zero))))
             (loop for b across data when (zerop b) do (incf zero)))
-        (setf c (setf (tx-zero-bytes tx) (cons zero (- (length data) zero))))))
-    (values (car c) (cdr c))))
+        (dolist (entry (tx-access-list tx))
+          (incf al-addrs)
+          (incf al-keys (length (cdr entry))))
+        (setf c (setf (tx-zero-bytes tx) (vector zero (- (length data) zero) al-addrs al-keys)))))
+    (values (svref c 0) (svref c 1) (svref c 2) (svref c 3))))
 
 ;;; --- Execute one tx ---
 ;;; The effect is DERIVED: spec-tx-effect (src/generated/host.lisp, Evm.CL.EffectTx,
@@ -271,12 +275,8 @@
    SEAM; the cost FORMULA is the Lean-emitted spec-intrinsic-gas (Evm.CL.GasEmit,
    src/generated/host.lisp). #261: derived, not hand-written."
   (let* ((data (tx-data tx))
-         (is-create (if (null (tx-to tx)) 1 0))
-         (al-addrs 0) (al-keys 0))
-    (multiple-value-bind (zero nonzero) (calldata-byte-counts tx)
-      (dolist (entry (tx-access-list tx))
-        (incf al-addrs)
-        (incf al-keys (length (cdr entry))))
+         (is-create (if (null (tx-to tx)) 1 0)))
+    (multiple-value-bind (zero nonzero al-addrs al-keys) (calldata-byte-counts tx)
       (+ (spec-intrinsic-gas is-create (length data) zero nonzero al-addrs al-keys *fork-ord*)
          ;; EIP-7702 (Prague+): PER_EMPTY_ACCOUNT_COST per authorization tuple.
          (* (or (tx-auth-count tx) 0) (spec-auth-intrinsic-per-auth))))))

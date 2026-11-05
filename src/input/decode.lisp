@@ -329,12 +329,15 @@
      ("hash" hash jint) ("chainId" chain-id jint) ("v" v jint) ("yParity" y-parity jint) ("r" r jint) ("s" s jint)
      ("sourceHash" source-hash jint) ("isSystemTx" system-p jbool))
   (let ((type (or type 0)))
-    (make-tx :type type :sender from :to to :nonce (or nonce 0) :gas-limit (or gas 0) :gas-price (or gas-price 0)
+    ;; the data's zero / nonzero byte counts here, on the decoder thread, not on the replay's
+    (let ((tx (make-tx :type type :sender from :to to :nonce (or nonce 0) :gas-limit (or gas 0) :gas-price (or gas-price 0)
              :max-fee max-fee :max-priority max-priority :value (or value 0)
              :data (or data (make-array 0 :element-type '(unsigned-byte 8))) :access-list access-list
              :blob-hashes blob-hashes :max-blob-fee max-blob-fee :mint (or mint 0) :auth-count (length auths)
              :auth-list auths :hash (or hash 0) :chain-id chain-id :v (if (plusp type) (or y-parity v) v) :r r :s s
              :source-hash source-hash :system-p system-p)))
+      (calldata-byte-counts tx)
+      tx)))
 
 (defun decode-tx (b i)
   "A block's tx at I: its object as a TX, a bare hash (a block fetched without txs) as NIL."

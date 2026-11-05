@@ -60,7 +60,7 @@
            #:attach-subscriber! #:block-blob-base-fee #:block-invalid #:cb-call
            #:check-cached-foreign-pointers! #:child-gas #:code-hash-int #:current-arena
            #:destroyed-p #:ecrecover-address #:effective-gas-price #:el-fork
-           #:engine-code-version #:forget-tx-sets! #:fw-drain #:fw-push #:intrinsic-gas
+           #:calldata-byte-counts #:engine-code-version #:forget-tx-sets! #:fw-drain #:fw-push #:intrinsic-gas
            #:invalid! #:invalid-kind #:journal-balance! #:journal-push! #:jval #:load-observer!
            #:make-observer #:make-pipe #:make-tx #:make-verdict #:mpt-touch! #:mpt-touch-all!
            #:observe #:observe-acct-touch! #:observe-log! #:observe-slot-touch!
