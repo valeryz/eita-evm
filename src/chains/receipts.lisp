@@ -159,6 +159,45 @@
    sender is in its envelope, which transactionsRoot covers."
   (or (= (tx-type tx) #x7e) (eql (tx-sender tx) (recover-tx-sender tx))))
 
+;;; Sender recovery is half the verifier's CPU (one secp256k1 recovery per tx) and the
+;;; verifier is one thread: at ~50 blocks/s it saturated and the replay waited on its pipe.
+;;; The txs are independent, so a fixed pool checks a block's txs in parallel (tx k on
+;;; worker k mod n). The answer is the same as a sequential scan's: the LOWEST failing index.
+(defconstant +sender-workers+ 4)
+(defvar *sender-pool* nil "(txs results go-semaphores done-semaphore), started on first use.")
+
+(defun sender-pool ()
+  (or *sender-pool*
+      (let* ((go (loop repeat +sender-workers+ collect (sb-thread:make-semaphore)))
+             (pool (list (vector) (make-array +sender-workers+) go (sb-thread:make-semaphore))))
+        (loop for sem in go for k from 0
+              do (let ((sem sem) (k k))
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (loop (sb-thread:wait-on-semaphore sem)
+                            (setf (svref (second pool) k)
+                                  (handler-case
+                                      (let ((txs (first pool)))
+                                        (loop for i from k below (length txs) by +sender-workers+
+                                              unless (tx-sender-verified-p (svref txs i)) return i))
+                                    (error (e) e)))
+                            (sb-thread:signal-semaphore (fourth pool))))
+                    :name (format nil "sender check ~D" k))))
+        (setf *sender-pool* pool))))
+
+(defun first-unverified-sender (txs)
+  "The index of the first tx in TXS whose sender its signature does not recover, or NIL."
+  (if (< (length txs) 8)
+      (position-if-not #'tx-sender-verified-p txs)
+      (let ((pool (sender-pool)))
+        (setf (first pool) (coerce txs 'simple-vector))
+        (dolist (sem (third pool)) (sb-thread:signal-semaphore sem))
+        (sb-thread:wait-on-semaphore (fourth pool) :n +sender-workers+)
+        (setf (first pool) (vector))
+        (let ((rs (coerce (second pool) 'list)))
+          (dolist (r rs) (when (typep r 'error) (error r)))
+          (let ((fails (remove nil rs))) (and fails (reduce #'min fails)))))))
+
 ;; eita_ecrecover creates its secp256k1 context on first use, unlocked: create it here, on
 ;; the loading (or starting) thread, before the verifier and the replay thread can race to.
 (at-startup secp256k1-context
@@ -206,7 +245,7 @@
                                 (equalp (or requests-hash (requests-hash '())) hdr-requests)
                                 (null requests-hash)))
       (check "transactionsRoot" (equalp (list-root (mapcar #'tx-envelope (blk-txs blk))) (blk-transactions-root blk)))
-      (let ((i (position-if-not #'tx-sender-verified-p (blk-txs blk))))
+      (let ((i (first-unverified-sender (blk-txs blk))))
         (check (format nil "the sender of tx ~D" i) (null i)))
       (check "withdrawalsRoot" (if hdr-wroot
                                    (equalp (list-root (mapcar #'withdrawal-rlp withdrawals)) hdr-wroot)
