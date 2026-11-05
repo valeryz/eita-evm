@@ -167,17 +167,39 @@
 (defparameter *code-image-cache* (make-hash-table :test 'eq :weakness :key)
   "code vector -> its frame image (octets: code, +code-tail-pad-bytes+ zeros, JUMPDEST map).")
 
+;; A weak table's GETHASH takes SBCL's system lock (1.4 % of the x86 replay thread, 2026-11-05),
+;; so a direct-mapped front of (code . image) conses answers the hot codes without it: indexed
+;; by the length and three tail bytes (where Solidity's metadata hash sits), confirmed by EQ.
+;; It holds at most +code-image-front+ codes strongly; a slot is one cons, so a reader on
+;; another thread sees a whole pair or the previous one.
+(defconstant +code-image-front+ 1024)
+(defparameter *code-image-front* (make-array +code-image-front+ :initial-element nil))
+
+(declaim (inline code-image-slot))
+(defun code-image-slot (code len)
+  (declare (type (simple-array (unsigned-byte 8) (*)) code) (type fixnum len) (optimize speed (safety 0)))
+  (if (< len 40)
+      (logand len (1- +code-image-front+))
+      (logand (logxor len (ash (aref code (- len 15)) 2) (ash (aref code (- len 23)) 5) (ash (aref code (- len 37)) 1))
+              (1- +code-image-front+))))
+
 (defun frame-code-image (code len)
   "CODE's frame image (LEN = its length), from the cache or built now."
-  (or (gethash code *code-image-cache*)
-      ;; :initial-element 0 makes the pad zero: the PUSH/fetch contract above.
-      (let ((img (make-array (+ len +code-tail-pad-bytes+ len) :element-type '(unsigned-byte 8)
-                                                                 :initial-element 0)))
-        (replace img code :end2 len)
-        (sb-sys:with-pinned-objects (img)
-          (let ((sap (sb-sys:vector-sap img)))
-            (%jumpdest-map sap len (sb-sys:sap+ sap (+ len +code-tail-pad-bytes+)))))
-        (setf (gethash code *code-image-cache*) img))))
+  (let* ((k (if (typep code '(simple-array (unsigned-byte 8) (*))) (code-image-slot code len) 0))
+         (hit (svref *code-image-front* k)))
+    (if (and hit (eq (car hit) code))
+        (cdr hit)
+        (let ((img (or (gethash code *code-image-cache*)
+                       ;; :initial-element 0 makes the pad zero: the PUSH/fetch contract above.
+                       (let ((img (make-array (+ len +code-tail-pad-bytes+ len) :element-type '(unsigned-byte 8)
+                                                                                  :initial-element 0)))
+                         (replace img code :end2 len)
+                         (sb-sys:with-pinned-objects (img)
+                           (let ((sap (sb-sys:vector-sap img)))
+                             (%jumpdest-map sap len (sb-sys:sap+ sap (+ len +code-tail-pad-bytes+)))))
+                         (setf (gethash code *code-image-cache*) img)))))
+          (setf (svref *code-image-front* k) (cons code img))
+          img))))
 
 (defmacro with-frame-code ((state code len) &body body)
   "Run BODY with STATE's code (#64/#72) and JUMPDEST map (#136) pointing into CODE's frame
