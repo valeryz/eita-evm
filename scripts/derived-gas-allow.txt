@@ -4,3 +4,5 @@
 src/evm/frames.lisp  \+block-gas-limit\+\)\s+2600\)  -- arena sizing: most cold accounts a block can touch, not a charge
 src/evm/frames.lisp  \+block-gas-limit\+\)\s+2100\)  -- arena sizing: most cold slots a block can touch, not a charge
 src/evm/frames.lisp  \+block-gas-limit\+\)\s+32000\) -- arena sizing: most CREATEs a block can hold, not a charge
+src/evm/journal.lisp  \(mask\s+1900\s+\+ts-  -- per-tx table probe sizing: the cheapest access a tx can pay for, not a charge
+src/evm/journal.lisp  \(mask\s+32000\s+\+ts-created  -- per-tx table probe sizing: the cheapest CREATE, not a charge
