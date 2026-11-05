@@ -17,11 +17,13 @@
 
 (declaim (inline u256-word))
 (defun u256-word (n i)
-  "64-bit word I (0 = least significant) of the non-negative integer N."
-  (declare (type unsigned-byte n) (type (integer 0 3) i) (optimize (speed 3) (safety 0)))
-  (if (typep n 'fixnum)
-      (if (zerop i) n 0)
-      (if (< i (sb-bignum:%bignum-length n)) (sb-bignum:%bignum-ref n i) 0)))
+  "64-bit word I (0 = least significant) of the non-negative integer N, or of the opaque
+   word N points at (word-int)."
+  (declare (type (or unsigned-byte sb-sys:system-area-pointer) n) (type (integer 0 3) i)
+           (optimize (speed 3) (safety 0)))
+  (cond ((typep n 'fixnum) (if (zerop i) n 0))
+        ((sb-sys:system-area-pointer-p n) (sb-sys:sap-ref-64 n (* 8 i)))
+        (t (if (< i (sb-bignum:%bignum-length n)) (sb-bignum:%bignum-ref n i) 0))))
 
 (defconstant +acct-marked+ 1
   "In the existence set: present though empty (0 balance, 0 nonce, no code) — a CALL to
@@ -219,10 +221,10 @@
    *capture-reads*; never true while state is being loaded or persisted).")
 (declaim (special *cur-block* *cur-tx* *mpt-tracking* *current-world*))
 (defun view-log-read (kind addr slot value)
-  (fw-push (list :read kind *cur-block* *cur-tx* addr slot value))
+  (fw-push (list :read kind *cur-block* *cur-tx* addr (word-int slot) value))
   value)
 (defun view-log-write (kind addr slot pre post)
-  (fw-push (list :write kind *cur-block* *cur-tx* addr slot pre post)))
+  (fw-push (list :write kind *cur-block* *cur-tx* addr (word-int slot) pre post)))
 
 (declaim (inline balance-of (setf balance-of) nonce-of (setf nonce-of) code-of (setf code-of)
                  storage-of (setf storage-of) account-marked-p))
@@ -504,8 +506,14 @@
         (incf (acct-table-faulted tb))
         (let ((*observe-capture* nil) (*view-log* nil)) (funcall *fault-account-hook* addr))))))
 (defun fault-slot! (addr slot)
-  (when *fault-slot-hook*
-    (if *view-log*
-        (let ((*view-log* nil)) (funcall *fault-slot-hook* addr slot))
-        (funcall *fault-slot-hook* addr slot)))
-  (when *observer* (observe-slot-touch! addr slot)))
+  "Load (ADDR, SLOT) into a lazy world on its first touch. A key PRESENT in ADDR's table is
+   live (faulted, or written after its fault: every writer faults first), so the hook is
+   called only for an absent key, with the key's integer (SLOT may be an opaque word)."
+  (when (and *fault-slot-hook*
+             (not (with-acct (tb a) *current-world* addr
+                    (let ((tbl (acct-storage tb a))) (and tbl (slots-present-p tbl slot))))))
+    (let ((k (word-int slot)))
+      (if *view-log*
+          (let ((*view-log* nil)) (funcall *fault-slot-hook* addr k))
+          (funcall *fault-slot-hook* addr k))))
+  (when *observer* (observe-slot-touch! addr (word-int slot))))

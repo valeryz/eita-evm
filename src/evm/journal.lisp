@@ -101,7 +101,7 @@
    nonce 9, created 4/10) carries the addr of an account whose leaf changed."
   ;; type 0 = SSTORE: KEY is the storage slot, so record (addr . slot) for
   ;; slot-level dirty tracking. All other types are account-level (slot NIL).
-  (when *mpt-tracking* (mpt-touch! addr (when (zerop type) key)))
+  (when *mpt-tracking* (mpt-touch! addr (when (zerop type) (word-int key))))
   (let* ((count (mem-ref arena :uint64 0))
          (e (inc-pointer (mem-ref arena :pointer 16)
                          (* count +journal-entry-bytes+))))

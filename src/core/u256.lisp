@@ -17,7 +17,9 @@
     (setf (mem-aref ptr :uint64 i)
           (logand (ash value (- (* i 64))) #xFFFFFFFFFFFFFFFF))))
 (defun u256-write (ptr value)
-  (cond ((typep value '(and fixnum unsigned-byte))
+  (cond ((sb-sys:system-area-pointer-p value)          ; an opaque word in place: copy it
+         (dotimes (i 4) (setf (mem-aref ptr :uint64 i) (mem-aref value :uint64 i))))
+        ((typep value '(and fixnum unsigned-byte))
          (setf (mem-aref ptr :uint64 0) value
                (mem-aref ptr :uint64 1) 0
                (mem-aref ptr :uint64 2) 0
@@ -31,6 +33,15 @@
 
 (defun u256-read (ptr)
   (words-u256 (mem-aref ptr :uint64 0) (mem-aref ptr :uint64 1) (mem-aref ptr :uint64 2) (mem-aref ptr :uint64 3)))
+
+(declaim (inline word-int))
+(defun word-int (w)
+  "The integer of W: W itself, or the four limbs W points at. A storage KEY crosses the
+   SLOAD/SSTORE seam as the pointer to its stack slot (an opaque word, valid for the
+   callback): the tables, the access sets and the journal copy its limbs; whatever
+   KEEPS a key (an observer, the read stream, the root tracker, a fault hook) takes its
+   integer here."
+  (if (sb-sys:system-area-pointer-p w) (u256-read w) w))
 
 (defun words-u256 (l0 l1 l2 l3)
   "The integer whose four 64-bit limbs (least significant first) are L0..L3, built digit by

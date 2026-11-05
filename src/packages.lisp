@@ -39,7 +39,7 @@
   (:export
            #:addr-to-bytes #:derive-create-address #:hex->bytes #:hex->int #:int-to-be-bytes
            #:keccak256-bytes #:rlp-encode-bytes #:rlp-encode-list #:u256->octets #:u256-read
-           #:u256-write #:words-u256))
+           #:u256-write #:word-int #:words-u256))
 
 (defpackage #:eita.evm
   (:documentation "The EVM: interpreter and JIT tiers, frames and arenas, the journal, the host callbacks

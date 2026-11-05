@@ -18,10 +18,11 @@
    first touch, the fork's price — is the Lean-emitted spec-sload-effect (Evm.CL.EffectSload,
    proved equal to every fork's SLOAD). Every slot read is on the read stream."
   (declare (ignore ctx))
-  (let ((a (read-addr addr)) (s (u256-read slot)))
-    (multiple-value-bind (g v) (spec-sload-effect a s)
+  ;; the key stays where the handler left it (an opaque word: word-int)
+  (let ((a (read-addr addr)))
+    (multiple-value-bind (g v) (spec-sload-effect a slot)
       (u256-write out v)
-      (cb-gas-check "sload" g :addr a :slot s))))
+      (cb-gas-check "sload" g :addr a :slot (word-int slot)))))
 
 (defcallback cb-sstore :uint64
     ((ctx :pointer) (addr :pointer) (slot :pointer) (val :pointer))
@@ -30,8 +31,8 @@
    refund, the journaled write — is the Lean-emitted spec-sstore-effect
    (Evm.CL.EffectSstore, proved equal to every fork's SSTORE)."
   (declare (ignore ctx))
-  (let ((a (read-addr addr)) (s (u256-read slot)) (v (u256-read val)))
-    (cb-gas-check "sstore" (spec-sstore-effect a s v) :addr a :slot s :val v)))
+  (let ((a (read-addr addr)) (v (u256-read val)))
+    (cb-gas-check "sstore" (spec-sstore-effect a slot v) :addr a :slot (word-int slot) :val v)))
 
 ;; TLOAD/TSTORE are fully native: the emitted handlers call
 ;; eita_ts_tload/eita_ts_tstore via arena->tx_state directly (keyed

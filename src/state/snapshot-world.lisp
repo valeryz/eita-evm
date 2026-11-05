@@ -107,13 +107,13 @@
         (when exists-empty (acct-set-flag! tb a +acct-marked+))))))
 
 (defun snap-fault-slot (addr slot)
-  "A slot is faulted iff its key is present in ADDR's packed table (P5): the value read
-   from the stack is installed even when it is 0, and stays present when set to 0."
+  "A slot is faulted iff its key is present in ADDR's packed table (P5; fault-slot! calls
+   this for an absent key only): the value read from the stack is installed even when it
+   is 0, and stays present when set to 0."
   (with-acct (tb a) *current-world* addr
     (let ((tbl (or (acct-storage tb a) (setf (acct-storage tb a) (make-slots)))))
-      (unless (slots-present-p tbl slot)
-        (incf (getf *snap-stats* :slot-faults))
-        (slots-put tbl slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot)))))))
+      (incf (getf *snap-stats* :slot-faults))
+      (slots-put tbl slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot))))))
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
 
