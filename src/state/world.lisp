@@ -45,6 +45,10 @@
   (storage (make-array 256 :initial-element nil) :type simple-vector)    ; SLOTS, or NIL
   (bits (make-array 256 :element-type 'fixnum :initial-element 0) :type (simple-array fixnum (*)))
   (last-addr nil) (last-id -1 :type fixnum)                ; the cache (the replay thread's)
+  ;; a direct-mapped cache in front of the index (replay thread): the index is as large as
+  ;; the hot set (millions of accounts), so a probe is a DRAM miss; a block touches few
+  (cache-addrs (make-array 64 :initial-element nil) :type simple-vector)
+  (cache-ids (make-array 64 :element-type 'fixnum :initial-element -1) :type (simple-array fixnum (*)))
   (faulted 0 :type fixnum))                                ; ids with +acct-faulted+
 
 (defun make-acct-table (&optional (cap 1024))
@@ -120,22 +124,35 @@
   (declare (type acct-table tb) (optimize (speed 3) (safety 0)))
   (if (eq addr (acct-table-last-addr tb))
       (acct-table-last-id tb)
-      (let ((id (acct-table-find tb addr)))
-        (declare (type fixnum id))
-        (when (= id -1) (setf id (acct-table-add tb addr)))
+      (let* ((slot (logand (u256-word addr 0) 63))
+             (id (if (eql addr (svref (acct-table-cache-addrs tb) slot))
+                     (aref (acct-table-cache-ids tb) slot)
+                     (let ((id (acct-table-find tb addr)))
+                       (declare (type fixnum id))
+                       (when (= id -1) (setf id (acct-table-add tb addr)))
+                       (setf (svref (acct-table-cache-addrs tb) slot) (svref (acct-table-addrs tb) id)
+                             (aref (acct-table-cache-ids tb) slot) id)
+                       id))))
+        (declare (type fixnum slot id))
         (setf (acct-table-last-addr tb) addr (acct-table-last-id tb) id)
         id)))
 
 (defun acct-table-intern-words (tb w0 w1 w2)
   "The canonical address object of the address with words W0 W1 W2, interned in TB: the
    native seam reads an address without consing one when it is in the table."
-  (declare (type acct-table tb) (type (unsigned-byte 64) w0 w1 w2))
-  (let ((id (acct-table-find-words tb w0 w1 w2)))
-    (declare (type fixnum id))
-    (when (= id -1) (setf id (acct-table-add tb (logior w0 (ash w1 64) (ash w2 128)))))
-    (let ((addr (svref (acct-table-addrs tb) id)))
-      (setf (acct-table-last-addr tb) addr (acct-table-last-id tb) id)
-      addr)))
+  (declare (type acct-table tb) (type (unsigned-byte 64) w0 w1 w2) (optimize (speed 3) (safety 0)))
+  (let* ((slot (logand w0 63)) (c (svref (acct-table-cache-addrs tb) slot)))
+    (declare (type fixnum slot))
+    (if (and c (= (u256-word c 0) w0) (= (u256-word c 1) w1) (= (u256-word c 2) w2))
+        (progn (setf (acct-table-last-addr tb) c (acct-table-last-id tb) (aref (acct-table-cache-ids tb) slot))
+               c)
+        (let ((id (acct-table-find-words tb w0 w1 w2)))
+          (declare (type fixnum id))
+          (when (= id -1) (setf id (acct-table-add tb (logior w0 (ash w1 64) (ash w2 128)))))
+          (let ((addr (svref (acct-table-addrs tb) id)))
+            (setf (acct-table-last-addr tb) addr (acct-table-last-id tb) id
+                  (svref (acct-table-cache-addrs tb) slot) addr (aref (acct-table-cache-ids tb) slot) id)
+            addr)))))
 
 (defun map-accts (fn tb)
   "FN on every id of TB, in interning order."
@@ -326,6 +343,11 @@
         (values 0 nil)
         (let ((w (slots-words tbl)) (o (* 8 i)))
           (values (words-u256 (aref w (+ o 4)) (aref w (+ o 5)) (aref w (+ o 6)) (aref w (+ o 7))) t)))))
+
+(declaim (inline slots-present-p))
+(defun slots-present-p (tbl key)
+  "Is KEY present in TBL (a fault test: no value is built)?"
+  (>= (the fixnum (slots-find tbl key)) 0))
 
 (defun slots-grow (tbl)
   (let* ((old-w (slots-words tbl)) (old-s (slots-state tbl)) (old-cap (slots-cap tbl))

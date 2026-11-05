@@ -111,7 +111,7 @@
    from the stack is installed even when it is 0, and stays present when set to 0."
   (with-acct (tb a) *current-world* addr
     (let ((tbl (or (acct-storage tb a) (setf (acct-storage tb a) (make-slots)))))
-      (unless (nth-value 1 (slots-get tbl slot))
+      (unless (slots-present-p tbl slot)
         (incf (getf *snap-stats* :slot-faults))
         (slots-put tbl slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot)))))))
 
@@ -125,7 +125,7 @@
     (let ((tbl (acct-storage tb a)))
       (eita.state.snapshot:view-map-account-storage
        *layers* *base* addr (lambda (slot v)
-                              (unless (and tbl (nth-value 1 (slots-get tbl slot)))
+                              (unless (and tbl (slots-present-p tbl slot))
                                 (funcall fn slot v))))))))
 
 (defun clear-hot! (world)
