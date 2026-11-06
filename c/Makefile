@@ -81,7 +81,7 @@ endif
 
 CFLAGS   := $(ARCHFLAG) $(MARCH) -fPIC -O2 -DEITA_NO_LEAN_WRAPPER -I$(SECP)/include $(INCDIRS) -I$(BLST)/bindings
 CXXFLAGS := $(CFLAGS) -std=c++17 -DMCL_FP_BIT=384
-LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lmcl -lcrypto
+LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lmcl -lcrypto -lgmp
 
 C_SRCS   := eita_compute.c tx_state.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
             $(LEAN_C)/ripemd160.c $(LEAN_C)/ecrecover.c \
@@ -188,6 +188,10 @@ $(BUILD)/test_point_evaluation: test_point_evaluation.c $(LEAN_C)/point_evaluati
 
 # DIV/MOD/SDIV/SMOD/ADDMOD/MULMOD (one word-wise division) and SAR (#258) against
 # GMP, ~2.5M cases per helper, under ASan + UBSan. Needs libgmp (brew gmp / libgmp-dev).
+test_modexp: $(BUILD)/test_modexp
+	$(BUILD)/test_modexp
+$(BUILD)/test_modexp: test_modexp.c $(LEAN_C)/modexp.c | $(BUILD)
+	$(CC) -O1 -g -fsanitize=address,undefined -DEITA_NO_LEAN_WRAPPER $(INCDIRS) -o $@ test_modexp.c $(LEAN_C)/modexp.c $(LIBDIRS) $(RPATHS) -lcrypto -lgmp
 test_compute: $(BUILD)/test_compute
 	$(BUILD)/test_compute
 $(BUILD)/test_compute: test_compute.c eita_compute.c evm_state.h | $(BUILD)
@@ -206,4 +210,4 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_bls12381 test_point_evaluation
+.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation
