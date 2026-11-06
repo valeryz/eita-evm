@@ -73,3 +73,55 @@ change a result silently.
 Other trusted pieces outside C, for completeness: the SBCL runtime and compiler, the Lean kernel
 and the emitters' printers (the emitted text is what runs), and the Common Lisp host code that is
 not yet emitted from Lean (listed in `scripts/generated/refinement-coverage.md`).
+
+## Planned: the native storage path (owner note 6; docs/native-storage.md)
+
+Not built yet; each row is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
+from the effect IR, whose semantics (`Stmt.run`) carry the effect proofs. What is trusted is (1) the IR -> C printer,
+the same class as today's IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. Unlike the Lisp it
+replaces, C has no bounds or type checks: memory safety is an obligation of its own.
+
+Classes: **derived** (emitted from a verified source), **proved** (a Lean theorem about the definition the C is emitted
+from), **model-checked** (CBMC: memory safety, and equivalence to the Lean model at small sizes), **tested** (randomized
+differential tests, sanitizer builds, the replay).
+
+### Limb primitives — proved, emitted
+
+Defined in Lean limb by limb as the C computes them, proved equal to the U256 operation (the WordOps.lean pattern of
+core def68c3: `eq_ofBV`, `isZero_ofBV`, `lt_ofBV`, `sub_ofBV`, `add_ofBV` over `Limbs.ofBV`/`toBV`), and emitted to
+`c/generated/limb_ops.h`; `verify-host-emit.sh` checks the emitted file for drift.
+
+| primitive | contract |
+|---|---|
+| `limb_eq(a, b)` | 1 iff the 256-bit values are equal |
+| `limb_is_zero(a)` | 1 iff the value is 0 |
+| `limb_copy(dst, src)` | dst := src, 4 limbs |
+| `limb_zero(dst)` | dst := 0 |
+
+### Table primitives — model-checked + tested
+
+`c/world_slots.{h,c}`: one open-addressed table of (account index, slot) -> value for the whole world. The Lean model is
+a finite map (`Evm/CL/WorldSlotsModel.lean`).
+
+| primitive | contract (on the model) | memory-safety obligations |
+|---|---|---|
+| `ws_probe(t, acct, key)` | index of the key's entry, or the insertion point | index < capacity; capacity a power of two; termination (load < 1) |
+| `ws_get(t, acct, key, out)` | out := value, returns 1, iff present; 0 otherwise | reads only inside the entry array |
+| `ws_put(t, acct, key, val)` | map[(acct, key)] := val | grows before the load passes 3/4; no index overflow |
+| `ws_remove(t, acct, key)` | map loses (acct, key) | tombstone; count never negative |
+| `ws_wipe(t, acct)` | map loses every key of acct | visits each entry once |
+| `ws_map(t, acct, fn)` | fn(key, value) for every key of acct, in table order | no mutation during the walk |
+| `ws_grow(t)` | the map is unchanged; capacity doubles | the old array freed after the copy |
+
+### Journal — model-checked + tested
+
+| primitive | contract |
+|---|---|
+| `journal_append_sstore(arena, acct, key, old)` | appends one type-0 entry at journal_count, increments it; never past the arena's capacity |
+| type-0 restore in `eita_ts_revert` | for each type-0 entry above the target, in reverse order: map[(acct, key)] := old |
+
+### Lisp accessors and hooks — tested
+
+The routed Lisp accessors (the routing list in docs/native-storage.md) and the hook tiers are tested: the differential
+mode (native path vs the Lisp path), the fixtures including every SSTORE/refund/revert directory, the 30k replay
+(0 mismatches), and byte-identical fact-log rows and storage view against the Lisp path.
