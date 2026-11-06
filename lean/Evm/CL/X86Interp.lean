@@ -281,6 +281,29 @@ def definedSymbols : List String :=
   handlerList.map (fun (n, _, _) => s!"_eita_handler_{n}") ++
   tableForks.map (fun (_, nm) => s!"_eita_dispatch_table_{nm}")
 
+/-! ## The register-cached TOS stays coherent (x86-64)
+
+The x86-64 counterpart of `ARM64.Interp.handler_stack_cache_coherent`: entered with
+r8-r11 (x6-x9) = stack[sp-1], every threaded continuation (`brCont`) leaves them equal
+to the top word for the sp it leaves (`cacheIncoherent … true`: sp in bytes, the SysV
+caller-saved homes killed by a call, NOS not register-cached on x86-64). The threaded
+tail (`nextItems`) reads only r14/rbp/rbx and writes rax, rcx and rbp, so it keeps
+what the body left. -/
+
+open Evm.CL.OpInstrs in
+theorem x86_handler_tos_cache_coherent :
+    handlerList.all (fun (_, suf, p) => (cacheIncoherent (handlerInstrs suf p) true).isEmpty) = true := by
+  native_decide
+
+open Evm.CL.OpInstrs in
+/-- …and it rejects a TOS left stale: DIV's helper result reloaded into r8-r11 but its
+    low half never stored to the top word. -/
+theorem x86_tos_coherence_rejects_unstored_result :
+    (match (handlerProgs opCost).lookup "div" with
+     | some p => (cacheIncoherent ((handlerInstrs "" p).filter (· != .stpOff .x6 .x7 .x14 0)) true).isEmpty
+     | none => true) = false := by
+  native_decide
+
 /-- The ELF text: the Makefile's rewrite for the aarch64 port, in Lean. -/
 def emitELF : String :=
   let body := emitMachO.replace ".section __TEXT,__text,regular,pure_instructions" ".text"
