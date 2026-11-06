@@ -432,7 +432,7 @@
     (format t "jit: codes=~D no-jit=~D frames-jit=~D frames-interp=~D manifest-misses=~D chunk-evictions=~D~%"
             (getf *jit-stats* :codes-jit)
             (getf *jit-stats* :codes-no-jit)
-            *frames-jit*
-            *frames-interp*
+            eita.evm::*frames-jit*
+            eita.evm::*frames-interp*
             (getf *jit-stats* :manifest-misses)
             (getf *jit-stats* :chunk-evictions 0))))
