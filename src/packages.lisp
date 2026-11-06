@@ -93,7 +93,7 @@
            #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
            #:account-marked-p #:account-uncreate! #:account-unmark! #:acct-addr #:acct-balance
-           #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-flag-p
+           #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
            #:acct-nonce #:acct-set-flag! #:acct-storage #:acct-table-intern-words #:anchor!
            #:anchor-compositions #:anchor-due-p #:balance-clear! #:balance-delta! #:balance-of
            #:bytes->hex-string #:code-clear! #:code-of #:copy-slots #:copy-world*

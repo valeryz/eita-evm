@@ -189,6 +189,12 @@
 (defun acct-code-entry (tb id)
   "ID's code as stored, NIL when it has none (the persistence and observer view)."
   (let ((c (acct-code tb id))) (if (eq c +no-code+) nil c)))
+(declaim (inline acct-empty-p))
+(defun acct-empty-p (tb id)
+  "EIP-161 emptiness of ID: balance 0 (its limbs: no bignum), nonce 0, no code."
+  (let ((v (acct-table-balance tb)) (o (* 4 id)))
+    (and (zerop (logior (aref v o) (aref v (+ o 1)) (aref v (+ o 2)) (aref v (+ o 3))))
+         (zerop (acct-nonce tb id)) (zerop (length (acct-code tb id))))))
 (defun acct-set-flag! (tb id bit) (setf (acct-bits tb id) (logior bit (acct-bits tb id))))
 (defun acct-clear-flag! (tb id bit) (setf (acct-bits tb id) (logandc2 (acct-bits tb id) bit)))
 

@@ -44,8 +44,10 @@
 (defun precompile-address-p (addr)
   "Is ADDR a precompile at the active fork? The contiguous range 0x01..max plus,
    when enabled, EIP-7951's 0x100 (Evm.Osaka.Spec.P256VerifyStep)."
-  (or (and (>= addr 1) (<= addr (precompile-max-for-fork)))
-      (and (or *p256verify* (>= *fork-ord* 18)) (= addr 256))))
+  ;; a contract's address is a bignum: no generic compares on it (51 us/block of the x86 CALL path)
+  (and (typep addr 'fixnum)
+       (or (and (>= addr 1) (<= addr (precompile-max-for-fork)))
+           (and (or *p256verify* (>= *fork-ord* 18)) (= addr 256)))))
 
 (defun precompile-max-for-fork ()
   "Highest precompile address (inclusive) that exists at the active fork.

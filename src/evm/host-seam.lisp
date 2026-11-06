@@ -14,9 +14,11 @@
    Our world hashes don't distinguish absent from present-but-empty —
    both legs collapse to all-empty, exactly like Lean `isDead`."
   (fault-account! addr)
-  (and (zerop (balance-of *current-world* addr))
-       (zerop (nonce-of *current-world* addr))
-       (zerop (length (code-of *current-world* addr)))))
+  (if *view-log*                        ; the storage view logs each read: keep them
+      (and (zerop (balance-of *current-world* addr))
+           (zerop (nonce-of *current-world* addr))
+           (zerop (length (code-of *current-world* addr))))
+      (with-acct (tb a) *current-world* addr (acct-empty-p tb a))))   ; one lookup, no bignum
 
 ;;; --- EIP-161 (Spurious Dragon+) touched set (#252) ---------------------------
 ;;; Mainnet deletes every *touched* account that is empty at the END of a tx: the
@@ -80,8 +82,11 @@
    CALL to a formerly-absent account, including a precompile, or an empty
    CREATE) are witnessed by the explicit `accounts` set."
   (fault-account! addr)
-  (or (account-marked-p *current-world* addr)
-      (not (account-dead-p addr))))
+  (if *view-log*
+      (or (account-marked-p *current-world* addr)
+          (not (account-dead-p addr)))
+      (with-acct (tb a) *current-world* addr   ; one lookup (110 us/block of the x86 CALL path)
+        (or (acct-flag-p tb a +acct-marked+) (not (acct-empty-p tb a))))))
 
 (defun world-account-empty-p (addr)
   "`Account.isEmpty`: balance 0, nonce 0, no code (EIP-161 emptiness).
