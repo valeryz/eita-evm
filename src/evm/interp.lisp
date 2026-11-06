@@ -53,7 +53,9 @@
 (defstartup *diff-tiers*
   (let ((v (sb-posix:getenv "EITA_DIFF_TIERS"))) (and v (string/= v "0")))
   "When set, every top-level tx frame is cross-checked JIT-vs-interp (#241).")
-(defparameter *diff-stats* (list :txs 0 :divergences 0))
+(defparameter *diff-stats* (list :txs 0 :checked 0 :divergences 0))
+(defstartup *diff-every*
+  (let ((v (sb-posix:getenv "EITA_DIFF_TIERS"))) (max 1 (or (and v (parse-integer v :junk-allowed t)) 1))))
 (defstartup *diff-snap* nil)   ; lazy EvmState scratch (foreign, per process) (+substate-bytes+)
 
 (defun %frame-output (state)
@@ -62,25 +64,53 @@
     (if (or (null-pointer-p p) (zerop n)) #()
         (foreign->bytes p n))))
 
+(defun %frame-memory (state)
+  "The frame's memory (ptr@40, size@48) as a Lisp vector."
+  (let ((p (mem-ref state :pointer 40)) (n (mem-ref state :uint64 48)))
+    (if (or (null-pointer-p p) (zerop n)) #() (foreign->bytes p n))))
+
+(defun %journal-bytes (arena from)
+  "ARENA's journal entries from index FROM to its count, as bytes (c/tx_arena.h, 104 B each)."
+  (let ((n (mem-ref arena :uint64 0)))
+    (if (<= n from) #()
+        (foreign->bytes (inc-pointer (mem-ref arena :pointer 16) (* from 104)) (* (- n from) 104)))))
+
 (defun diff-run-tiers (state code)
   "Run the top-level frame on JIT then interp from the same pre-state, compare,
-   log the first divergence. Leaves the INTERP (trusted) result in STATE."
+   log the first divergence. Leaves the INTERP (trusted) result in STATE.
+   Compared: gas, halted/reverted, output, the frame's final memory, the refund counter
+   and every journal entry the tx wrote (its storage, balance, nonce, warm-up and created
+   effects). The restore between the tiers is what run-tx-frame! does after a frame (the
+   memory arena scrubbed, the last returndata freed) plus the journal rewind and tier A's
+   logs, transfers and frame records dropped (tests/diff-tiers.lisp).
+   EITA_DIFF_TIERS=N cross-checks every Nth tx (1 = all)."
   (unless *diff-snap* (setf *diff-snap* (foreign-alloc :uint8 :count +substate-bytes+)))
   (incf (getf *diff-stats* :txs))
-  (let ((jsnap (mem-ref *tx-arena-root* :uint64 0)))
+  (unless (zerop (mod (getf *diff-stats* :txs) *diff-every*))
+    (return-from diff-run-tiers (run-frame state code)))
+  (incf (getf *diff-stats* :checked))
+  (let ((jsnap (mem-ref *tx-arena-root* :uint64 0))
+        (esnap (fill-pointer *obs-events*)) (fsnap *obs-frame-next*))
     (dotimes (i +substate-bytes+) (setf (mem-aref *diff-snap* :uint8 i) (mem-aref state :uint8 i)))
     (run-frame state code)                                   ; tier A: JIT
     (let ((ag (mem-ref state :uint64 8)) (ah (mem-ref state :uint8 128))
-          (ar (mem-ref state :uint8 129)) (ao (%frame-output state)))
+          (ar (mem-ref state :uint8 129)) (ao (%frame-output state))
+          (am (%frame-memory state)) (aj (%journal-bytes *tx-arena-root* jsnap)) (af (ts-refund)))
+      ;; as run-tx-frame! after a frame: tier B's memory must read zero where it expands
+      (zero-bytes *memory-arena* 0 (mem-ref state :uint64 48))
+      (free-frame-returndata state)
       (dotimes (i +substate-bytes+) (setf (mem-aref state :uint8 i) (mem-aref *diff-snap* :uint8 i)))
       (revert-journal-to *tx-arena-root* jsnap)              ; restore pre-state
+      (setf (fill-pointer *obs-events*) esnap *obs-frame-next* fsnap)   ; drop tier A's logs, transfers, frames
       (let ((*force-interp* t)) (run-frame state code))      ; tier B: interp
       (let ((bg (mem-ref state :uint64 8)) (bh (mem-ref state :uint8 128))
-            (br (mem-ref state :uint8 129)) (bo (%frame-output state)))
-        (unless (and (= ag bg) (= ah bh) (= ar br) (equalp ao bo))
+            (br (mem-ref state :uint8 129)) (bo (%frame-output state))
+            (bm (%frame-memory state)) (bj (%journal-bytes *tx-arena-root* jsnap)) (bf (ts-refund)))
+        (unless (and (= ag bg) (= ah bh) (= ar br) (equalp ao bo) (equalp am bm) (equalp aj bj) (= af bf))
           (incf (getf *diff-stats* :divergences))
           (format *error-output*
-                  "TIERDIFF block ~D addr ~X: JIT(gas=~D halt=~D rev=~D out=~D) /= INTERP(gas=~D halt=~D rev=~D out=~D) code=~A~%"
-                  *cur-block* *current-address* ag ah ar (length ao)
-                  bg bh br (length bo) (code-tag code))
+                  "TIERDIFF block ~D addr ~X: JIT(gas=~D halt=~D rev=~D out=~D mem=~D jrnl=~D refund=~D) /= INTERP(gas=~D halt=~D rev=~D out=~D mem=~D jrnl=~D refund=~D) same out/mem/journal ~A/~A/~A code=~A~%"
+                  *cur-block* *current-address* ag ah ar (length ao) (length am) (length aj) af
+                  bg bh br (length bo) (length bm) (length bj) bf
+                  (equalp ao bo) (equalp am bm) (equalp aj bj) (code-tag code))
           (finish-output *error-output*))))))
