@@ -40,7 +40,7 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `keccak.c`, `keccak_sha3.c`, `keccak_batch.c` (404) | Keccak-256 (opcode, addresses, tries), batched for the trie | own implementation |
 | `sha256.c` (98), `ripemd160.c` (171) | precompiles 0x02, 0x03 | own implementations |
 | `ecrecover.c` (87) | precompile 0x01 and sender recovery | libsecp256k1 |
-| `modexp.c` (101) | precompile 0x05 (its gas is computed in Lean) | OpenSSL `BN_mod_exp` |
+| `modexp.c` (134) | precompile 0x05 (its gas is computed in Lean) | GMP `mpz_powm` for moduli ≤ 64 bytes, OpenSSL `BN_mod_exp` above; the two are cross-checked by `c/test_modexp.c` |
 | `bn254.cpp` (250), `mcl_curve.cpp` (42) | precompiles 0x06–0x08 (alt_bn128 add, mul, pairing) | mcl |
 | `blake2f.c` (96) | precompile 0x09 | own implementation |
 | `point_evaluation.c` (134) | precompile 0x0a, EIP-4844 KZG point evaluation | blst (vendored) |
@@ -66,6 +66,7 @@ change a result silently.
 | mcl | alt_bn128 precompiles | BSD-3-Clause |
 | blst (vendored, pinned) | BLS12-381 precompiles, KZG point evaluation | Apache-2.0 |
 | OpenSSL libcrypto | MODEXP, P-256 verify | Apache-2.0 |
+| GMP (libgmp10, linked dynamically) | MODEXP for moduli ≤ 64 bytes | LGPL-3 / GPL-2 |
 | zlib | compressed block files | zlib |
 | `slh-dsa` (Rust) | Arc's SLH-DSA precompile | Apache-2.0 OR MIT |
 
