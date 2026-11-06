@@ -440,6 +440,9 @@
    hash/equality go through a memoized keccak codehash (see above) so the hot-path
    lookup is O(1), not O(code-size).")
 (defparameter *jit-counter* 0)
+(defvar *frames-jit* 0)        ; per-frame counters, kept out of the plist (GETF/%PUTF per frame)
+(defvar *frames-interp* 0)
+(declaim (type fixnum *frames-jit* *frames-interp*))
 (defparameter *jit-stats*
   (list :codes-jit 0 :codes-no-jit 0
         :frames-jit 0 :frames-interp 0 :manifest-misses 0)

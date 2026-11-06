@@ -83,6 +83,10 @@
 (defcfun ("eita_bls_map_fp2_to_g2" %eita-bls-map-fp2-to-g2) :int
   (input :pointer) (inlen :uint64) (output :pointer))
 
+;;; Inlined: one C call each on the SLOAD/SSTORE/CALL path, where the out-of-line Lisp
+;;; wrapper (a full call before the foreign call) was ~1 % of the replay thread.
+(declaim (inline %ts-access-addr %ts-access-slot %ts-refund-add %ts-created-insert %ts-created-p
+                 %ts-orig-record %ts-orig-get))
 ;;; Native per-tx state tables (c/tx_state.h). One TxState + one root
 ;;; TxArena, shared by every frame in a tx; see ensure-arenas.
 (defcfun ("eita_ts_reset" %ts-reset) :void (ts :pointer))

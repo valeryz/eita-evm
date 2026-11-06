@@ -17,7 +17,7 @@
       (when (plusp (length code)) (jit-for-code code))
     (cond
       (run-chunk
-       (incf (getf *jit-stats* :frames-jit))
+       (incf *frames-jit*)
        ;; Hang probe: from EITA_LASTFRAME_FROM on, OVERWRITE one file with the
        ;; code of the frame about to run. When a JIT frame infinite-loops, the
        ;; file is left holding exactly the culprit's bytecode. Gated by block so
@@ -38,7 +38,7 @@
          (run-jit-frame state run-chunk entries (length code))))
       (t
        (when (plusp (length code))
-         (incf (getf *jit-stats* :frames-interp)))
+         (incf *frames-interp*))
        (eita-run state)))))
 
 ;;; --- Differential tier replay (#241) --------------------------------
