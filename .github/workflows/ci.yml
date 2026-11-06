@@ -116,7 +116,7 @@ jobs:
 
   leanless-macos:
     # libeita from the committed generated files, interpreter tier, on Apple Silicon.
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
