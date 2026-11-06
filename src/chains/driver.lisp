@@ -297,11 +297,13 @@
   (load-observer!)                     ; EITA_OBSERVER: an observer to install (the observation seam)
   (read-run-policy!)
   ;; Nursery: SBCL's default is 5 % of the heap; per-tx garbage is dead by the next tx, so a
-  ;; larger nursery means fewer collections at the same cost each. A tenth of the heap,
-  ;; between 1 GB and 4 GB: 1 GB on the 6-10 GB heaps (-2 % wall), 4 GB on a 40 GB
-  ;; heap (2020 blocks: GC 28.5 s -> 12.1 s per 20k blocks, -4.7 % wall, +3 GB RSS).
+  ;; larger nursery means fewer collections at the same cost each. A quarter of the heap,
+  ;; between 1 GB and 8 GB. x300, 30k mainnet blocks, 16 GB heap (2026-11-06): 1.6 GB
+  ;; (a tenth) 1,614.6 Mgas/s, GC 25.0 s, RSS 8.7 GB; 4 GB 1,628.4 (+0.9 %), GC 18.3 s,
+  ;; RSS 11.9 GB; 8 GB 1,641.6 (+1.7 %), GC 12.7 s, RSS 15.4 GB -- too close to a 16 GB
+  ;; heap to be a default there, so 8 GB comes with heaps of 32 GB and more.
   (setf (sb-ext:bytes-consed-between-gcs)
-        (max (* 1024 1024 1024) (min (* 4 1024 1024 1024) (floor (sb-ext:dynamic-space-size) 10))))
+        (max (* 1024 1024 1024) (min (* 8 1024 1024 1024) (floor (sb-ext:dynamic-space-size) 4))))
   (let* ((start (parse-block-arg (first args)))
          (end (cond ((null (second args)) start)
                     ((string-equal (second args) "tip") :tip)
