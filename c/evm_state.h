@@ -253,6 +253,10 @@ typedef struct EvmState {
      * fork, computed once per block by the host (emitted spec-blob-base-fee) and
      * pushed by BLOBBASEFEE (0x4a, EIP-7516). */
     u256_t         blob_base_fee;    /* offset 568 */
+    /* x86-64 direct threading: the table every handler's continuation jumps
+       through (the fork's, the trace table, or the return table; set by the
+       entry, c/handlers-x86-elf.S). Unused on ARM64 (x27). */
+    const void *const *cont_table;   /* offset 600 */
 } EvmState;
 
 /* ===========================================================================
@@ -306,8 +310,9 @@ EITA_ASSERT_OFFSET(frame_sp,      544);
 EITA_ASSERT_OFFSET(blob_hashes,   552);
 EITA_ASSERT_OFFSET(blob_hash_count, 560);
 EITA_ASSERT_OFFSET(blob_base_fee, 568);
+EITA_ASSERT_OFFSET(cont_table,    600);
 
-_Static_assert(sizeof(EvmState) == 600, "EvmState must be exactly 600 bytes");
+_Static_assert(sizeof(EvmState) == 608, "EvmState must be exactly 608 bytes");
 
 #undef EITA_ASSERT_OFFSET
 

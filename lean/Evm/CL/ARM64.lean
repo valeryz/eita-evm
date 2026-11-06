@@ -93,6 +93,8 @@ namespace Offset
   def blobHashes   : Nat := 552
   def blobHashCount : Nat := 560
   def blobBaseFee  : Nat := 568
+  -- x86-64 direct threading: the table every handler's continuation jumps through.
+  def contTable    : Nat := 600
 end Offset
 
 /-- Materialize a 64-bit literal into a register (movz + movk chain;

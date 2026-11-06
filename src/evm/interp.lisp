@@ -8,7 +8,7 @@
 
 ;; One frame's EvmState (c/evm_state.h), the unit the substate arena is sliced in
 ;; (evm/frames.lisp) and the differential tier replay below snapshots.
-(defconstant +substate-bytes+ 600)
+(defconstant +substate-bytes+ 608)   ; sizeof(EvmState), c/evm_state.h
 
 (defun run-frame (state code)
   "Run one frame natively: JIT chunk dispatch by default (threshold

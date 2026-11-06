@@ -24,6 +24,8 @@ eita_run_one:
     mov   r10, qword ptr [r12 + r13 - 16]
     mov   r11, qword ptr [r12 + r13 - 8]
 Lrc0_1:
+    lea   rax, [rip + eita_cont_ret_table]
+    mov   qword ptr [rbx + 600], rax
     add   rbp, 1
     lea   rax, [rip + eita_dispatch_ptr]
     mov   rax, qword ptr [rax]
@@ -55,11 +57,30 @@ eita_run:
     mov   r10, qword ptr [r12 + r13 - 16]
     mov   r11, qword ptr [r12 + r13 - 8]
 Lrc0_r:
-Lnext:
+    sub   rsp, 8
     mov   rax, qword ptr [rbx + 496]
     mov   rax, qword ptr [rax + 112]
     cmp   rax, 0
-    je    Lfetch
+    jne   Lrun_traced
+    lea   rax, [rip + eita_dispatch_ptr]
+    mov   rax, qword ptr [rax]
+    jmp   Lrun_go
+Lrun_traced:
+    lea   rax, [rip + eita_trace_table]
+Lrun_go:
+    mov   qword ptr [rbx + 600], rax
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
+
+.globl eita_trace_next
+.p2align 4
+eita_trace_next:
+    add   rsp, 8
+    sub   rbp, 1
+    mov   rax, qword ptr [rbx + 496]
+    mov   rax, qword ptr [rax + 112]
     push  r8
     push  r9
     push  r10
@@ -77,14 +98,19 @@ Lnext:
     pop   r10
     pop   r9
     pop   r8
-Lfetch:
     movzx  rcx, byte ptr [r14 + rbp]
     add   rbp, 1
     lea   rax, [rip + eita_dispatch_ptr]
     mov   rax, qword ptr [rax]
     mov   rax, qword ptr [rax + rcx*8]
-    call  rax
-    jmp   Lnext
+    sub   rsp, 8
+    jmp   rax
+
+.globl eita_cont_ret
+.p2align 4
+eita_cont_ret:
+    sub   rbp, 1
+    ret
 
 .globl eita_sync_and_ret
 .p2align 4
@@ -175,7 +201,10 @@ eita_handler_add:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sub
 .p2align 4
@@ -197,7 +226,10 @@ eita_handler_sub:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_and
 .p2align 4
@@ -219,7 +251,10 @@ eita_handler_and:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_or
 .p2align 4
@@ -241,7 +276,10 @@ eita_handler_or:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_xor
 .p2align 4
@@ -263,7 +301,10 @@ eita_handler_xor:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_lt
 .p2align 4
@@ -293,7 +334,10 @@ eita_handler_lt:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_gt
 .p2align 4
@@ -323,7 +367,10 @@ eita_handler_gt:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_eq
 .p2align 4
@@ -358,7 +405,10 @@ eita_handler_eq:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_iszero
 .p2align 4
@@ -384,7 +434,10 @@ eita_handler_iszero:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_clz
 .p2align 4
@@ -416,7 +469,10 @@ eita_handler_clz:
     mov   [rcx + 24], r11
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_not
 .p2align 4
@@ -435,7 +491,10 @@ eita_handler_not:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_pop
 .p2align 4
@@ -451,7 +510,10 @@ eita_handler_pop:
     add   rcx, r12
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_stop
 .p2align 4
@@ -466,7 +528,10 @@ eita_handler_stop:
 eita_handler_jumpdest:
     sub   r15, 1
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_invalid
 .p2align 4
@@ -491,7 +556,10 @@ eita_handler_address:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_origin
 .p2align 4
@@ -511,7 +579,10 @@ eita_handler_origin:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_caller
 .p2align 4
@@ -531,7 +602,10 @@ eita_handler_caller:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_coinbase
 .p2align 4
@@ -551,7 +625,10 @@ eita_handler_coinbase:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_callvalue
 .p2align 4
@@ -571,7 +648,10 @@ eita_handler_callvalue:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_gasprice
 .p2align 4
@@ -591,7 +671,10 @@ eita_handler_gasprice:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_chainid
 .p2align 4
@@ -611,7 +694,10 @@ eita_handler_chainid:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_timestamp
 .p2align 4
@@ -631,7 +717,10 @@ eita_handler_timestamp:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_number
 .p2align 4
@@ -651,7 +740,10 @@ eita_handler_number:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_gaslimit
 .p2align 4
@@ -671,7 +763,10 @@ eita_handler_gaslimit:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_basefee
 .p2align 4
@@ -691,7 +786,10 @@ eita_handler_basefee:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_prevrandao
 .p2align 4
@@ -712,7 +810,10 @@ eita_handler_prevrandao:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_blobhash
 .p2align 4
@@ -750,7 +851,10 @@ eita_handler_blobhash:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_blobbasefee
 .p2align 4
@@ -771,7 +875,10 @@ eita_handler_blobbasefee:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_pc
 .p2align 4
@@ -791,7 +898,10 @@ eita_handler_pc:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_msize
 .p2align 4
@@ -811,7 +921,10 @@ eita_handler_msize:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_gas
 .p2align 4
@@ -831,7 +944,10 @@ eita_handler_gas:
     mov   [rcx + 8], r9
     mov   [rcx + 16], r10
     mov   [rcx + 24], r11
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_calldatasize
 .p2align 4
@@ -851,7 +967,10 @@ eita_handler_calldatasize:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_codesize
 .p2align 4
@@ -871,7 +990,10 @@ eita_handler_codesize:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_returndatasize
 .p2align 4
@@ -891,7 +1013,10 @@ eita_handler_returndatasize:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sstore
 .p2align 4
@@ -966,7 +1091,10 @@ eita_handler_sstore:
     mov   r11, [rcx + 24]
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_slt
 .p2align 4
@@ -996,7 +1124,10 @@ eita_handler_slt:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sgt
 .p2align 4
@@ -1026,7 +1157,10 @@ eita_handler_sgt:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mul
 .p2align 4
@@ -1057,7 +1191,10 @@ eita_handler_mul:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_div
 .p2align 4
@@ -1088,7 +1225,10 @@ eita_handler_div:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sdiv
 .p2align 4
@@ -1119,7 +1259,10 @@ eita_handler_sdiv:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mod
 .p2align 4
@@ -1150,7 +1293,10 @@ eita_handler_mod:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_smod
 .p2align 4
@@ -1181,7 +1327,10 @@ eita_handler_smod:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_exp
 .p2align 4
@@ -1249,7 +1398,10 @@ eita_handler_exp:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_shl
 .p2align 4
@@ -1280,7 +1432,10 @@ eita_handler_shl:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_shr
 .p2align 4
@@ -1311,7 +1466,10 @@ eita_handler_shr:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sar
 .p2align 4
@@ -1342,7 +1500,10 @@ eita_handler_sar:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_byte
 .p2align 4
@@ -1373,7 +1534,10 @@ eita_handler_byte:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_signextend
 .p2align 4
@@ -1404,7 +1568,10 @@ eita_handler_signextend:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_addmod
 .p2align 4
@@ -1437,7 +1604,10 @@ eita_handler_addmod:
     add   rcx, r12
     sub   r15, 8
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mulmod
 .p2align 4
@@ -1470,7 +1640,10 @@ eita_handler_mulmod:
     add   rcx, r12
     sub   r15, 8
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_calldataload
 .p2align 4
@@ -1499,7 +1672,10 @@ eita_handler_calldataload:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_calldatacopy
 .p2align 4
@@ -1581,7 +1757,10 @@ eita_handler_calldatacopy:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 7:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_codecopy
 .p2align 4
@@ -1663,7 +1842,10 @@ eita_handler_codecopy:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 7:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_returndatacopy
 .p2align 4
@@ -1765,7 +1947,10 @@ eita_handler_returndatacopy:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 7:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mcopy
 .p2align 4
@@ -1892,7 +2077,10 @@ eita_handler_mcopy:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 7:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_keccak256
 .p2align 4
@@ -1974,7 +2162,10 @@ eita_handler_keccak256:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_sload
 .p2align 4
@@ -2006,7 +2197,10 @@ eita_handler_sload:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_tload
 .p2align 4
@@ -2038,7 +2232,10 @@ eita_handler_tload:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_balance
 .p2align 4
@@ -2069,7 +2266,10 @@ eita_handler_balance:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_selfbalance
 .p2align 4
@@ -2100,7 +2300,10 @@ eita_handler_selfbalance:
     add   rcx, r12
     sub   r15, 5
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_extcodesize
 .p2align 4
@@ -2131,7 +2334,10 @@ eita_handler_extcodesize:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_extcodehash
 .p2align 4
@@ -2162,7 +2368,10 @@ eita_handler_extcodehash:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_blockhash
 .p2align 4
@@ -2193,7 +2402,10 @@ eita_handler_blockhash:
     add   rcx, r12
     sub   r15, 20
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_extcodecopy
 .p2align 4
@@ -2301,7 +2513,10 @@ eita_handler_extcodecopy:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 91:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_staticcall
 .p2align 4
@@ -2492,7 +2707,10 @@ eita_handler_staticcall:
     sub   r15, rax
     jb    eita_oog
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_call
 .p2align 4
@@ -2704,7 +2922,10 @@ eita_handler_call:
     sub   r15, rax
     jb    eita_oog
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_callcode
 .p2align 4
@@ -2901,7 +3122,10 @@ eita_handler_callcode:
     sub   r15, rax
     jb    eita_oog
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_delegatecall
 .p2align 4
@@ -3092,7 +3316,10 @@ eita_handler_delegatecall:
     sub   r15, rax
     jb    eita_oog
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_create
 .p2align 4
@@ -3245,7 +3472,10 @@ L_create_done:
     mov   [rcx + 16], r10
     mov   [rcx + 24], r11
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_create2
 .p2align 4
@@ -3404,7 +3634,10 @@ L_create2_done:
     mov   [rcx + 16], r10
     mov   [rcx + 24], r11
     add   rsp, 192
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_selfdestruct
 .p2align 4
@@ -3506,7 +3739,10 @@ eita_handler_mload:
     mov   [rcx + 8], r9
     mov   [rcx + 16], r10
     mov   [rcx + 24], r11
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mstore
 .p2align 4
@@ -3578,7 +3814,10 @@ eita_handler_mstore:
     mov   r11, [rcx + 24]
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_mstore8
 .p2align 4
@@ -3639,7 +3878,10 @@ eita_handler_mstore8:
     mov   r11, [rcx + 24]
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_return
 .p2align 4
@@ -3837,7 +4079,10 @@ eita_handler_jump:
     add   rcx, r12
     sub   r15, 8
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_jumpi
 .p2align 4
@@ -3876,7 +4121,10 @@ eita_jumpi_pop:
     add   rcx, r12
     sub   r15, 10
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 eita_jumpi_fallthrough:
     jmp   eita_jumpi_pop
 
@@ -3912,7 +4160,10 @@ eita_handler_tstore:
     mov   r9, [rcx + 8]
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push0
 .p2align 4
@@ -3932,7 +4183,10 @@ eita_handler_push0:
     mov   [rcx + 24], r11
     sub   r15, 2
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push1
 .p2align 4
@@ -3958,7 +4212,10 @@ eita_handler_push1:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push2
 .p2align 4
@@ -3984,7 +4241,10 @@ eita_handler_push2:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push3
 .p2align 4
@@ -4010,7 +4270,10 @@ eita_handler_push3:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push4
 .p2align 4
@@ -4036,7 +4299,10 @@ eita_handler_push4:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push5
 .p2align 4
@@ -4062,7 +4328,10 @@ eita_handler_push5:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push6
 .p2align 4
@@ -4088,7 +4357,10 @@ eita_handler_push6:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push7
 .p2align 4
@@ -4114,7 +4386,10 @@ eita_handler_push7:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push8
 .p2align 4
@@ -4139,7 +4414,10 @@ eita_handler_push8:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push9
 .p2align 4
@@ -4168,7 +4446,10 @@ eita_handler_push9:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push10
 .p2align 4
@@ -4197,7 +4478,10 @@ eita_handler_push10:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push11
 .p2align 4
@@ -4226,7 +4510,10 @@ eita_handler_push11:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push12
 .p2align 4
@@ -4255,7 +4542,10 @@ eita_handler_push12:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push13
 .p2align 4
@@ -4284,7 +4574,10 @@ eita_handler_push13:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push14
 .p2align 4
@@ -4313,7 +4606,10 @@ eita_handler_push14:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push15
 .p2align 4
@@ -4342,7 +4638,10 @@ eita_handler_push15:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push16
 .p2align 4
@@ -4369,7 +4668,10 @@ eita_handler_push16:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push17
 .p2align 4
@@ -4400,7 +4702,10 @@ eita_handler_push17:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push18
 .p2align 4
@@ -4431,7 +4736,10 @@ eita_handler_push18:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push19
 .p2align 4
@@ -4462,7 +4770,10 @@ eita_handler_push19:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push20
 .p2align 4
@@ -4493,7 +4804,10 @@ eita_handler_push20:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push21
 .p2align 4
@@ -4524,7 +4838,10 @@ eita_handler_push21:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push22
 .p2align 4
@@ -4555,7 +4872,10 @@ eita_handler_push22:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push23
 .p2align 4
@@ -4586,7 +4906,10 @@ eita_handler_push23:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push24
 .p2align 4
@@ -4615,7 +4938,10 @@ eita_handler_push24:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push25
 .p2align 4
@@ -4648,7 +4974,10 @@ eita_handler_push25:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push26
 .p2align 4
@@ -4681,7 +5010,10 @@ eita_handler_push26:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push27
 .p2align 4
@@ -4714,7 +5046,10 @@ eita_handler_push27:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push28
 .p2align 4
@@ -4747,7 +5082,10 @@ eita_handler_push28:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push29
 .p2align 4
@@ -4780,7 +5118,10 @@ eita_handler_push29:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push30
 .p2align 4
@@ -4813,7 +5154,10 @@ eita_handler_push30:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push31
 .p2align 4
@@ -4846,7 +5190,10 @@ eita_handler_push31:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_push32
 .p2align 4
@@ -4877,7 +5224,10 @@ eita_handler_push32:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_log0
 .p2align 4
@@ -4980,7 +5330,10 @@ eita_handler_log0:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 5:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_log1
 .p2align 4
@@ -5083,7 +5436,10 @@ eita_handler_log1:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 5:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_log2
 .p2align 4
@@ -5186,7 +5542,10 @@ eita_handler_log2:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 5:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_log3
 .p2align 4
@@ -5289,7 +5648,10 @@ eita_handler_log3:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 5:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_log4
 .p2align 4
@@ -5392,7 +5754,10 @@ eita_handler_log4:
     mov   r10, [rcx + 16]
     mov   r11, [rcx + 24]
 5:
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup1
 .p2align 4
@@ -5416,7 +5781,10 @@ eita_handler_dup1:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup2
 .p2align 4
@@ -5440,7 +5808,10 @@ eita_handler_dup2:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup3
 .p2align 4
@@ -5464,7 +5835,10 @@ eita_handler_dup3:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup4
 .p2align 4
@@ -5488,7 +5862,10 @@ eita_handler_dup4:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup5
 .p2align 4
@@ -5512,7 +5889,10 @@ eita_handler_dup5:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup6
 .p2align 4
@@ -5536,7 +5916,10 @@ eita_handler_dup6:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup7
 .p2align 4
@@ -5560,7 +5943,10 @@ eita_handler_dup7:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup8
 .p2align 4
@@ -5584,7 +5970,10 @@ eita_handler_dup8:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup9
 .p2align 4
@@ -5608,7 +5997,10 @@ eita_handler_dup9:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup10
 .p2align 4
@@ -5632,7 +6024,10 @@ eita_handler_dup10:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup11
 .p2align 4
@@ -5656,7 +6051,10 @@ eita_handler_dup11:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup12
 .p2align 4
@@ -5680,7 +6078,10 @@ eita_handler_dup12:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup13
 .p2align 4
@@ -5704,7 +6105,10 @@ eita_handler_dup13:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup14
 .p2align 4
@@ -5728,7 +6132,10 @@ eita_handler_dup14:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup15
 .p2align 4
@@ -5752,7 +6159,10 @@ eita_handler_dup15:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_dup16
 .p2align 4
@@ -5776,7 +6186,10 @@ eita_handler_dup16:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap1
 .p2align 4
@@ -5807,7 +6220,10 @@ eita_handler_swap1:
     add   rcx, r12
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap2
 .p2align 4
@@ -5836,7 +6252,10 @@ eita_handler_swap2:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap3
 .p2align 4
@@ -5865,7 +6284,10 @@ eita_handler_swap3:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap4
 .p2align 4
@@ -5894,7 +6316,10 @@ eita_handler_swap4:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap5
 .p2align 4
@@ -5923,7 +6348,10 @@ eita_handler_swap5:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap6
 .p2align 4
@@ -5952,7 +6380,10 @@ eita_handler_swap6:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap7
 .p2align 4
@@ -5981,7 +6412,10 @@ eita_handler_swap7:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap8
 .p2align 4
@@ -6010,7 +6444,10 @@ eita_handler_swap8:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap9
 .p2align 4
@@ -6039,7 +6476,10 @@ eita_handler_swap9:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap10
 .p2align 4
@@ -6068,7 +6508,10 @@ eita_handler_swap10:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap11
 .p2align 4
@@ -6097,7 +6540,10 @@ eita_handler_swap11:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap12
 .p2align 4
@@ -6126,7 +6572,10 @@ eita_handler_swap12:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap13
 .p2align 4
@@ -6155,7 +6604,10 @@ eita_handler_swap13:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap14
 .p2align 4
@@ -6184,7 +6636,10 @@ eita_handler_swap14:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap15
 .p2align 4
@@ -6213,7 +6668,10 @@ eita_handler_swap15:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_swap16
 .p2align 4
@@ -6242,7 +6700,10 @@ eita_handler_swap16:
     mov   [rcx + 24], r11
     sub   r15, 3
     jb    eita_oog
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_add_f
 .p2align 4
@@ -11153,7 +11614,10 @@ eita_handler_exp_pre160:
     mov   [rcx + 24], r11
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_handler_selfdestruct_pre150
 .p2align 4
@@ -11256,7 +11720,10 @@ eita_handler_sstore_nosentry:
     mov   r11, [rcx + 24]
     lea   rcx, [r13 - 64]
     add   rcx, r12
-    ret
+    movzx  rcx, byte ptr [r14 + rbp]
+    add   rbp, 1
+    mov   rax, qword ptr [rbx + 600]
+    jmp   qword ptr [rax + rcx*8]
 
 .globl eita_set_fork
 .p2align 4
@@ -11282,6 +11749,8 @@ eita_execute_program:
     mov   r12, rsi
     mov   r13, rdx
     mov   rbp, rcx
+    lea   rax, [rip + eita_cont_ret_table]
+    mov   qword ptr [rbx + 600], rax
 Lrp_loop:
     movzx  rax, byte ptr [rbx + 128]
     cmp   rax, 0
@@ -16934,11 +17403,535 @@ eita_access_costs:
     .quad 2600, 100    // balance
     .quad 2600, 100    // extcode
     .quad 2600, 100    // extcodehash
+.data
+.global eita_trace_table
+.p2align 3
+eita_trace_table:
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+    .quad   eita_trace_next
+.data
+.global eita_cont_ret_table
+.p2align 3
+eita_cont_ret_table:
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
+    .quad   eita_cont_ret
 .protected eita_run_one
 .protected eita_run
 .protected eita_sync_and_ret
 .protected eita_invalid_jump
 .protected eita_set_fork
+.protected eita_trace_next
+.protected eita_cont_ret
+.protected eita_trace_table
+.protected eita_cont_ret_table
 .protected eita_execute_program
 .protected eita_dispatch_table
 .protected eita_dispatch_ptr

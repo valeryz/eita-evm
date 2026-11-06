@@ -350,7 +350,7 @@
           (finish-output *error-output*))
         p)))
 
-;; #248/#250: the per-sub-call EvmState (600 B, c/evm_state.h) and TxArena header (72 B) are
+;; #248/#250: the per-sub-call EvmState (608 B, c/evm_state.h) and TxArena header (72 B) are
 ;; pure scratch — freed by frame pop = slot reuse, never escaping (only the
 ;; RETURN output escapes, and that is still copied to a fresh disjoint buffer,
 ;; matching the proved discipline in Evm.CL.Arena.arena_refines_spec). So they

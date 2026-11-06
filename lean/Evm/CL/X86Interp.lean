@@ -9,13 +9,15 @@
   per fork, a mutable `_eita_dispatch_ptr`, `_eita_set_fork`) printed with
   the same directive printers, because the table TEXT is target-neutral.
 
-  The run loop. ARM64 keeps a continuation register (x27 = `_eita_next`) and
-  every handler ends `br x27`. x86-64 has no register to spare, so the frame
-  CALLS each handler (`brCont` = `ret`) and the loop body is `_eita_next`'s
-  job: the `trace_step` hook, fetch, pre-increment, dispatch. A terminator
-  does not return: it `jmp`s to `_eita_sync_and_ret` with its return address
-  still pushed, and `sync_and_ret` — like the fault stubs — first restores
-  rsp from `EvmState.frame_sp` (offset 544, `c/evm_state.h`).
+  The run loop is direct-threaded, like ARM64's (every handler ends `br x27`).
+  x86-64 has no register to spare for the continuation, so it lives in the
+  state: every dispatch-table handler's `brCont` is `nextItems` — fetch,
+  pre-increment, `jmp [cont_table + op*8]` (`EvmState.cont_table`, offset
+  600). `eita_run` picks the table once per frame (the fork's, or the trace
+  table when `cb->trace_step` is set: the hook is off the per-op path); the
+  callers that CALL one handler (`eita_run_one`, the JIT tier) install the
+  return table. A terminator `jmp`s to `_eita_sync_and_ret`, which — like
+  the fault stubs — first restores rsp from `EvmState.frame_sp` (offset 544).
 
   `_eita_execute_program` (the JIT-tier dispatcher) is here too; the JIT
   entry `_eita_run_chunk` is per image (`X86JIT.runChunkProd`). The
@@ -51,6 +53,7 @@ def cbOff : Int := 496                             -- EvmState.cb
 def traceStepSlot : Int := 112                     -- EvmCallbacks.trace_step
 def haltedOff : Int := 128
 def revertedOff : Int := 129
+def contOff : Int := Offset.contTable             -- 600: EvmState.cont_table
 
 /-- Rename the local labels of an item list, so one template can be
     instantiated twice in a file. -/
@@ -63,16 +66,26 @@ def suffixItems (suf : String) : XItem → XItem
 
 /-! ## The frame -/
 
-/-- `_eita_next` as the loop body: if `cb->trace_step` is set, call it with
-    (state, pc, gas, depth, opcode) around a save of the TOS cache; then fetch,
-    pre-increment, dispatch through the active fork's table, loop. The two
-    `rsp` adjustments keep the SysV alignment: the loop runs at rsp ≡ 8 (mod
-    16), four pushes keep that, one more word makes the call site ≡ 0. -/
-def nextLoop : List XItem :=
-  [ .L "Lnext",
-    .I (.movRM .rax { base := .rbx, disp := cbOff }),
+/-- The continuation every interpreter handler ends with, in place of `ret`
+    (direct threading, the x86 twin of ARM64's `br x27`): fetch the next
+    opcode, pre-increment, jump through `EvmState.cont_table`. rax and rcx
+    are scratch at a `brCont` (the old loop clobbered both after the `ret`).
+    The table is the frame's choice: the fork table (`eita_run`), the trace
+    table (`eita_run` with `cb->trace_step` set), or the return table
+    (`eita_run_one`, the JIT tier), whose one entry undoes the pre-increment
+    and returns to a caller that CALLED the handler. -/
+def nextItems : List XItem :=
+  [ .I (.movzxBM .rcx { base := .r14, index := some .rbp }),
+    .I (.aluRI .add .rbp 1),
+    .I (.movRM .rax { base := .rbx, disp := contOff }),
+    .I (.jmpMem { base := .rax, index := some .rcx, scale := 8 }) ]
+
+/-- The hook, called around a save of the TOS cache with (state, pc, gas,
+    depth, opcode). Entered at the loop's rsp ≡ 8 (mod 16): four pushes keep
+    that, one more word makes the call site ≡ 0. -/
+def traceCall : List XItem :=
+  [ .I (.movRM .rax { base := .rbx, disp := cbOff }),
     .I (.movRM .rax { base := .rax, disp := traceStepSlot }),
-    .I (.aluRI .cmp .rax 0), .Jcc .e "Lfetch",
     .I (.push .r8), .I (.push .r9), .I (.push .r10), .I (.push .r11),
     .I (.aluRI .sub .rsp 8),
     .I (.movRR .rdi .rbx), .I (.movRR .rsi .rbp), .I (.movRR .rdx .r15),
@@ -80,23 +93,46 @@ def nextLoop : List XItem :=
     .I (.movzxBM .r8 { base := .r14, index := some .rbp }),
     .I (.callReg .rax),
     .I (.aluRI .add .rsp 8),
-    .I (.pop .r11), .I (.pop .r10), .I (.pop .r9), .I (.pop .r8),
-    .L "Lfetch",
-    .I (.movzxBM .rcx { base := .r14, index := some .rbp }),
+    .I (.pop .r11), .I (.pop .r10), .I (.pop .r9), .I (.pop .r8) ]
+
+/-- `eita_run`'s loop start. The hook is decided once per frame, not per op:
+    `cb->trace_step` set → the trace table, else the active fork's table. The
+    handlers run one word below the loop's rsp, where the old loop's `call`
+    put them, so their SysV alignment is unchanged. -/
+def startLoop : List XItem :=
+  [ .I (.aluRI .sub .rsp 8),
+    .I (.movRM .rax { base := .rbx, disp := cbOff }),
+    .I (.movRM .rax { base := .rax, disp := traceStepSlot }),
+    .I (.aluRI .cmp .rax 0), .Jcc .ne "Lrun_traced",
+    .LeaRipSym .rax "_eita_dispatch_ptr", .I (.movRM .rax { base := .rax }),
+    .Jmp "Lrun_go",
+    .L "Lrun_traced", .LeaRipSym .rax "_eita_trace_table",
+    .L "Lrun_go", .I (.movMR { base := .rbx, disp := contOff } .rax) ] ++ nextItems
+
+/-- `eita_trace_next`: every trace-table entry. Back to the loop's rsp and
+    the opcode's pc, the hook, then the fork table's handler for it. -/
+def traceNext : List XItem :=
+  [ .I (.aluRI .add .rsp 8), .I (.aluRI .sub .rbp 1) ] ++ traceCall ++
+  [ .I (.movzxBM .rcx { base := .r14, index := some .rbp }),
     .I (.aluRI .add .rbp 1),
     .LeaRipSym .rax "_eita_dispatch_ptr", .I (.movRM .rax { base := .rax }),
     .I (.movRM .rax { base := .rax, index := some .rcx, scale := 8 }),
-    .I (.callReg .rax),
-    .Jmp "Lnext" ]
+    .I (.aluRI .sub .rsp 8),
+    .I (.jmpReg .rax) ]
+
+/-- `eita_cont_ret`: every return-table entry. Undo the continuation's
+    pre-increment; return to the caller that CALLED the handler. -/
+def contRet : List XItem := [ .I (.aluRI .sub .rbp 1), .I .ret ]
 
 /-- `eita_run(state*)`: the production entry. -/
-def run : List XItem := (prologueBodyAt fsp).map (suffixItems "_r") ++ nextLoop
+def run : List XItem := (prologueBodyAt fsp).map (suffixItems "_r") ++ startLoop
 
 /-- `eita_run_one(state*, opcode)`: cache, pre-increment pc, dispatch the
     requested opcode once, exit. `rsi` (SysV arg 1) survives the prologue. -/
 def runOne : List XItem :=
   (prologueBodyAt fsp).map (suffixItems "_1") ++
-  [ .I (.aluRI .add .rbp 1),
+  [ .LeaRipSym .rax "_eita_cont_ret_table", .I (.movMR { base := .rbx, disp := contOff } .rax),
+    .I (.aluRI .add .rbp 1),
     .LeaRipSym .rax "_eita_dispatch_ptr", .I (.movRM .rax { base := .rax }),
     .I (.movRM .rax { base := .rax, index := some .rsi, scale := 8 }),
     .I (.callReg .rax),
@@ -135,6 +171,7 @@ def setFork : List XItem :=
 def executeProgram : List XItem :=
   [ .I (.push .rbx), .I (.push .rbp), .I (.push .r12), .I (.push .r13), .I (.aluRI .sub .rsp 8),
     .I (.movRR .rbx .rdi), .I (.movRR .r12 .rsi), .I (.movRR .r13 .rdx), .I (.movRR .rbp .rcx),
+    .LeaRipSym .rax "_eita_cont_ret_table", .I (.movMR { base := .rbx, disp := contOff } .rax),
     .L "Lrp_loop",
     .I (.movzxBM .rax { base := .rbx, disp := haltedOff }), .I (.aluRI .cmp .rax 0), .Jcc .ne "Lrp_halted",
     .I (.aluRI .cmp .rbp 0), .Jcc .e "Lrp_fuel",
@@ -154,7 +191,8 @@ def executeProgram : List XItem :=
 /-- The frame units, for the byte-vs-assembler gate. -/
 def frameUnits : List (String × List XItem) :=
   [ ("run", run), ("run_one", runOne), ("sync_and_ret", syncAndRetProd),
-    ("fault_stub", faultStub), ("set_fork", setFork), ("execute_program", executeProgram) ]
+    ("fault_stub", faultStub), ("set_fork", setFork), ("execute_program", executeProgram),
+    ("trace_next", traceNext), ("cont_ret", contRet) ]
 
 /-! ## Text -/
 
@@ -170,8 +208,20 @@ def handlerInstrs (suf : String) (p : Prog) : List AInstr :=
 def handlerList : List (String × String × Prog) :=
   (handlerProgs opCost).map (fun (n, p) => (n, "", p)) ++ flatProgs ++ variantProgs
 
+/-- The x86 text lowering with `brCont` as the threaded continuation
+    (`nextItems`) instead of `ret`. -/
+def x86Threaded : Evm.CL.Lowering.Target :=
+  { Evm.CL.Lowering.x86 with
+    name := "x86-64-threaded"
+    emit := fun i => match i with
+      | .brCont => text nextItems
+      | i => Evm.CL.Lowering.x86.emit i }
+
+/-- Dispatch-table handlers are threaded; the JIT tier's flat (`_f`) twins
+    keep `ret`, since a chunk CALLS them. -/
 def handlerText (nm suf : String) (p : Prog) : String :=
-  globalFn s!"_eita_handler_{nm}" (Evm.CL.Lowering.emitProg Evm.CL.Lowering.x86 (handlerInstrs suf p))
+  let t := if suf.endsWith "_f" then Evm.CL.Lowering.x86 else x86Threaded
+  globalFn s!"_eita_handler_{nm}" (Evm.CL.Lowering.emitProg t (handlerInstrs suf p))
 
 /-- The helper symbols every body calls, once each: the abs64 slots
     `call qword ptr [rip + Lsym_sym]` reads. -/
@@ -186,6 +236,11 @@ def slotsText : String :=
 /-- Which registry ops the default (Cancun) table routes to a real handler. -/
 def present (nm : String) : Bool := handlerSymbol interpFork nm != "_eita_handler_invalid"
 
+/-- A continuation table: all 256 entries one stub. -/
+def contTable (sym target : String) : String :=
+  Frame.text ([ .dataSection, .global sym, .p2align3, .symLabel sym ] ++
+    List.replicate 256 (Evm.CL.AsmCore.AInstr.quadSym target))
+
 /-- The tables: the default table + `_eita_dispatch_ptr`, one named table per
     fork, the table of tables, the access-cost table. -/
 def tablesText : String :=
@@ -194,13 +249,17 @@ def tablesText : String :=
     dispatchTableNamed s!"_eita_dispatch_table_{nm}" (handlerSymbol f)) ++
   dispatchTableNamed "_eita_dispatch_table_osaka" (handlerSymbol .osaka) ++
   Frame.text forkTablesInstrs ++
-  Frame.text SstoreGas.accessTableA
+  Frame.text SstoreGas.accessTableA ++
+  contTable "_eita_trace_table" "_eita_trace_next" ++
+  contTable "_eita_cont_ret_table" "_eita_cont_ret"
 
 /-- The Mach-O text. -/
 def emitMachO : String :=
   ".section __TEXT,__text,regular,pure_instructions\n.intel_syntax noprefix\n" ++
   globalFn "_eita_run_one" (text runOne) ++
   globalFn "_eita_run" (text run) ++
+  globalFn "_eita_trace_next" (text traceNext) ++
+  globalFn "_eita_cont_ret" (text contRet) ++
   globalFn "_eita_sync_and_ret" (text syncAndRetProd) ++
   String.join (faultSyms.map (fun s => globalFn s (text faultStub))) ++
   globalFn "_eita_invalid_jump" "    jmp   _eita_oog\n" ++
@@ -214,6 +273,7 @@ def emitMachO : String :=
 /-- Every symbol the file defines, for `.protected`. -/
 def definedSymbols : List String :=
   ["_eita_run_one", "_eita_run", "_eita_sync_and_ret", "_eita_invalid_jump", "_eita_set_fork",
+   "_eita_trace_next", "_eita_cont_ret", "_eita_trace_table", "_eita_cont_ret_table",
    "_eita_execute_program",
    "_eita_dispatch_table", "_eita_dispatch_ptr", "_eita_fork_tables", "_eita_access_costs",
    "_eita_dispatch_table_osaka"] ++
