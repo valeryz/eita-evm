@@ -31,12 +31,14 @@
    cold/warm table entries are equal. So skip the native set-insert + its
    journal entry entirely and report cold=T. This was ~13% of replay time on
    the (all pre-Berlin) 0–5M range; the work was pure waste there."
+  (declare (inline u256-write))
   (if (< *fork-ord* 10)
       t
       (progn (u256-write *u256-scratch-a* addr)
              (= 1 (%ts-access-addr *tx-state* (current-arena) *u256-scratch-a*)))))
 
 (defun access-slot! (addr slot)
+  (declare (inline u256-write))
   (if (< *fork-ord* 10)
       t                                 ; pre-Berlin: see access-addr!
       (progn (u256-write *u256-scratch-a* addr)
@@ -54,6 +56,7 @@
 
 (defun orig-record! (addr slot cur)
   "First-touch snapshot of the original (tx-start) value. Not journaled."
+  (declare (inline u256-write))
   (u256-write *u256-scratch-a* addr)
   (u256-write *u256-scratch-k* slot)
   (u256-write *u256-scratch-v* cur)
@@ -61,6 +64,7 @@
 
 (defun orig-get! (addr slot cur)
   "The original (tx-start) value of (addr, slot); CUR when untouched."
+  (declare (inline u256-write))
   (u256-write *u256-scratch-a* addr)
   (u256-write *u256-scratch-k* slot)
   (u256-write *u256-scratch-v* cur)
@@ -99,6 +103,7 @@
    Also records ADDR into the incremental state-root dirty set (no-op unless
    EITA_MPT_CHECK armed it): every journaled write (storage 0, balance 2,
    nonce 9, created 4/10) carries the addr of an account whose leaf changed."
+  (declare (inline u256-write))
   ;; type 0 = SSTORE: KEY is the storage slot, so record (addr . slot) for
   ;; slot-level dirty tracking. All other types are account-level (slot NIL).
   (when *mpt-tracking* (mpt-touch! addr (when (zerop type) (word-int key))))

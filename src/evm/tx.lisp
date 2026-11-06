@@ -125,7 +125,7 @@
       (sb-sys:with-pinned-objects (calldata-bytes)
       (let ((calldata (cond ((zerop calldata-len) (null-pointer))
                             ((typep calldata-bytes 'octets) (sb-sys:vector-sap calldata-bytes))
-                            (t (bytes->foreign (alloc-zeroed calldata-len) calldata-bytes calldata-len)))))
+                            (t (bytes->foreign (alloc-bytes calldata-len) calldata-bytes calldata-len)))))
       (with-frame-code (state code code-len)
       (setf (mem-ref state :uint64 8)   gas)
       (setf (mem-ref state :pointer 32) stack)

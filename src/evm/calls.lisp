@@ -141,7 +141,7 @@
                                     (and (<= lo a) (<= (+ a input-len) (+ lo parent-mem-used)))))))
                (sub-input (cond ((zerop input-len) (null-pointer))
                                 (in-place input-ptr)
-                                (t (let ((p (alloc-zeroed input-len))) (%memcpy p input-ptr input-len) p))))
+                                (t (let ((p (alloc-bytes input-len))) (%memcpy p input-ptr input-len) p))))
                (saved-addr *current-address*))
           (with-frame-code (sub-state code sub-code-len)
           (setf (mem-ref sub-state :uint64 8)   gas)
@@ -197,7 +197,7 @@
                                ((and reverted (not (null-pointer-p output-ptr))) :revert)
                                (t :halt)))
                  (output (when (and (not (eq status :halt)) (plusp output-len))
-                           (let ((out-copy (alloc-zeroed output-len)))   ; escapes -> disjoint buffer
+                           (let ((out-copy (alloc-bytes output-len)))   ; escapes -> disjoint buffer
                              (%memcpy out-copy output-ptr output-len)
                              (cons out-copy output-len)))))
             (setf *last-sub-outcome* status)

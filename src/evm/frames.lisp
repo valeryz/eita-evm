@@ -11,6 +11,7 @@
 ;; entry, restore on exit, and return failure without invoking a sub-frame
 ;; once the limit is hit.
 (defparameter *call-depth* 0)
+(declaim (type fixnum *call-depth*))
 (defconstant +max-call-depth+ 1024)
 
 ;;; =============================================================
@@ -260,6 +261,7 @@
 (defparameter *memory-arena-base*  0)
 (defparameter *stack-arena-base*   0)
 (defparameter *journal-arena-base* 0)
+(declaim (type fixnum *memory-arena-base* *stack-arena-base* *journal-arena-base*))
 
 ;; The active frame's EvmState pointer. cb-call reads its memory_size
 ;; (offset 48) to know how much of the memory arena the parent has used,
@@ -402,19 +404,15 @@
 
 (declaim (inline zero-fixed))
 (defun zero-fixed (ptr nbytes)
-  "Zero NBYTES at PTR via u64 stores (literal types inline — no CFFI
-   parse-type, no malloc). Replaces foreign-alloc's :initial-element 0 loop."
-  (let ((w (ash nbytes -3)))
-    (dotimes (i w) (setf (mem-aref ptr :uint64 i) 0))
-    (loop for i from (ash w 3) below nbytes do (setf (mem-aref ptr :uint8 i) 0))))
+  "Zero NBYTES (a multiple of 8) at PTR via u64 stores (no CFFI parse-type, no malloc)."
+  (declare (type sb-sys:system-area-pointer ptr) (type (unsigned-byte 24) nbytes))
+  (loop for o of-type fixnum from 0 below nbytes by 8 do (setf (sb-sys:sap-ref-64 ptr o) 0)))
 
-(declaim (inline alloc-zeroed))
-(defun alloc-zeroed (nbytes)
-  "Raw malloc of NBYTES, zeroed — no CFFI type-parse (the #248 hot cost).
-   For variable-size scratch (calldata) and the escaping RETURN out-copy."
-  (let ((p (cffi-sys:%foreign-alloc nbytes)))
-    (zero-fixed p nbytes)
-    p))
+(declaim (inline alloc-bytes))
+(defun alloc-bytes (nbytes)
+  "Raw malloc of NBYTES — no CFFI type-parse (the #248 hot cost) — for a buffer its
+   caller fills whole at once (an input or output copy), so it is not zeroed first."
+  (cffi-sys:%foreign-alloc nbytes))
 
 (declaim (inline substate-slot subarena-slot))
 (defun substate-slot (depth)

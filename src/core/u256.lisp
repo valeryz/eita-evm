@@ -16,20 +16,24 @@
   (loop for i from 0 below 4 do
     (setf (mem-aref ptr :uint64 i)
           (logand (ash value (- (* i 64))) #xFFFFFFFFFFFFFFFF))))
+(declaim (sb-ext:maybe-inline u256-write))
 (defun u256-write (ptr value)
-  (cond ((sb-sys:system-area-pointer-p value)          ; an opaque word in place: copy it
-         (dotimes (i 4) (setf (mem-aref ptr :uint64 i) (mem-aref value :uint64 i))))
-        ((typep value '(and fixnum unsigned-byte))
-         (setf (mem-aref ptr :uint64 0) value
-               (mem-aref ptr :uint64 1) 0
-               (mem-aref ptr :uint64 2) 0
-               (mem-aref ptr :uint64 3) 0))
-        ((and (typep value 'bignum) (plusp value))
-         (let ((n (sb-bignum:%bignum-length value)))
-           (dotimes (i 4)
-             (setf (mem-aref ptr :uint64 i)
-                   (if (< i n) (sb-bignum:%bignum-ref value i) 0)))))
-        (t (u256-write-slow ptr value))))
+  "Store VALUE's low 256 bits at PTR as four little-endian limbs. PTR is a SAP (every
+   foreign pointer is); VALUE an integer or an opaque word (a SAP to four limbs)."
+  (declare (type sb-sys:system-area-pointer ptr) (optimize speed))
+  (macrolet ((st (i v) `(setf (sb-sys:sap-ref-64 ptr ,(* 8 i)) ,v)))
+    (typecase value
+      ((unsigned-byte 64) (st 0 value) (st 1 0) (st 2 0) (st 3 0))
+      (sb-sys:system-area-pointer                    ; an opaque word in place: copy it
+       (st 0 (sb-sys:sap-ref-64 value 0)) (st 1 (sb-sys:sap-ref-64 value 8))
+       (st 2 (sb-sys:sap-ref-64 value 16)) (st 3 (sb-sys:sap-ref-64 value 24)))
+      ((and bignum (integer 0))
+       (let ((n (sb-bignum:%bignum-length value)))
+         (st 0 (sb-bignum:%bignum-ref value 0))
+         (st 1 (if (> n 1) (sb-bignum:%bignum-ref value 1) 0))
+         (st 2 (if (> n 2) (sb-bignum:%bignum-ref value 2) 0))
+         (st 3 (if (> n 3) (sb-bignum:%bignum-ref value 3) 0))))
+      (t (u256-write-slow ptr value)))))
 
 (defun u256-read (ptr)
   (words-u256 (mem-aref ptr :uint64 0) (mem-aref ptr :uint64 1) (mem-aref ptr :uint64 2) (mem-aref ptr :uint64 3)))
