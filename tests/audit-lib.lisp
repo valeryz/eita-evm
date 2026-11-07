@@ -31,7 +31,9 @@
 (defconstant +address-offset+        144)
 (defconstant +cb-offset+             496)
 (defconstant +cb-ctx-offset+         504)
-(defconstant +evm-state-size+        600)   ; sizeof(EvmState), c/evm_state.h
+;; sizeof(EvmState): the engine's own constant (one owner; a copy here fell behind at 600 when
+;; EvmState grew to 608 for x86-64 cont_table, and the handlers wrote past the allocation).
+(defconstant +evm-state-size+ eita.evm::+substate-bytes+)
 
 (defconstant +u256-bytes+ 32)
 (defconstant +stack-capacity+ 1024)
