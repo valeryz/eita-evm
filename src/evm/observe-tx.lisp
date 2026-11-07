@@ -7,11 +7,6 @@
 (defvar *obs-acct-pres* (make-array 64 :adjustable t :fill-pointer 0)
   "addr nonce balance code, per account at its first write in this tx; code is the object,
    hashed only when a diff is emitted.")
-(defvar *obs-slot-pre* (make-hash-table :test 'equal)
-  "(addr . slot) -> T once the slot's pre-image is in *obs-slot-pres* (this tx).")
-(defvar *obs-slot-pres* (make-array 64 :adjustable t :fill-pointer 0)
-  "addr slot value, per slot at its first touch in this tx.")
-(defvar *obs-slot-probe* (cons 0 0) "The lookup key, reused: a touch conses only when new.")
 (defvar *obs-events* (make-array 64 :adjustable t :fill-pointer 0)
   "Pending events of this tx, in execution order, flat: :xfer kind depth from to value, and
    :log addr topics data. Frames mark/truncate it (see below).")
@@ -36,15 +31,17 @@
         (vector-push-extend addr v) (vector-push-extend n v) (vector-push-extend b v) (vector-push-extend c v)))))
 (defun observe-slot-touch! (addr slot)
   "First touch of (ADDR, SLOT) in this tx snapshots its pre-image. Called from
-   fault-slot! after the fault hook, on every storage access."
+   fault-slot! after the fault hook, on every storage access of the Lisp path; the native
+   path's hits enter the same log (c/storage_host.h, the observers' first-touch log: one
+   owner, so the order is the tx's first-touch order whichever path touched)."
   (when *current-world*
-    (let ((probe *obs-slot-probe*))
-      (setf (car probe) addr (cdr probe) slot)
-      (unless (gethash probe *obs-slot-pre*)
-        (setf (gethash (cons addr slot) *obs-slot-pre*) t)
-        (let ((v *obs-slot-pres*))
-          (vector-push-extend addr v) (vector-push-extend slot v)
-          (vector-push-extend (world-storage-get *current-world* addr slot) v))))))
+    (let ((v (world-storage-get *current-world* addr slot)))
+      (with-acct (tb a) *current-world* addr
+        (%sh-touch a (eita.state::u256-word addr 0) (eita.state::u256-word addr 1) (eita.state::u256-word addr 2)
+                   (eita.state::u256-word slot 0) (eita.state::u256-word slot 1)
+                   (eita.state::u256-word slot 2) (eita.state::u256-word slot 3)
+                   (eita.state::u256-word v 0) (eita.state::u256-word v 1)
+                   (eita.state::u256-word v 2) (eita.state::u256-word v 3))))))
 
 (declaim (inline observe-transfer! observe-log! observe-mark observe-revert!))
 (defun observe-transfer! (kind depth from to value)
@@ -137,8 +134,9 @@
     ;; clrhash costs the table's capacity, not its count: one big tx left every later tx
     ;; paying for its size (0.8 % of the near-tip replay); a grown table is dropped instead
     (flet ((fresh (h) (if (> (hash-table-size h) 1024) (make-hash-table :test (hash-table-test h)) (clrhash h))))
-      (setf *obs-acct-pre* (fresh *obs-acct-pre*) *obs-slot-pre* (fresh *obs-slot-pre*)))
-    (setf (fill-pointer *obs-acct-pres*) 0 (fill-pointer *obs-slot-pres*) 0
+      (setf *obs-acct-pre* (fresh *obs-acct-pre*)))
+    (%sh-touch-reset)
+    (setf (fill-pointer *obs-acct-pres*) 0
           *obs-frame-next* 0)))
 
 (defmacro do-account-changes ((addr n0 n1 b0 b1 h0 h1) &body body)
@@ -157,13 +155,17 @@
                         ,@body))))))))
 
 (defmacro do-storage-changes ((addr slot pre post) &body body)
-  "Inside an observer's tx-end: each storage slot the tx changed (net), in first-touch order."
-  (let ((v (gensym "V")) (i (gensym "I")) (w (gensym "W")))
-    `(let ((,v *obs-slot-pres*) (,w *current-world*))
-       (loop for ,i from 0 below (fill-pointer ,v) by 3
-             do (let* ((,addr (aref ,v ,i)) (,slot (aref ,v (+ ,i 1))) (,pre (aref ,v (+ ,i 2)))
-                       (,post (world-storage-get ,w ,addr ,slot)))
-                  (unless (= ,pre ,post) ,@body))))))
+  "Inside an observer's tx-end: each storage slot the tx changed (net), in first-touch order
+   (the first-touch log, c/storage_host.h: address, slot, value at first touch)."
+  (let ((p (gensym "P")) (i (gensym "I")) (w (gensym "W")))
+    `(let ((,w *current-world*))
+       (dotimes (,i (%sh-touch-count))
+         (let* ((,p (%sh-touch-at ,i))
+                (,addr (words-u256 (mem-ref ,p :uint64 0) (mem-ref ,p :uint64 8) (mem-ref ,p :uint64 16) 0))
+                (,slot (words-u256 (mem-ref ,p :uint64 32) (mem-ref ,p :uint64 40) (mem-ref ,p :uint64 48) (mem-ref ,p :uint64 56)))
+                (,pre (words-u256 (mem-ref ,p :uint64 64) (mem-ref ,p :uint64 72) (mem-ref ,p :uint64 80) (mem-ref ,p :uint64 88)))
+                (,post (world-storage-get ,w ,addr ,slot)))
+           (unless (= ,pre ,post) ,@body))))))
 
 (defmacro do-call-frames ((frame parent depth kind from to value selector input-len gas gas-used status)
                           &body body)

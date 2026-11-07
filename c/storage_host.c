@@ -1,6 +1,8 @@
 /* storage_host.c — the native SLOAD callback (storage_host.h). */
 #include "storage_host.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 eita_sh eita_sh_g;
 
@@ -23,6 +25,8 @@ void eita_sh_cache_put(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t id) {
 static int bind(eita_sh *h, void *ctx, const u256_t *addr, const u256_t *slot) {
   /* the address as the Lisp callback reads it (read-addr): the low 160 bits */
   uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2] & 0xFFFFFFFFu;
+  for (uint64_t w = 0; w < h->watch_n; w++)       /* watched: the Lisp path, with its hook */
+    if (h->watch[w].limb[0] == a0 && h->watch[w].limb[1] == a1 && h->watch[w].limb[2] == a2) return 0;
   cache_check(h);
   const uint64_t i = a0 % EITA_SH_CACHE;
   if (!(h->cache[i].id1 && h->cache[i].a0 == a0 && h->cache[i].a1 == a1 && h->cache[i].a2 == a2)) return 0;
@@ -32,6 +36,47 @@ static int bind(eita_sh *h, void *ctx, const u256_t *addr, const u256_t *slot) {
   h->key = *slot;
   return 1;
 }
+
+void eita_sh_touch(uint64_t id, const u256_t *addr, const u256_t *key, const uint64_t *val) {
+  eita_sh *h = &eita_sh_g;
+  if (!h->touch_seen) h->touch_seen = eita_ws_new();
+  if (eita_ws_get(h->touch_seen, id, key->limb[0], key->limb[1], key->limb[2], key->limb[3])) return;
+  eita_ws_put(h->touch_seen, id, key->limb[0], key->limb[1], key->limb[2], key->limb[3], 1, 0, 0, 0);
+  if (h->touch_n == h->touch_cap) {
+    uint64_t cap = h->touch_cap ? 2 * h->touch_cap : 256;
+    struct eita_touch *l = realloc(h->touch_log, cap * sizeof *l);
+    if (!l) { fputs("eita_sh: out of memory\n", stderr); abort(); }
+    h->touch_log = l; h->touch_cap = cap;
+  }
+  struct eita_touch *t = &h->touch_log[h->touch_n++];
+  t->addr = *addr; t->key = *key;
+  limb_copy(t->val.limb, val);
+}
+
+void eita_sh_touch_l(uint64_t id, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t k0, uint64_t k1,
+                     uint64_t k2, uint64_t k3, uint64_t v0, uint64_t v1, uint64_t v2, uint64_t v3) {
+  const u256_t a = {{a0, a1, a2, 0}}, k = {{k0, k1, k2, k3}};
+  const uint64_t v[4] = {v0, v1, v2, v3};
+  eita_sh_touch(id, &a, &k, v);
+}
+
+void eita_sh_touch_reset(void) {
+  eita_sh *h = &eita_sh_g;
+  if (h->touch_n) { eita_ws_free(h->touch_seen); h->touch_seen = 0; h->touch_n = 0; }
+}
+
+uint64_t eita_sh_watch(uint64_t a0, uint64_t a1, uint64_t a2) {
+  eita_sh *h = &eita_sh_g;
+  if (h->watch_n == EITA_SH_WATCH) return 0;
+  h->watch[h->watch_n].limb[0] = a0; h->watch[h->watch_n].limb[1] = a1;
+  h->watch[h->watch_n].limb[2] = a2; h->watch[h->watch_n].limb[3] = 0;
+  h->watch_n++;
+  return 1;
+}
+void eita_sh_watch_clear(void) { eita_sh_g.watch_n = 0; }
+
+uint64_t eita_sh_touch_count(void) { return eita_sh_g.touch_n; }
+const struct eita_touch *eita_sh_touch_at(uint64_t i) { return &eita_sh_g.touch_log[i]; }
 
 static int lookup(eita_sh *h, const u256_t *addr, uint64_t *id) {
   uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2] & 0xFFFFFFFFu;

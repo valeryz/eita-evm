@@ -85,6 +85,8 @@
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("diff-tiers" "diff-tiers.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
+    ("native-storage-hooks" "native-storage-hooks.lisp"
+     :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("gates" "gates.lisp"
      :requires ,(lambda () (unless (equal (uiop:getenv "EITA_TEST_GATES") "1") "EITA_TEST_GATES=1 runs the Lean gates")))))
 

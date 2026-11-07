@@ -135,4 +135,13 @@
 ;; The native SLOAD/SSTORE path (c/storage_host.h): the Lisp path records a frame account's id;
 ;; a revert restores the SSTORE entries it can natively first.
 (defcfun ("eita_sh_revert_storage" %sh-revert-storage) :void (arena :pointer) (target :uint64))
+;; The observers' first-touch log (one owner for the native and the Lisp paths).
+(defcfun ("eita_sh_touch_l" %sh-touch) :void (id :uint64) (a0 :uint64) (a1 :uint64) (a2 :uint64)
+  (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64) (v0 :uint64) (v1 :uint64) (v2 :uint64) (v3 :uint64))
+(defcfun ("eita_sh_touch_reset" %sh-touch-reset) :void)
+;; The watch filter: these accounts' accesses take the Lisp path (*storage-access-hook*).
+(defcfun ("eita_sh_watch" %sh-watch) :uint64 (a0 :uint64) (a1 :uint64) (a2 :uint64))
+(defcfun ("eita_sh_watch_clear" %sh-watch-clear) :void)
+(defcfun ("eita_sh_touch_count" %sh-touch-count) :uint64)
+(defcfun ("eita_sh_touch_at" %sh-touch-at) :pointer (i :uint64))
 (defcfun ("eita_sh_cache_put" %sh-cache-put) :void (a0 :uint64) (a1 :uint64) (a2 :uint64) (id :uint64))

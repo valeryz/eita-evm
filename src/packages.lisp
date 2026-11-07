@@ -27,7 +27,8 @@
            #:%mprotect #:%ripemd160-hash #:%run-program #:%set-fork #:%sha256-hash
            #:%ts-access-addr #:%ts-access-addrs #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
            #:%ts-orig-get #:%ts-orig-record #:%ts-refund-add #:%ts-reset #:%ts-revert
-           #:%sh-cache-put #:%sh-revert-storage #:%ws-copy #:%ws-drop #:%ws-free #:%ws-get #:%ws-new #:%ws-put #:%ws-remove
+           #:%sh-cache-put #:%sh-revert-storage #:%sh-touch #:%sh-touch-at #:%sh-touch-count
+           #:%sh-touch-reset #:%sh-watch #:%sh-watch-clear #:%ws-copy #:%ws-drop #:%ws-free #:%ws-get #:%ws-new #:%ws-put #:%ws-remove
            #:*image-p* #:at-startup #:code-version #:code-version-manifest #:defstartup
            #:dir-of #:eita-file #:eita-home #:eita-keccak256 #:eita-lib-ext #:eita-run
            #:emit-jit-path #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
