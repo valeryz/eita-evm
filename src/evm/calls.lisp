@@ -572,7 +572,8 @@
    don't have to worry about per-frame state in the callbacks themselves —
    they all use the *current-world* dynvar.)"
   (let ((cb (foreign-alloc :pointer :count 16 :initial-element (null-pointer))))
-    (setf (mem-aref cb :pointer 0)  (callback cb-sload))
+    (setf (mem-ref *storage-host* :pointer 32) (callback cb-sload)   ; eita_cb_sload's slow path
+          (mem-aref cb :pointer 0) (if *native-storage* (foreign-symbol-pointer "eita_cb_sload") (callback cb-sload)))
     (setf (mem-aref cb :pointer 1)  (callback cb-sstore))
     ;; slots 2/3 (tload/tstore) are null — handlers are fully native
     (setf (mem-aref cb :pointer 4)  (callback cb-balance))

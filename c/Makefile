@@ -83,7 +83,7 @@ CFLAGS   := $(ARCHFLAG) $(MARCH) -fPIC -O2 -DEITA_NO_LEAN_WRAPPER -I$(SECP)/incl
 CXXFLAGS := $(CFLAGS) -std=c++17 -DMCL_FP_BIT=384
 LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lmcl -lcrypto -lgmp
 
-C_SRCS   := eita_compute.c tx_state.c world_slots.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
+C_SRCS   := eita_compute.c tx_state.c world_slots.c storage_host.c generated/storage_effect.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
             $(LEAN_C)/ripemd160.c $(LEAN_C)/ecrecover.c \
             $(LEAN_C)/modexp.c $(LEAN_C)/blake2f.c $(LEAN_C)/p256verify.c \
             $(LEAN_C)/point_evaluation.c
@@ -166,6 +166,11 @@ test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
 	$(BUILD)/test_world_slots
 
 $(BUILD)/world_slots.o: world_slots.c world_slots.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD)/storage_host.o: storage_host.c storage_host.h world_slots.h tx_state.h generated/limb_ops.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD)/storage_effect.o: generated/storage_effect.c storage_host.h generated/limb_ops.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # The native slot tables against a reference finite map, under ASan + UBSan. The CBMC

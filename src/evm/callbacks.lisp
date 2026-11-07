@@ -12,6 +12,26 @@
                                (logand (mem-aref ptr :uint64 2) #xFFFFFFFF))
       (logand (u256-read ptr) #.(1- (ash 1 160)))))
 
+;;; The native SLOAD path (c/storage_host.h; docs/native-storage.md): the vtable's SLOAD slot
+;;; is eita_cb_sload, which runs the C printing of the same term (c/generated/storage_effect.c,
+;;; Evm.CL.EffectC) on a hit in the native slot table and calls cb-sload below otherwise (a
+;;; miss, a frame account it has no id for, or the path off). Off while an observer or the
+;;; read stream is on (they see each access: cb-sload's fault-slot! and storage-of), in the
+;;; differential's reference tier, and with EITA_NATIVE_STORAGE=0.
+(defstartup *native-storage* (not (equal (sb-posix:getenv "EITA_NATIVE_STORAGE") "0")))
+(defstartup *storage-host* (foreign-symbol-pointer "eita_sh_g"))
+
+(declaim (inline storage-host-sync!))
+(defun storage-host-sync! ()
+  "At a frame's entry: the native SLOAD path's world tables, per-tx state, fork and switch."
+  (let ((h *storage-host*) (w *current-world*))
+    (setf (mem-ref h :pointer 0) (if w (eita.state::acct-table-ws! (world-accts w)) (null-pointer))
+          (mem-ref h :pointer 8) *tx-state*
+          (mem-ref h :uint64 16) *fork-ord*
+          (mem-ref h :uint64 24) (if (and w *native-storage* (not *native-storage-ref*)
+                                          (not *view-log*) (null *observer*))
+                                     1 0))))
+
 (defcallback cb-sload :uint64
     ((ctx :pointer) (addr :pointer) (slot :pointer) (out :pointer))
   "The native handler popped the key; the effect — read, EIP-2929 warm-up, original value at
@@ -22,6 +42,9 @@
   (let ((a (read-addr addr)))
     (multiple-value-bind (g v) (spec-sload-effect a slot)
       (u256-write out v)
+      (when (= 1 (mem-ref *storage-host* :uint64 24))   ; the native path is on: give it A's id
+        (%sh-cache-put (eita.state::u256-word a 0) (eita.state::u256-word a 1) (eita.state::u256-word a 2)
+                       (eita.state::acct-table-intern (world-accts *current-world*) a)))
       (cb-gas-check "sload" g :addr a :slot (word-int slot)))))
 
 (defcallback cb-sstore :uint64

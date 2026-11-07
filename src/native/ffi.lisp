@@ -132,3 +132,5 @@
   (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64))
 (defcfun ("eita_ws_drop" %ws-drop) :void (w :pointer) (id :uint64))
 (defcfun ("eita_ws_copy" %ws-copy) :void (dst :pointer) (id :uint64) (src :pointer))
+;; The native SLOAD path (c/storage_host.h): the Lisp path records a frame account's id.
+(defcfun ("eita_sh_cache_put" %sh-cache-put) :void (a0 :uint64) (a1 :uint64) (a2 :uint64) (id :uint64))

@@ -85,18 +85,38 @@ Classes: **derived** (emitted from a verified source), **proved** (a Lean theore
 from), **model-checked** (CBMC: memory safety, and equivalence to the Lean model at small sizes), **tested** (randomized
 differential tests, sanitizer builds, the replay).
 
-### Limb primitives — proved, emitted
+### Limb primitives — proved, emitted (built: step 3)
 
-Defined in Lean limb by limb as the C computes them, proved equal to the U256 operation (the WordOps.lean pattern of
-core def68c3: `eq_ofBV`, `isZero_ofBV`, `lt_ofBV`, `sub_ofBV`, `add_ofBV` over `Limbs.ofBV`/`toBV`), and emitted to
-`c/generated/limb_ops.h`; `verify-host-emit.sh` checks the emitted file for drift.
+`lean/Evm/CL/LimbC.lean`: each primitive is a term of a small limb language (expressions, conditions,
+four-limb assignments) with a meaning, proved equal to its 256-bit operation through `Evm.CL.WordOps`
+(core def68c3: `eq_ofBV`, `isZero_ofBV`, `toBV_ofBV`), and PRINTED to `c/generated/limb_ops.h` from the same
+term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No hand transcription.
 
-| primitive | contract |
-|---|---|
-| `limb_eq(a, b)` | 1 iff the 256-bit values are equal |
-| `limb_is_zero(a)` | 1 iff the value is 0 |
-| `limb_copy(dst, src)` | dst := src, 4 limbs |
-| `limb_zero(dst)` | dst := 0 |
+| primitive | contract | theorem |
+|---|---|---|
+| `limb_eq(a, b)` | 1 iff the 256-bit values are equal | `eqB_spec` |
+| `limb_is_zero(a)` | 1 iff the value is 0 | `isZeroB_spec` |
+| `limb_copy(dst, src)` | dst := src | `copyA_spec` |
+| `limb_zero(dst)` | dst := 0 | `zeroA_spec` |
+
+### The SLOAD effect in C — derived (built: step 3)
+
+`c/generated/storage_effect.c` (`eita_spec_sload_effect`) is `Evm.CL.EffectSload.term` printed as C by
+`Evm.CL.EffectC` (`lake exe emitStorageC`, drift-checked); the term and its proof (`sload_refines`) are the
+ones the Lisp `spec-sload-effect` is printed from. Trusted: the printer (the same class as `toCL`; it fails
+on any construct outside its subset rather than skipping it) and the primitives below.
+
+### The native SLOAD host — tested (built: step 3)
+
+`c/storage_host.{h,c}` (about 60 lines): `eita_cb_sload` in the callbacks vtable's SLOAD slot runs the
+emitted effect on a hit and calls the Lisp callback otherwise (a miss returns before any effect, so the
+Lisp effect runs the whole term); the frame account's id comes from a 64-entry cache the Lisp path fills,
+keyed by the slot tables' serial (a freed table's address may be reused). Its primitives: `eita_sh_hit`
+(`eita_ws_get`), `eita_sh_sload` (`limb_copy`), `eita_sh_access_slot` / `eita_sh_orig_record` (the native
+TxState, unchanged). Off while an observer or the read stream is on, in the differential's reference tier
+and with EITA_NATIVE_STORAGE=0. **Checked by** the differential (native vs Lisp effect on every tx of the
+fixtures, sampled on the 30k replay), the fixtures and the replay; the lint `check-derived-gas.py` covers
+its C (no gas constant outside the emitted file).
 
 ### Table primitives — model-checked + tested (built: owner note 6 step 2)
 

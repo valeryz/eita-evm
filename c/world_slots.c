@@ -37,7 +37,12 @@ static void ws_slots_free(ws_slots *t) {
   free(t->words); free(t->state); free(t);
 }
 
-ws_world *eita_ws_new(void) { return ws_alloc(1, sizeof(ws_world)); }
+ws_world *eita_ws_new(void) {
+  static uint64_t serial;
+  ws_world *w = ws_alloc(1, sizeof(ws_world));
+  w->serial = ++serial;
+  return w;
+}
 
 void eita_ws_free(ws_world *w) {
   if (!w) return;

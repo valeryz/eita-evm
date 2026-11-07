@@ -1,6 +1,6 @@
 # Native storage: SLOAD/SSTORE without the Lisp host (plan, owner note 6)
 
-Status: step 2 of 5 built (the native slot tables; every storage path routed). Branch `perf-native-storage` off
+Status: steps 2 and 3 of 5 built (the native slot tables, every storage path routed; the native SLOAD path). Branch `perf-native-storage` off
 `perf-x86`.
 
 ## Why

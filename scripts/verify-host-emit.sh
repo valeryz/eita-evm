@@ -67,6 +67,15 @@ for pair in "emitARM64:handlers.S" "emitX86Interp elf:handlers-x86-elf.S"; do
   if cmp -s ../c/$out /tmp/_emit_check.S; then echo "c/$out up to date with the Lean emitter OK"
   else echo "DRIFT: c/$out != lake exe $exe"; echo "  fix: ./build.sh (regenerates it)"; exit 1; fi
 done
+# ...the native storage path's emitted C: the limb primitives (proved in Evm.CL.LimbC) and
+# the effect functions printed from the effect IR (Evm.CL.EffectC)...
+build /tmp/_emit_storage_build.log emitLimbC emitStorageC Evm.CL.LimbC
+for pair in "emitLimbC:generated/limb_ops.h" "emitStorageC:generated/storage_effect.c"; do
+  exe=${pair%%:*}; out=${pair##*:}
+  emit /tmp/_emit_run.err /tmp/_emit_check.c lake env ./.lake/build/bin/$exe
+  if cmp -s ../c/$out /tmp/_emit_check.c; then echo "c/$out up to date with the Lean emitter OK"
+  else echo "DRIFT: c/$out != lake exe $exe"; echo "  fix: (cd lean && lake exe $exe > ../c/$out)"; exit 1; fi
+done
 # ...and no gas schedule copied by hand into the replay code around it
 python3 ../scripts/check-derived-gas.py   # cwd is lean/ here
 # ...and the committed interpreter runs against CHECKING callbacks (c/test_interp.c: the

@@ -38,6 +38,7 @@ typedef struct ws_slots {
 typedef struct ws_world {
   uint64_t n;       /* ids below n have a directory entry */
   ws_slots **acct;  /* n entries, NULL: no table */
+  uint64_t serial;  /* unique per ws_world made (an address may be reused after a free) */
 } ws_world;
 
 #define WS_MAX_CAP (UINT64_C(1) << 40)

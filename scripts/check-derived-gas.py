@@ -27,6 +27,14 @@ NUM = re.compile(r"(?<![\w.#-])(%s)(?![\w.])" % "|".join(map(str, SCHEDULE)))
 # fixture code compute no gas).
 FILES = sorted(os.path.relpath(p, ROOT) for d in ("native", "core", "evm", "input", "chains")
                for p in glob.glob(os.path.join(ROOT, "src", d, "*.lisp"))) + ["src/state/world.lisp"]
+# ...and the hand-written C of the native storage path (its effects are c/generated/'s)
+FILES += ["c/storage_host.c", "c/storage_host.h", "c/world_slots.c", "c/world_slots.h"]
+
+
+def c_code_only(text):
+    """C text with /* */ and // comments and "strings" blanked (newlines kept)."""
+    blank = lambda m: "".join(ch if ch == "\n" else " " for ch in m.group(0))
+    return re.sub(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"', blank, text, flags=re.S)
 
 
 def code_only(text):
@@ -71,7 +79,7 @@ def main():
         path = os.path.join(ROOT, rel)
         if not os.path.exists(path):
             sys.exit(f"check-derived-gas: {rel} is missing")
-        for no, line in enumerate(code_only(open(path, encoding="utf-8").read()).split("\n"), 1):
+        for no, line in enumerate((c_code_only if path.endswith((".c", ".h")) else code_only)(open(path, encoding="utf-8").read()).split("\n"), 1):
             for m in NUM.finditer(line):
                 hit = next((k for k, (f, rx, _) in enumerate(allow) if f == rel and rx.search(line)), None)
                 if "--list" in sys.argv:
