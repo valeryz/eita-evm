@@ -161,7 +161,7 @@
             *current-state*   state)
       ;; Init code runs once per deployment — never hot: straight to the interp, as
       ;; cb-create's init frames.
-      (cond (create (eita-run state))
+      (cond (create (storage-host-sync!) (eita-run state))
             (*diff-tiers* (diff-run-tiers state code))
             (t (run-frame state code)))
       (let* ((halted   (not (zerop (mem-ref state :uint8 128))))

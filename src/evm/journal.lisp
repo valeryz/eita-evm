@@ -219,6 +219,7 @@
    prewarm), at most half full; never above the table's CAP (sized from +block-gas-limit+)."
   (1- (min cap (max 1024 (next-pow2 (* 2 (+ 256 (ceiling gas-limit min-gas))))))))
 
+(declaim (ftype function storage-host-sync!))
 (defun reset-tx-state (&optional gas-limit)
   "Reset per-tx native state — O(1) epoch bump (eita_ts_reset): the journal, the EIP-2929
    accessed sets, EIP-1153's transient storage, the refund counter, the created set, the
@@ -241,4 +242,5 @@
             (mem-ref ts :uint64 40) (mask 32000 +ts-created-cap+)
             (mem-ref ts :uint64 48) (mask 1900 +ts-orig-cap+))))
   (%ts-reset *tx-state*)
+  (storage-host-sync!)                  ; the native storage path: this tx's world (never a freed one)
   (forget-tx-sets!))                    ; EIP-161 touched set is per-tx (#252)

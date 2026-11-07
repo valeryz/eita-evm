@@ -356,6 +356,7 @@
         (setf *current-state*   sub-state)
         (incf *call-depth*)
         ;; Initcode runs once per deployment — never hot, stays interp.
+        (storage-host-sync!)                   ; every frame entry syncs the native storage path
         (unwind-protect (eita-run sub-state)
           (decf *call-depth*)
           (setf *current-state*   parent-state)
