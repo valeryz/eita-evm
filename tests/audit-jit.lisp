@@ -102,13 +102,18 @@
         (run-jit s-jit run-chunk table)
         (let ((a (full-snapshot s-interp))
               (b (full-snapshot s-jit)))
-          (if (snapshots-match a b)
-              (format t "  PASS  ~A~%" name)
-              (progn
-                (incf *failures*)
-                (format t "  FAIL  ~A~%" name)
-                (format t "        interp: ~A~%" a)
-                (format t "        jit:    ~A~%" b))))))
+          (cond
+            ((not (and (state-guard-intact-p s-interp) (state-guard-intact-p s-jit)))
+             (incf *failures*)
+             (format t "  FAIL  ~A: a tier wrote past the ~D-byte EvmState (interp guard ~:[clobbered~;intact~], jit guard ~:[clobbered~;intact~])~%"
+                     name +evm-state-size+ (state-guard-intact-p s-interp) (state-guard-intact-p s-jit)))
+            ((snapshots-match a b)
+             (format t "  PASS  ~A~%" name))
+            (t
+             (incf *failures*)
+             (format t "  FAIL  ~A~%" name)
+             (format t "        interp: ~A~%" a)
+             (format t "        jit:    ~A~%" b))))))
     (setf *aux-buffers* nil)))
 
 ;; --- Program corpus ---

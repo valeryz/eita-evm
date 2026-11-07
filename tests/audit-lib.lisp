@@ -262,15 +262,30 @@
 (defparameter *aux-buffers* nil)
 (defun track-aux (buf) (push buf *aux-buffers*) buf)
 
+;; A guard tail after every EvmState the audits allocate: the native tiers must never write
+;; past the struct. A harness that allocates fewer bytes than the handlers use (it once
+;; allocated 600 after EvmState grew to 608: x86-64 eita_run/eita_execute_program store
+;; cont_table at offset 600) corrupts the malloc heap, which faulted later suites only
+;; intermittently; the guard turns that into a deterministic failure of the program that wrote it.
+(defconstant +state-guard-bytes+ 64)
+(defconstant +state-guard-byte+ #xA5)
+
+(defun state-guard-intact-p (state)
+  "True when the guard tail after STATE's +evm-state-size+ bytes is untouched."
+  (loop for i from +evm-state-size+ below (+ +evm-state-size+ +state-guard-bytes+)
+        always (= (mem-aref state :uint8 i) +state-guard-byte+)))
+
 (defun build-native-state (pre)
   "Allocate an EvmState* and a backing stack array; populate from PRE.
    Returns (values state stack arena journal)."
-  (let ((state (foreign-alloc :uint8 :count +evm-state-size+ :initial-element 0))
+  (let ((state (foreign-alloc :uint8 :count (+ +evm-state-size+ +state-guard-bytes+) :initial-element 0))
         (stack (foreign-alloc :uint8
                               :count (* +stack-capacity+ +u256-bytes+)
                               :initial-element 0))
         ;; Always allocate a large memory buffer (preallocated per-frame).
         (mem  (foreign-alloc :uint8 :count (* 64 1024) :initial-element 0)))
+    (loop for i from +evm-state-size+ below (+ +evm-state-size+ +state-guard-bytes+)
+          do (setf (mem-aref state :uint8 i) +state-guard-byte+))
     (setf (mem-ref state :pointer +memory-offset+) mem)
     (setf (mem-ref state :uint64 +memory-cap-offset+) (* 64 1024))
     (track-aux mem)
