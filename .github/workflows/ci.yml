@@ -68,6 +68,14 @@ jobs:
       - name: Emitted-artifact drift, effect proofs, derived-gas lint, test_interp
         run: scripts/verify-host-emit.sh
 
+      - name: Native slot tables (ASan/UBSan unit test, the Lean model's trace, CBMC proofs)
+        run: |
+          make -C c test_world_slots test_world_slots_model
+          curl -sSLo /tmp/cbmc.deb https://github.com/diffblue/cbmc/releases/download/cbmc-6.11.0/ubuntu-24.04-cbmc-6.11.0-Linux.deb
+          echo "b3721aa541038384d7801ea3aeabbcddc3e8845ac8f1cbff637cf8dec7481ac8  /tmp/cbmc.deb" | sha256sum -c
+          dpkg-deb -x /tmp/cbmc.deb /tmp/cbmc
+          CBMC=/tmp/cbmc/usr/bin/cbmc c/cbmc/run.sh
+
       - name: Fetch the BlockchainTests sample (pinned commit)
         run: |
           git init -q /tmp/legacytests

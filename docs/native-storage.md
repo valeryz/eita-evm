@@ -1,6 +1,7 @@
 # Native storage: SLOAD/SSTORE without the Lisp host (plan, owner note 6)
 
-Status: plan, step 1 of 5. Branch `perf-native-storage` off `perf-x86`. Nothing here is built yet.
+Status: step 2 of 5 built (the native slot tables; every storage path routed). Branch `perf-native-storage` off
+`perf-x86`.
 
 ## Why
 
@@ -16,18 +17,23 @@ replay thread; each step is measured.
 
 ### 1. One owner per slot
 
-A native open-addressed table, `WorldSlots` (c/world_slots.{h,c}), holds every loaded slot:
+Native slot tables (c/world_slots.{h,c}) hold every loaded slot:
 
-    key   = (account index: u32, slot: u256)         account index = the world's account-table id
-    entry = key (40 B) + value (32 B) + state (u8: empty / full / tombstone) -> 80 B, 64-bit aligned
-    probe = linear, power-of-two capacity, at most 3/4 full; grown by rehash (values kept)
+    ws_world  = per account table: a directory, account id -> ws_slots (or none)
+    ws_slots  = one account's slots: key (u256) -> value (u256), four limbs each
+    entry     = 8 limbs (key, value) + a state byte (empty / full / tombstone)
+    probe     = linear, power-of-two capacity, at most 3/4 used; grown by rehash
 
-One table for the whole world (not one per account), so a hot slot costs one probe sequence, not an account
-lookup plus a per-account table. Once a slot is loaded the native table is THE copy: the Lisp `slots` tables are
-deleted for storage (they remain only if another user needs the struct; the plan's step 2 decides). Lisp reads and
-writes go through native accessors (`eita_ws_get`, `eita_ws_put`, `eita_ws_remove`, `eita_ws_map`,
-`eita_ws_wipe`), which take limbs, so the effect layer's bignums are made only where Lisp genuinely needs an
-integer (an observer, the root checker).
+Built (step 2) as one table per account under a directory, not the single world-wide table first planned:
+a wipe (SELFDESTRUCT, a failed CREATE, the EIP-161 sweep) and an account's slot walk (the root checker, a journaled
+wipe, a layer write) then cost the account's slots, not a scan of the world's; and with the Lisp table's hash,
+probe, tombstones and growth kept exactly, an account's slots are walked in the same order as before, so the
+journal of a wipe, the layer files and the observers see the same sequences. A hit costs one directory load and
+one probe sequence. A ws_world belongs to an account table (ids are per table; a freeze hands the frozen layer
+its table and so its slots), is made on the table's first write and freed with it (a finalizer). The native
+tables are THE copy: the Lisp `slots` struct and its table code are deleted. Lisp reads and writes go through
+`acct-slot-get`, `acct-slot-put!`, `acct-slot-present-p`, `acct-slots-map`, `acct-slots-drop!` and `%ws-copy`
+(state/world.lisp), which pass limbs, so bignums are made only where Lisp needs an integer.
 
 Per-tx records stay where they are today, in the native TxState (c/tx_state.h): the EIP-2929 accessed-slot set,
 EIP-2200 originals (first-touch value and order), transient storage, refunds. Nothing moves; the native SLOAD/SSTORE

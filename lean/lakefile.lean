@@ -119,6 +119,9 @@ lean_exe asmEncodeVectors where
 lean_exe sstoreGasVectors where
   root := `SstoreGasVectors
 
+lean_exe worldSlotsVectors where
+  root := `WorldSlotsVectors
+
 private def cFlags (extra : Array String := #[]) : FetchM (Array String) := do
   let leanInc := (← getLeanIncludeDir).toString
   return #["-I", leanInc, "-I", "/opt/homebrew/include",

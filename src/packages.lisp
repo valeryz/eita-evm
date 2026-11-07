@@ -27,6 +27,7 @@
            #:%mprotect #:%ripemd160-hash #:%run-program #:%set-fork #:%sha256-hash
            #:%ts-access-addr #:%ts-access-addrs #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
            #:%ts-orig-get #:%ts-orig-record #:%ts-refund-add #:%ts-reset #:%ts-revert
+           #:%ws-copy #:%ws-drop #:%ws-free #:%ws-get #:%ws-new #:%ws-put #:%ws-remove
            #:*image-p* #:at-startup #:code-version #:code-version-manifest #:defstartup
            #:dir-of #:eita-file #:eita-home #:eita-keccak256 #:eita-lib-ext #:eita-run
            #:emit-jit-path #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
@@ -94,14 +95,14 @@
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
            #:account-marked-p #:account-uncreate! #:account-unmark! #:acct-addr #:acct-balance
            #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
-           #:acct-nonce #:acct-set-flag! #:acct-storage #:acct-table-intern-words #:anchor!
+           #:acct-nonce #:acct-set-flag! #:acct-slots #:acct-slots-map #:acct-table-intern-words #:anchor!
            #:anchor-compositions #:anchor-due-p #:balance-clear! #:balance-delta! #:balance-of
-           #:bytes->hex-string #:code-clear! #:code-of #:copy-slots #:copy-world*
+           #:bytes->hex-string #:code-clear! #:code-of #:copy-world*
            #:drop-stale-rootouts! #:fault-account! #:fault-slot! #:finish-anchors!
            #:genesis-base! #:hot-over-budget-p #:layer-due-p #:load-genesis-alloc #:make-world
            #:map-accts #:mpt-post-block-hook #:mpt-stop-worker #:nonce-clear! #:nonce-of
            #:populate-world #:prune-dumps! #:resume-stack! #:rollback-to! #:root-check!
-           #:root-check-poll! #:slots #:slots-map #:slots-state #:slots-words #:snapshot-dir
+           #:root-check-poll! #:snapshot-dir
            #:stack-composition #:stop-background! #:storage-of #:u256 #:with-acct #:world
            #:world-accts #:world-state-root #:world-storage-get #:world-storage-set))
 

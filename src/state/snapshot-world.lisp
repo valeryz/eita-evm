@@ -66,17 +66,15 @@
            nil)))
     (:slot
      (destructuring-bind (addr slot) args
-       (let* ((tb (ram-layer-accts l)) (a (acct-table-find tb addr))
-              (tbl (and (>= a 0) (acct-storage tb a))))
-         (multiple-value-bind (v present) (if tbl (slots-get tbl slot) (values 0 nil))
+       (let* ((tb (ram-layer-accts l)) (a (acct-table-find tb addr)))
+         (multiple-value-bind (v present) (if (>= a 0) (acct-slot-get tb a slot) (values 0 nil))
            (if present
                (values t v nil)
                (values nil 0 (and (>= a 0) (acct-flag-p tb a +acct-wiped+))))))))
     (:map-slots
      (destructuring-bind (addr fn) args
-       (let* ((tb (ram-layer-accts l)) (a (acct-table-find tb addr))
-              (tbl (and (>= a 0) (acct-storage tb a))))
-         (when tbl (slots-map fn tbl))
+       (let* ((tb (ram-layer-accts l)) (a (acct-table-find tb addr)))
+         (when (>= a 0) (acct-slots-map fn tb a))
          (and (>= a 0) (acct-flag-p tb a +acct-wiped+)))))
     (:code nil)))                       ; codes come with their account (CODE above)
 
@@ -111,9 +109,8 @@
    this for an absent key only): the value read from the stack is installed even when it
    is 0, and stays present when set to 0."
   (with-acct (tb a) *current-world* addr
-    (let ((tbl (or (acct-storage tb a) (setf (acct-storage tb a) (make-slots)))))
-      (incf (getf *snap-stats* :slot-faults))
-      (slots-put tbl slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot))))))
+    (incf (getf *snap-stats* :slot-faults))
+    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot)))))
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
 
@@ -122,11 +119,10 @@
    not faulted (and so not overridden), unless ADDR's storage was wiped since the freeze."
   (with-acct (tb a) *current-world* addr
    (unless (acct-flag-p tb a +acct-wiped+)
-    (let ((tbl (acct-storage tb a)))
-      (eita.state.snapshot:view-map-account-storage
-       *layers* *base* addr (lambda (slot v)
-                              (unless (and tbl (slots-present-p tbl slot))
-                                (funcall fn slot v))))))))
+    (eita.state.snapshot:view-map-account-storage
+     *layers* *base* addr (lambda (slot v)
+                            (unless (acct-slot-present-p tb a slot)
+                              (funcall fn slot v)))))))
 
 (defun clear-hot! (world)
   "An empty hot set (fresh tables: the old ones may be a frozen layer now)."
@@ -175,8 +171,8 @@
     (map-accts (lambda (r)
                  (when (if full
                            (or (not (eql 0 (acct-balance tb r))) (not (eql 0 (acct-nonce tb r)))
-                               (acct-code-entry tb r) (acct-storage tb r) (acct-flag-p tb r +acct-marked+))
-                           (or (acct-flag-p tb r (logior +acct-faulted+ +acct-wiped+)) (acct-storage tb r)))
+                               (acct-code-entry tb r) (acct-slots tb r) (acct-flag-p tb r +acct-marked+))
+                           (or (acct-flag-p tb r (logior +acct-faulted+ +acct-wiped+)) (acct-slots tb r)))
                    (push r recs)))
                (ram-layer-accts l))
     (let ((m (eita.state.snapshot:make-merge tmp *chain-id* n (ram-layer-root l) nil :parent (and (not full) p))))
@@ -194,9 +190,8 @@
                      (multiple-value-bind (found nonce balance codehash flag)
                          (eita.state.snapshot:view-account below-layers below-base a)
                        (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil)))))
-               (stbl (acct-storage tb r))
                (slots (let ((kv '()))
-                        (when stbl (slots-map (lambda (k v) (push (cons k v) kv)) stbl))
+                        (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r)
                         (sort kv #'< :key #'car))))
           (eita.state.snapshot:merge-account m a :fields fields :slots slots :wiped (acct-flag-p tb r +acct-wiped+))))
       (eita.state.snapshot:merge-finish m (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))

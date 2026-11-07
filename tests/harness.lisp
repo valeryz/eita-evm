@@ -60,6 +60,7 @@
     ("mpt-incremental" "mpt-incremental.lisp")
     ("snapshot-root" "snapshot-root.lisp")
     ("layers" "layers.lisp")
+    ("world-slots" "world-slots.lisp")
     ("p256verify" "p256verify.lisp")
     ("observer-invariance" "observer-invariance.lisp")
     ("arc-pq" "arc-pq.lisp"

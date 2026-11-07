@@ -83,7 +83,7 @@ CFLAGS   := $(ARCHFLAG) $(MARCH) -fPIC -O2 -DEITA_NO_LEAN_WRAPPER -I$(SECP)/incl
 CXXFLAGS := $(CFLAGS) -std=c++17 -DMCL_FP_BIT=384
 LDFLAGS  := $(ARCHFLAG) $(SHARED) -O2 $(LIBDIRS) $(RPATHS) -lmcl -lcrypto -lgmp
 
-C_SRCS   := eita_compute.c tx_state.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
+C_SRCS   := eita_compute.c tx_state.c world_slots.c $(LEAN_C)/keccak.c $(LEAN_C)/keccak_sha3.c $(LEAN_C)/sha256.c \
             $(LEAN_C)/ripemd160.c $(LEAN_C)/ecrecover.c \
             $(LEAN_C)/modexp.c $(LEAN_C)/blake2f.c $(LEAN_C)/p256verify.c \
             $(LEAN_C)/point_evaluation.c
@@ -160,9 +160,24 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
+	$(BUILD)/test_world_slots
+
+$(BUILD)/world_slots.o: world_slots.c world_slots.h | $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# The native slot tables against a reference finite map, under ASan + UBSan. The CBMC
+# harness (bounds, overflow, pointers; equivalence to the model at small sizes): cbmc/run.sh.
+test_world_slots: $(BUILD)/test_world_slots
+	$(BUILD)/test_world_slots
+# The same binary on a trace of the Lean model (lean/WorldSlotsVectors.lean).
+test_world_slots_model: $(BUILD)/test_world_slots
+	cd ../lean && lake build worldSlotsVectors >/dev/null && lake env ./.lake/build/bin/worldSlotsVectors 50000 > ../c/$(BUILD)/ws-vectors.txt
+	$(BUILD)/test_world_slots $(BUILD)/ws-vectors.txt
+$(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots.h | $(BUILD)
+	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -o $@ test_world_slots.c world_slots.c
 
 $(BUILD)/test_tx_state: test_tx_state.c tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(ARCHFLAG) -O1 -o $@ test_tx_state.c tx_state.c

@@ -117,3 +117,18 @@
   (fd :int) (offset :int64))
 (defcfun ("mprotect" %mprotect) :int
   (addr :pointer) (len :size) (prot :int))
+
+;;; The world's storage slots (c/world_slots.h): one ws_world per account table, keys and
+;;; values as four limbs (least significant first). Inlined: on the SLOAD/SSTORE path.
+(declaim (inline %ws-get %ws-put %ws-remove))
+(defcfun ("eita_ws_new" %ws-new) :pointer)
+(defcfun ("eita_ws_free" %ws-free) :void (w :pointer))
+(defcfun ("eita_ws_get" %ws-get) :pointer
+  (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64))
+(defcfun ("eita_ws_put" %ws-put) :void
+  (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64)
+  (v0 :uint64) (v1 :uint64) (v2 :uint64) (v3 :uint64))
+(defcfun ("eita_ws_remove" %ws-remove) :void
+  (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64))
+(defcfun ("eita_ws_drop" %ws-drop) :void (w :pointer) (id :uint64))
+(defcfun ("eita_ws_copy" %ws-copy) :void (dst :pointer) (id :uint64) (src :pointer))

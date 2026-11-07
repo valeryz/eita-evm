@@ -159,10 +159,9 @@
 
 (defun mpt-full-slot-list (w addr)
   "ADDR's FULL list of (slot . value) for every non-zero slot it holds."
-  (let ((stbl (with-acct (tb a) w addr (acct-storage tb a))) (storage '()))
-    (when stbl
-      (slots-map (lambda (slot val) (unless (zerop val) (push (cons slot val) storage)))
-                 stbl))
+  (let ((storage '()))
+    (with-acct (tb a) w addr
+      (acct-slots-map (lambda (slot val) (unless (zerop val) (push (cons slot val) storage))) tb a))
     storage))
 
 (defun mpt-account-snapshot (w addr &optional (dirt :all))
@@ -253,7 +252,7 @@
           (let ((tb (world-accts world)))
             (map-accts (lambda (r)
                          (when (or (not (eql 0 (acct-balance tb r))) (not (eql 0 (acct-nonce tb r)))
-                                   (acct-code-entry tb r) (acct-storage tb r) (acct-flag-p tb r +acct-marked+))
+                                   (acct-code-entry tb r) (acct-slots tb r) (acct-flag-p tb r +acct-marked+))
                            (setf (gethash (acct-addr tb r) addrs) t)))
                        tb))
           (maphash (lambda (addr v) (declare (ignore v))
@@ -269,12 +268,9 @@
          (balance (balance-of w addr))
          (code    (with-acct (tb a) w addr (acct-code-entry tb a)))
          (present-set (with-acct (tb a) w addr (acct-flag-p tb a +acct-marked+)))
-         (stbl    (with-acct (tb a) w addr (acct-storage tb a)))
          (storage '()))
-    (when stbl
-      (slots-map (lambda (slot val)
-                   (unless (zerop val) (push (cons slot val) storage)))
-                 stbl))
+    (with-acct (tb a) w addr
+      (acct-slots-map (lambda (slot val) (unless (zerop val) (push (cons slot val) storage))) tb a))
     (list :addr addr :nonce nonce :balance balance
           :code (when (and code (plusp (length code))) (copy-seq code))
           :full-storage storage :present present-set)))

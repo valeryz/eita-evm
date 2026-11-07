@@ -7,7 +7,7 @@
 ;;; An address (an integer below 2^160) is interned once per ACCOUNT TABLE into an ID, a
 ;;; fixnum in interning order — the compact key Block-STM's versioned reads and writes
 ;;; need. The account's fields live in the table's vectors at that index (balance, nonce,
-;;; code, storage — a SLOTS table, below — and flag bits): no object per account for the GC
+;;; code and flag bits; its storage is in the table's native slot tables, below): no object per account for the GC
 ;;; to scan or copy. The address index is open addressing over the address's three 64-bit
 ;;; words — no bignum hashing, nothing consed on a hit — with a one-entry cache, because an
 ;;; effect touches the same address object several times in a row (fault, read, journal,
@@ -44,14 +44,14 @@
   (nonce (make-array 256 :element-type '(unsigned-byte 64) :initial-element 0)
    :type (simple-array (unsigned-byte 64) (*)))
   (code (make-array 256 :initial-element +no-code+) :type simple-vector) ; +no-code+: no entry
-  (storage (make-array 256 :initial-element nil) :type simple-vector)    ; SLOTS, or NIL
   (bits (make-array 256 :element-type 'fixnum :initial-element 0) :type (simple-array fixnum (*)))
   (last-addr nil) (last-id -1 :type fixnum)                ; the cache (the replay thread's)
   ;; a direct-mapped cache in front of the index (replay thread): the index is as large as
   ;; the hot set (millions of accounts), so a probe is a DRAM miss; a block touches few
   (cache-addrs (make-array 64 :initial-element nil) :type simple-vector)
   (cache-ids (make-array 64 :element-type 'fixnum :initial-element -1) :type (simple-array fixnum (*)))
-  (faulted 0 :type fixnum))                                ; ids with +acct-faulted+
+  (faulted 0 :type fixnum)                                 ; ids with +acct-faulted+
+  (ws nil :type (or null sb-sys:system-area-pointer)))     ; the storage (ws_world), made on first write
 
 (defun make-acct-table (&optional (cap 1024))
   (%make-acct-table (make-array (* 3 cap) :element-type '(unsigned-byte 64))
@@ -89,7 +89,6 @@
               (acct-table-nonce tb) (replace (make-array (* 2 n) :element-type '(unsigned-byte 64) :initial-element 0)
                                              (acct-table-nonce tb))
               (acct-table-code tb) (more (acct-table-code tb) +no-code+)
-              (acct-table-storage tb) (more (acct-table-storage tb) nil)
               (acct-table-bits tb) (replace (make-array (* 2 n) :element-type 'fixnum :initial-element 0)
                                             (acct-table-bits tb)))))))
 
@@ -181,7 +180,6 @@
   (unless (typep x '(unsigned-byte 64)) (error "nonce of ~X out of range: ~A" (acct-addr tb id) x))
   (setf (aref (acct-table-nonce tb) id) x))
 (def-acct-field acct-code acct-table-code)
-(def-acct-field acct-storage acct-table-storage)
 (declaim (inline acct-bits (setf acct-bits) acct-flag-p acct-code-entry))
 (defun acct-bits (tb id) (aref (acct-table-bits tb) id))
 (defun (setf acct-bits) (v tb id) (setf (aref (acct-table-bits tb) id) v))
@@ -294,131 +292,86 @@
     (when *mpt-tracking* (mpt-touch! addr))
     (with-acct (tb a) w addr (incf (acct-balance tb a) amount))))
 
-;;; --- Packed storage (docs/state-snapshot-format.md) ---
+;;; --- Storage: the native slot tables (c/world_slots.h; docs/native-storage.md) ---
 ;;;
-;;; One account's storage: an open-addressing table whose keys and values are kept as four
-;;; raw 64-bit words each, in one (unsigned-byte 64) vector — no bignum per key or value,
-;;; no hash-table entry. An EQL hash table of bignums cost ~110 B per slot (measured: two
-;;; 256-bit bignums plus the entry); this is 64 B per entry at most 3/4 full. A key that is
-;;; PRESENT may hold 0: a snapshot-backed world keeps faulted zero slots that way, so
+;;; THE copy of every loaded slot: per account id, an open-addressing table of four-limb
+;;; keys and values in native memory (a ws_world per account table, made on its first
+;;; write and freed with the table). No bignum per key or value, no GC scan. A key that
+;;; is PRESENT may hold 0: a snapshot-backed world keeps faulted zero slots that way, so
 ;;; "faulted" needs no second table (`*keep-zero-slots*`); a full world removes zeros.
-
-(defstruct (slots (:constructor %make-slots (cap words state)))
-  (count 0 :type fixnum)                ; present keys
-  (used 0 :type fixnum)                 ; present + tombstones
-  (cap 0 :type fixnum)                  ; a power of two
-  (words nil :type (simple-array (unsigned-byte 64) (*)))   ; cap × (4 key + 4 value)
-  (state nil :type (simple-array (unsigned-byte 8) (*))))   ; 0 empty, 1 full, 2 tombstone
-
-(defun make-slots (&optional (cap 4))
-  (%make-slots cap (make-array (* 8 cap) :element-type '(unsigned-byte 64))
-               (make-array cap :element-type '(unsigned-byte 8) :initial-element 0)))
+;;; Whether an id HAS a table (`acct-slots`) is part of the state: a write creates it, a
+;;; wipe drops it, and a layer lists the accounts whose storage was touched by it.
 
 (defvar *keep-zero-slots* nil
   "True in a snapshot-backed world: a slot set to 0 stays present (it was faulted, and
    the checkpoint must delete it from the snapshot).")
 
+(defun acct-table-ws! (tb)
+  "TB's ws_world, made (and its freeing arranged) on first use."
+  (or (acct-table-ws tb)
+      (let ((w (%ws-new)))
+        (sb-ext:finalize tb (lambda () (%ws-free w)) :dont-save t)
+        (setf (acct-table-ws tb) w))))
 
-(declaim (inline slots-hash))
-(defun slots-hash (k0 k1 mask)
-  (declare (type (unsigned-byte 64) k0 k1) (type fixnum mask) (optimize (speed 3) (safety 0)))
-  (logand (ash (logand (+ (logand (* k0 #x9E3779B97F4A7C15) #xFFFFFFFFFFFFFFFF) k1) #xFFFFFFFFFFFFFFFF) -17) mask))
-
-(defun slots-find (tbl key)
-  "Index of KEY's entry, or (- -1 insertion-index) when absent."
-  (declare (type slots tbl) (optimize (speed 3) (safety 0)))
-  (let* ((k0 (u256-word key 0)) (k1 (u256-word key 1)) (k2 (u256-word key 2)) (k3 (u256-word key 3))
-         (words (slots-words tbl)) (state (slots-state tbl))
-         (mask (1- (slots-cap tbl))) (i (slots-hash k0 k1 mask)) (tomb -1))
-    (declare (type (unsigned-byte 64) k0 k1 k2 k3) (type fixnum mask i tomb))
-    (loop
-      (let ((st (aref state i)))
-        (cond ((= st 0) (return (- -1 (if (>= tomb 0) tomb i))))
-              ((= st 2) (when (< tomb 0) (setf tomb i)))
-              (t (let ((o (* 8 i)))
-                   (declare (type fixnum o))
-                   (when (and (= (aref words o) k0) (= (aref words (+ o 1)) k1)
-                              (= (aref words (+ o 2)) k2) (= (aref words (+ o 3)) k3))
-                     (return i))))))
-      (setf i (logand (1+ i) mask)))))
-
-(defun slots-get (tbl key)
-  "(values value present-p); 0 when absent."
-  (declare (type slots tbl))
-  (let ((i (slots-find tbl key)))
-    (declare (type fixnum i))
-    (if (minusp i)
+(declaim (inline acct-slots acct-slot-get acct-slot-present-p))
+(defun acct-slots (tb id)
+  "ID's slot table (a ws_slots pointer), or NIL when it has none (ws_world: n, acct)."
+  (declare (type acct-table tb) (type fixnum id) (optimize (speed 3) (safety 0)))
+  (let ((w (acct-table-ws tb)))
+    (when (and w (< id (the fixnum (sb-sys:sap-ref-64 w 0))))
+      (let ((p (sb-sys:sap-ref-sap (sb-sys:sap-ref-sap w 8) (* 8 id))))
+        (unless (zerop (sb-sys:sap-int p)) p)))))
+(defun acct-slot-get (tb id key)
+  "(values value present-p) of ID's slot KEY; 0 when absent."
+  (declare (type acct-table tb) (type fixnum id))
+  (let ((w (acct-table-ws tb)))
+    (if (null w)
         (values 0 nil)
-        (let ((w (slots-words tbl)) (o (* 8 i)))
-          (values (words-u256 (aref w (+ o 4)) (aref w (+ o 5)) (aref w (+ o 6)) (aref w (+ o 7))) t)))))
-
-(declaim (inline slots-present-p))
-(defun slots-present-p (tbl key)
-  "Is KEY present in TBL (a fault test: no value is built)?"
-  (>= (the fixnum (slots-find tbl key)) 0))
-
-(defun slots-grow (tbl)
-  (let* ((old-w (slots-words tbl)) (old-s (slots-state tbl)) (old-cap (slots-cap tbl))
-         (cap (if (> (* 2 (slots-count tbl)) old-cap) (* 2 old-cap) old-cap)))  ; same size: tombstones only
-    (setf (slots-cap tbl) cap (slots-count tbl) 0 (slots-used tbl) 0
-          (slots-words tbl) (make-array (* 8 cap) :element-type '(unsigned-byte 64))
-          (slots-state tbl) (make-array cap :element-type '(unsigned-byte 8) :initial-element 0))
-    (dotimes (i old-cap)
-      (when (= (aref old-s i) 1)
-        (let ((o (* 8 i)))
-          (slots-put tbl (words-u256 (aref old-w o) (aref old-w (+ o 1)) (aref old-w (+ o 2)) (aref old-w (+ o 3)))
-                     (words-u256 (aref old-w (+ o 4)) (aref old-w (+ o 5)) (aref old-w (+ o 6)) (aref old-w (+ o 7)))))))))
-
-(defun slots-put (tbl key val)
-  (declare (type slots tbl))
-  (when (>= (* 4 (1+ (slots-used tbl))) (* 3 (slots-cap tbl))) (slots-grow tbl))
-  (let* ((i (slots-find tbl key)) (w (slots-words tbl)))
-    (declare (type fixnum i))
-    (when (minusp i)
-      (setf i (- -1 i))
-      (when (= (aref (slots-state tbl) i) 0) (incf (slots-used tbl)))
-      (setf (aref (slots-state tbl) i) 1)
-      (incf (slots-count tbl))
-      (let ((o (* 8 i)))
-        (setf (aref w o) (u256-word key 0) (aref w (+ o 1)) (u256-word key 1)
-              (aref w (+ o 2)) (u256-word key 2) (aref w (+ o 3)) (u256-word key 3))))
-    (let ((o (* 8 i)))
-      (setf (aref w (+ o 4)) (u256-word val 0) (aref w (+ o 5)) (u256-word val 1)
-            (aref w (+ o 6)) (u256-word val 2) (aref w (+ o 7)) (u256-word val 3)))
-    val))
-
-(defun slots-remove (tbl key)
-  (let ((i (slots-find tbl key)))
-    (unless (minusp i)
-      (setf (aref (slots-state tbl) i) 2)
-      (decf (slots-count tbl)))))
-
-(defun slots-map (fn tbl)
-  "FN (key value) for every present key (values may be 0 in a snapshot-backed world)."
-  (let ((w (slots-words tbl)) (s (slots-state tbl)))
-    (dotimes (i (slots-cap tbl))
-      (when (= (aref s i) 1)
-        (let ((o (* 8 i)))
-          (funcall fn (words-u256 (aref w o) (aref w (+ o 1)) (aref w (+ o 2)) (aref w (+ o 3)))
-                   (words-u256 (aref w (+ o 4)) (aref w (+ o 5)) (aref w (+ o 6)) (aref w (+ o 7)))))))))
-
-(defun world-get-storage-table (w addr)
-  (with-acct (tb a) w addr
-    (or (acct-storage tb a) (setf (acct-storage tb a) (make-slots)))))
+        (let ((p (%ws-get w id (u256-word key 0) (u256-word key 1) (u256-word key 2) (u256-word key 3))))
+          (if (zerop (sb-sys:sap-int p))
+              (values 0 nil)
+              (values (words-u256 (sb-sys:sap-ref-64 p 0) (sb-sys:sap-ref-64 p 8)
+                                  (sb-sys:sap-ref-64 p 16) (sb-sys:sap-ref-64 p 24))
+                      t))))))
+(defun acct-slot-present-p (tb id key)
+  "Is ID's slot KEY present (a fault test: no value is built)?"
+  (let ((w (acct-table-ws tb)))
+    (and w (not (zerop (sb-sys:sap-int (%ws-get w id (u256-word key 0) (u256-word key 1)
+                                                (u256-word key 2) (u256-word key 3))))))))
+(defun acct-slot-put! (tb id key val)
+  "ID's slot KEY := VAL (present, even when 0)."
+  (%ws-put (acct-table-ws! tb) id (u256-word key 0) (u256-word key 1) (u256-word key 2) (u256-word key 3)
+           (u256-word val 0) (u256-word val 1) (u256-word val 2) (u256-word val 3))
+  val)
+(defun acct-slots-drop! (tb id)
+  "ID has no storage table (every slot absent)."
+  (when (acct-table-ws tb) (%ws-drop (acct-table-ws tb) id)))
+(defun acct-slots-map (fn tb id)
+  "FN (key value) for every present slot of ID, in table order (values may be 0 in a
+   snapshot-backed world). FN must not write ID's storage (a write may move the table)."
+  (let ((p (acct-slots tb id)))
+    (when p
+      (let ((cap (sb-sys:sap-ref-64 p 16)) (w (sb-sys:sap-ref-sap p 24)) (s (sb-sys:sap-ref-sap p 32)))
+        (dotimes (i cap)
+          (when (= (sb-sys:sap-ref-8 s i) 1)
+            (let ((o (* 64 i)))
+              (funcall fn (words-u256 (sb-sys:sap-ref-64 w o) (sb-sys:sap-ref-64 w (+ o 8))
+                                      (sb-sys:sap-ref-64 w (+ o 16)) (sb-sys:sap-ref-64 w (+ o 24)))
+                       (words-u256 (sb-sys:sap-ref-64 w (+ o 32)) (sb-sys:sap-ref-64 w (+ o 40))
+                                   (sb-sys:sap-ref-64 w (+ o 48)) (sb-sys:sap-ref-64 w (+ o 56)))))))))))
 
 (defun world-storage-get (w addr slot)
-  (let ((tbl (with-acct (tb a) w addr (acct-storage tb a))))
-    (if tbl (values (slots-get tbl slot)) 0)))
+  (with-acct (tb a) w addr (values (acct-slot-get tb a slot))))
 
 (defvar *cold-storage-map-hook* nil
   "(lambda (addr fn)): FN (slot value) for every cold-tier (snapshot) slot of ADDR that RAM
    does not override. NIL when RAM is the whole world (fixtures, an in-memory run).")
 
 (defun world-storage-set (w addr slot val)
-  (let ((tbl (world-get-storage-table w addr)))
+  (with-acct (tb a) w addr
     (if (and (zerop val) (not *keep-zero-slots*))
-        (slots-remove tbl slot)
-        (slots-put tbl slot val))))
+        (%ws-remove (acct-table-ws! tb) a (u256-word slot 0) (u256-word slot 1) (u256-word slot 2) (u256-word slot 3))
+        (acct-slot-put! tb a slot val))))
 ;; The storage view (see "The storage view" above): world-storage-get/-set are the raw
 ;; table operations (loading, persistence, observer pre-images); the effect layer uses these.
 (defun storage-of (w addr slot)
@@ -467,7 +420,7 @@
 
 (defun world-storage-wipe! (w addr)
   "Remove ADDR's whole storage (SELFDESTRUCT, EIP-161 sweep)."
-  (with-acct (tb a) w addr (setf (acct-storage tb a) nil))
+  (with-acct (tb a) w addr (acct-slots-drop! tb a))
   (when *storage-wipe-hook* (funcall *storage-wipe-hook* addr)))
 
 (defun account-delete! (w addr)
@@ -491,7 +444,8 @@
   (when *observe-capture* (observe-acct-touch! addr))
   (when *view-log* (view-log-write :account addr 0 t nil))
   (with-acct (tb a) w addr
-    (setf (acct-code tb a) +no-code+ (acct-nonce tb a) 0 (acct-storage tb a) nil)
+    (setf (acct-code tb a) +no-code+ (acct-nonce tb a) 0)
+    (acct-slots-drop! tb a)
     (unless (eql was-present 1) (acct-clear-flag! tb a +acct-marked+))))
 ;;; Observation gate (the observation seam, further down). It
 ;;; lives here, ahead of the fault seam, because the inline fault-slot! below
@@ -517,7 +471,7 @@
    called only for an absent key, with the key's integer (SLOT may be an opaque word)."
   (when (and *fault-slot-hook*
              (not (with-acct (tb a) *current-world* addr
-                    (let ((tbl (acct-storage tb a))) (and tbl (slots-present-p tbl slot))))))
+                    (acct-slot-present-p tb a slot))))
     (let ((k (word-int slot)))
       (if *view-log*
           (let ((*view-log* nil)) (funcall *fault-slot-hook* addr k))

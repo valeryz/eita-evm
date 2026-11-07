@@ -76,7 +76,7 @@ not yet emitted from Lean (listed in `scripts/generated/refinement-coverage.md`)
 
 ## Planned: the native storage path (owner note 6; docs/native-storage.md)
 
-Not built yet; each row is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
+Each section is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
 from the effect IR, whose semantics (`Stmt.run`) carry the effect proofs. What is trusted is (1) the IR -> C printer,
 the same class as today's IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. Unlike the Lisp it
 replaces, C has no bounds or type checks: memory safety is an obligation of its own.
@@ -98,20 +98,32 @@ core def68c3: `eq_ofBV`, `isZero_ofBV`, `lt_ofBV`, `sub_ofBV`, `add_ofBV` over `
 | `limb_copy(dst, src)` | dst := src, 4 limbs |
 | `limb_zero(dst)` | dst := 0 |
 
-### Table primitives — model-checked + tested
+### Table primitives — model-checked + tested (built: owner note 6 step 2)
 
-`c/world_slots.{h,c}`: one open-addressed table of (account index, slot) -> value for the whole world. The Lean model is
-a finite map (`Evm/CL/WorldSlotsModel.lean`).
+`c/world_slots.{h,c}` (about 150 lines): per account id, one open-addressed table of slot -> value, under a
+directory per account table. The Lean model is a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put /
+remove / drop / copy, with the lemmas each primitive is tested for).
 
 | primitive | contract (on the model) | memory-safety obligations |
 |---|---|---|
-| `ws_probe(t, acct, key)` | index of the key's entry, or the insertion point | index < capacity; capacity a power of two; termination (load < 1) |
-| `ws_get(t, acct, key, out)` | out := value, returns 1, iff present; 0 otherwise | reads only inside the entry array |
-| `ws_put(t, acct, key, val)` | map[(acct, key)] := val | grows before the load passes 3/4; no index overflow |
-| `ws_remove(t, acct, key)` | map loses (acct, key) | tombstone; count never negative |
-| `ws_wipe(t, acct)` | map loses every key of acct | visits each entry once |
-| `ws_map(t, acct, fn)` | fn(key, value) for every key of acct, in table order | no mutation during the walk |
-| `ws_grow(t)` | the map is unchanged; capacity doubles | the old array freed after the copy |
+| `eita_ws_probe(t, key)` | index of the key's entry, or -1 - the insertion point (first tombstone on the path, else the empty entry ending it) | index < capacity; terminates (used < capacity) |
+| `eita_ws_get(w, id, key)` | the value's limbs iff (id, key) present, else NULL | reads only inside the entry array |
+| `eita_ws_put(w, id, key, val)` | map[(id, key)] := val; id has a table | grows before the load passes 3/4 (4 used <= 3 cap kept); sizes cannot overflow (cap <= 2^40) |
+| `eita_ws_remove(w, id, key)` | (id, key) absent; id has a table | tombstone; count never negative |
+| `eita_ws_drop(w, id)` | id has no table and no keys | frees the table once |
+| `eita_ws_copy(dst, id, src)` | dst's id := src's table (contents, own arrays) | copies exactly cap entries |
+| `eita_ws_map(w, id, fn)` / the Lisp walk `acct-slots-map` | fn(key, value) for every key of id, in table order | no write to id during the walk |
+| growth (`ws_grow`, inside put) | the map unchanged; capacity doubled when over half full, else a same-size rehash | the old arrays freed after the copy |
+
+**How it is checked.** CBMC (`c/cbmc/run.sh`, 11 proofs, about 5 minutes, in CI): for an ARBITRARY table of
+capacity 4 or 8 satisfying the probing invariant, each of get, place (a put with room), remove and grow is
+memory-safe (bounds, pointers, frees, leaks, overflow, conversions), keeps the invariant and the load bound, and
+agrees with the finite-map model on an arbitrary key; the directory (growth, independent accounts, drop, copy)
+with concrete ids. Not covered by CBMC: the doubling from 8 to 16 (beyond the memory cap; the randomized tests
+grow through 2^17). Randomized: `c/test_world_slots` under ASan + UBSan (random ops against a reference map,
+bulk growth) and on a trace of the Lean model itself (`lake exe worldSlotsVectors`); `tests/world-slots.lisp`
+against a finite map and against the Lisp table it replaced, walk order included; the fixtures (every
+GeneralStateTests storage directory) and the 30k replay.
 
 ### Journal — model-checked + tested
 

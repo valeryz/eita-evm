@@ -288,8 +288,7 @@
    restores them and observers and the read stream see each write. Contract: = the
    spec's `State.destroyStorage` on the view."
   (let ((w *current-world*) (keys '()))
-    (let ((tbl (with-acct (tb a) w addr (acct-storage tb a))))
-      (when tbl (slots-map (lambda (k v) (unless (zerop v) (push k keys))) tbl)))
+    (with-acct (tb a) w addr (acct-slots-map (lambda (k v) (unless (zerop v) (push k keys))) tb a))
     (when *cold-storage-map-hook*
       (funcall *cold-storage-map-hook* addr (lambda (k v) (unless (zerop v) (push k keys)))))
     (dolist (k keys)
