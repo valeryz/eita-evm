@@ -145,12 +145,25 @@ bulk growth) and on a trace of the Lean model itself (`lake exe worldSlotsVector
 against a finite map and against the Lisp table it replaced, walk order included; the fixtures (every
 GeneralStateTests storage directory) and the 30k replay.
 
-### Journal — model-checked + tested
+### The SSTORE effect in C, its journal entry and the native revert — derived + tested (built: step 4)
+
+`eita_spec_sstore_effect` and `eita_spec_sstore_plan` (c/generated/storage_effect.c) are
+`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (the terms `spec-sstore-effect` and
+`spec-sstore-gas-dispatch` are printed from; `sstore_refines` untouched); the schedules themselves are the
+emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasSem`). The host primitives
+(c/storage_host.c, tested):
 
 | primitive | contract |
 |---|---|
-| `journal_append_sstore(arena, acct, key, old)` | appends one type-0 entry at journal_count, increments it; never past the arena's capacity |
-| type-0 restore in `eita_ts_revert` | for each type-0 entry above the target, in reverse order: map[(acct, key)] := old |
+| `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
+| `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as the Lisp's `refund-add!`); returns the cost |
+| `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`) |
+| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order |
+
+SSTORE runs natively only when no observer, read stream or incremental root checker (its dirty set) is on.
+**Checked by** the differential, which compares the journal entries byte for byte (native vs Lisp effect on
+every tx of the storage fixtures, sampled on the 30k replay), the fixtures (every SSTORE/refund/revert
+directory) and the replay.
 
 ### Lisp accessors and hooks — tested
 

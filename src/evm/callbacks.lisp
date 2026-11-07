@@ -12,25 +12,37 @@
                                (logand (mem-aref ptr :uint64 2) #xFFFFFFFF))
       (logand (u256-read ptr) #.(1- (ash 1 160)))))
 
-;;; The native SLOAD path (c/storage_host.h; docs/native-storage.md): the vtable's SLOAD slot
-;;; is eita_cb_sload, which runs the C printing of the same term (c/generated/storage_effect.c,
-;;; Evm.CL.EffectC) on a hit in the native slot table and calls cb-sload below otherwise (a
-;;; miss, a frame account it has no id for, or the path off). Off while an observer or the
-;;; read stream is on (they see each access: cb-sload's fault-slot! and storage-of), in the
-;;; differential's reference tier, and with EITA_NATIVE_STORAGE=0.
+;;; The native SLOAD/SSTORE path (c/storage_host.h; docs/native-storage.md): the vtable's
+;;; SLOAD and SSTORE slots are eita_cb_sload / eita_cb_sstore, which run the C printing of the
+;;; same terms (c/generated/storage_effect.c, Evm.CL.EffectC) on a hit in the native slot table
+;;; and call cb-sload / cb-sstore below otherwise (a miss, a frame account it has no id for, or
+;;; the path off). Off while an observer or the read stream is on (they see each access:
+;;; fault-slot! and the storage view), in the differential's reference tier and with
+;;; EITA_NATIVE_STORAGE=0; SSTORE also while the incremental root checker tracks dirty slots
+;;; (journal-push!'s mpt-touch!).
 (defstartup *native-storage* (not (equal (sb-posix:getenv "EITA_NATIVE_STORAGE") "0")))
 (defstartup *storage-host* (foreign-symbol-pointer "eita_sh_g"))
 
 (declaim (inline storage-host-sync!))
 (defun storage-host-sync! ()
-  "At a frame's entry: the native SLOAD path's world tables, per-tx state, fork and switch."
+  "At a frame's entry: the native storage path's world tables, per-tx state, fork, switches
+   (bit 0 SLOAD, bit 1 SSTORE) and zero-slot rule."
   (let ((h *storage-host*) (w *current-world*))
     (setf (mem-ref h :pointer 0) (if w (eita.state::acct-table-ws! (world-accts w)) (null-pointer))
           (mem-ref h :pointer 8) *tx-state*
           (mem-ref h :uint64 16) *fork-ord*
           (mem-ref h :uint64 24) (if (and w *native-storage* (not *native-storage-ref*)
                                           (not *view-log*) (null *observer*))
-                                     1 0))))
+                                     (if *mpt-tracking* 1 3)
+                                     0)
+          (mem-ref h :uint64 80) (if eita.state::*keep-zero-slots* 1 0))))
+
+(declaim (inline storage-host-learn!))
+(defun storage-host-learn! (a)
+  "After a slow-path SLOAD/SSTORE of the frame account A: give the native path A's id."
+  (unless (zerop (mem-ref *storage-host* :uint64 24))
+    (%sh-cache-put (eita.state::u256-word a 0) (eita.state::u256-word a 1) (eita.state::u256-word a 2)
+                   (eita.state::acct-table-intern (world-accts *current-world*) a))))
 
 (defcallback cb-sload :uint64
     ((ctx :pointer) (addr :pointer) (slot :pointer) (out :pointer))
@@ -42,9 +54,7 @@
   (let ((a (read-addr addr)))
     (multiple-value-bind (g v) (spec-sload-effect a slot)
       (u256-write out v)
-      (when (= 1 (mem-ref *storage-host* :uint64 24))   ; the native path is on: give it A's id
-        (%sh-cache-put (eita.state::u256-word a 0) (eita.state::u256-word a 1) (eita.state::u256-word a 2)
-                       (eita.state::acct-table-intern (world-accts *current-world*) a)))
+      (storage-host-learn! a)
       (cb-gas-check "sload" g :addr a :slot (word-int slot)))))
 
 (defcallback cb-sstore :uint64
@@ -55,7 +65,8 @@
    (Evm.CL.EffectSstore, proved equal to every fork's SSTORE)."
   (declare (ignore ctx))
   (let ((a (read-addr addr)) (v (u256-read val)))
-    (cb-gas-check "sstore" (spec-sstore-effect a slot v) :addr a :slot (word-int slot) :val v)))
+    (prog1 (cb-gas-check "sstore" (spec-sstore-effect a slot v) :addr a :slot (word-int slot) :val v)
+      (storage-host-learn! a))))
 
 ;; TLOAD/TSTORE are fully native: the emitted handlers call
 ;; eita_ts_tload/eita_ts_tstore via arena->tx_state directly (keyed

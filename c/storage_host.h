@@ -1,13 +1,14 @@
 /*
  * storage_host.h — the native SLOAD path's host (docs/native-storage.md, owner note 6 step 3).
  *
- * The native SLOAD callback (eita_cb_sload, in the callbacks vtable's SLOAD slot) runs the
- * effect EMITTED from the effect IR (c/generated/storage_effect.c, lean/Evm/CL/EffectC.lean)
+ * The native SLOAD and SSTORE callbacks (eita_cb_sload / eita_cb_sstore, in the callbacks
+ * vtable's slots 0 and 1) run the effects EMITTED from the effect IR (c/generated/storage_effect.c, lean/Evm/CL/EffectC.lean)
  * against the native slot tables (world_slots.h) and the native per-tx state (tx_state.h),
  * and falls back to the Lisp callback (the Lisp printing of the same term, with the
  * fault-in and the hooks) when:
- *   - the fast path is off (h->enabled = 0: an observer, the read stream, the differential's
- *     reference tier, EITA_NATIVE_STORAGE=0), or
+ *   - the fast path is off (h->enabled: bit 0 SLOAD, bit 1 SSTORE; both off under an
+ *     observer, the read stream, the differential's reference tier, EITA_NATIVE_STORAGE=0;
+ *     SSTORE off while the incremental root checker tracks dirty slots), or
  *   - the frame's account has no id in the cache yet (the Lisp path fills it), or
  *   - the slot is not in the native table (a miss: the emitted effect returns
  *     EITA_SH_MISS before any effect, and the Lisp effect runs it whole).
@@ -25,19 +26,23 @@
 #define EITA_SH_CACHE 64
 
 typedef uint64_t (*eita_sh_sload_fn)(void *ctx, const u256_t *addr, const u256_t *slot, u256_t *out);
+typedef uint64_t (*eita_sh_sstore_fn)(void *ctx, const u256_t *addr, const u256_t *slot, const u256_t *val);
 
 typedef struct eita_sh {
   /* set by Lisp (offsets 0..40, src/evm/storage-host.lisp) */
   ws_world *ws;                 /*  0: the current world's slot tables */
   TxState *ts;                  /*  8 */
   uint64_t fork;                /* 16: Fork.ord */
-  uint64_t enabled;             /* 24 */
-  eita_sh_sload_fn lisp_sload;  /* 32: the Lisp callback (the slow path) */
-  uint64_t hits, misses;        /* 40, 48 */
+  uint64_t enabled;             /* 24: bit 0 SLOAD, bit 1 SSTORE */
+  eita_sh_sload_fn lisp_sload;  /* 32: the Lisp callbacks (the slow paths) */
+  uint64_t hits, misses;        /* 40, 48: SLOAD */
+  eita_sh_sstore_fn lisp_sstore;/* 56 */
+  uint64_t sstore_hits, sstore_misses;  /* 64, 72 */
+  uint64_t keep_zero;           /* 80: *keep-zero-slots*: a slot set to 0 stays present */
   /* per call */
   TxArena *ar;
   uint64_t id;
-  u256_t addr, key;
+  u256_t addr, key, val;
   const uint64_t *slot;
   /* the frame accounts' ids: (address -> id + 1), valid while cache_serial == ws->serial */
   uint64_t cache_serial;
@@ -59,8 +64,28 @@ static inline void eita_sh_orig_record(eita_sh *h, const uint64_t *cur) {
   eita_ts_orig_record(h->ts, &h->addr, &h->key, (const u256_t *)cur);
 }
 
+static inline void eita_sh_orig_get(const eita_sh *h, const uint64_t *cur, uint64_t *out) {
+  eita_ts_orig_get(h->ts, &h->addr, &h->key, (const u256_t *)cur, (u256_t *)out);
+}
+/* The fork's SSTORE schedule (emitted dispatch): sets the refund counter (journaled) and
+   returns the cost. */
+uint64_t eita_sh_sstore_gas(eita_sh *h, const uint64_t *orig, const uint64_t *cur, const uint64_t *nv, int cold);
+/* (self, key) := W, journaled (type 0, the old value: the slot's current one). */
+void eita_sh_set_storage(eita_sh *h, const uint64_t *w);
+
 uint64_t eita_spec_sload_effect(eita_sh *h, uint64_t *out);   /* emitted */
+uint64_t eita_spec_sstore_effect(eita_sh *h);                 /* emitted */
+void eita_spec_sstore_plan(uint64_t fork, uint64_t *out, uint64_t refund, const u256_t *orig,
+                           const u256_t *cur, const u256_t *nv, uint64_t cold);   /* emitted */
+/* A revert's SSTORE entries, natively: from ARENA's newest entry down to TARGET, every type-0
+   entry of an account with a known id is restored into the slot table (as the Lisp restore:
+   world-storage-set of the old value) and retyped EITA_J_SSTORE_DONE, which the host loop and
+   eita_ts_revert skip. Stops at the first un-create entry (type 10: it drops the account's
+   whole table, so the entries below it must be replayed after it, in order: by the host). */
+#define EITA_J_SSTORE_DONE 255
+void eita_sh_revert_storage(TxArena *ar, uint64_t target);
 uint64_t eita_cb_sload(void *ctx, const u256_t *addr, const u256_t *slot, u256_t *out);
+uint64_t eita_cb_sstore(void *ctx, const u256_t *addr, const u256_t *slot, const u256_t *val);
 /* The Lisp path, after its SLOAD of ADDR (an address: 160 bits), records ADDR's id. */
 void eita_sh_cache_put(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t id);
 #endif

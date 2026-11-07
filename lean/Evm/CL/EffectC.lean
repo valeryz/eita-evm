@@ -1,4 +1,5 @@
 import Evm.CL.EffectSload
+import Evm.CL.EffectSstore
 
 /-! # CL/EffectC — the effect IR printed as C, for the native storage path
 
@@ -36,8 +37,13 @@ def selfKey (a : AExp) (k : WExp) : E Unit :=
   | .var "self", .var "key" => pure ()
   | _, _ => throw "EffectC: storage primitives on (self, key) only"
 
+/-- A word input's C name (`new` is SSTORE's new value, `h->val`). -/
+def cname : String → String
+  | "new" => "new_val"
+  | x => x
+
 def word : WExp → E String
-  | .var x => pure x
+  | .var x => pure (cname x)
   | _ => throw "EffectC: a word operand must be a bound word"
 
 def bC : BExp → E String
@@ -47,6 +53,7 @@ def bC : BExp → E String
   | .and p q => return s!"({← bC p} && {← bC q})"
   | .or p q => return s!"({← bC p} || {← bC q})"
   | .forkGe n => pure s!"(h->fork >= {n})"
+  | .weq a b => return s!"limb_eq({← word a}, {← word b})"
   | _ => throw "EffectC: condition outside the subset"
 
 def gC : GExp → E String
@@ -63,10 +70,18 @@ def sC (i : String) : Stmt → E (List String)
   | .letW x (.sload a k) s => do
       selfKey a k
       return [s!"{i}uint64_t {x}[4];", s!"{i}eita_sh_sload(h, {x});"] ++ (← sC i s)
+  | .letW x (.orig a k fb) s => do
+      selfKey a k
+      return [s!"{i}uint64_t {x}[4];", s!"{i}eita_sh_orig_get(h, {← word fb}, {x});"] ++ (← sC i s)
   | .warmSlot g a k x s => do
       selfKey a k
       return [s!"{i}const int {x} = {← bC g} && eita_sh_access_slot(h);"] ++ (← sC i s)
   | .origRecord a k w => do selfKey a k; return [s!"{i}eita_sh_orig_record(h, {← word w});"]
+  | .sstoreGas o c n cold =>
+      return [s!"{i}gas += eita_sh_sstore_gas(h, {← word o}, {← word c}, {← word n}, {← bC cold});"]
+  | .setStorage a k w => do selfKey a k; return [s!"{i}eita_sh_set_storage(h, {← word w});"]
+  | .ite p s .skip => do
+      return [s!"{i}if ({← bC p}) \{"] ++ (← sC (i ++ "  ") s) ++ [s!"{i}}"]
   | .ret w => return [s!"{i}limb_copy(out, {← word w});"]
   | .charge g => return [s!"{i}gas += {← gC g};"]
   | _ => throw "EffectC: statement outside the subset"
@@ -77,14 +92,40 @@ def toFnRet (name : String) (s : Stmt) : E String := do
   return s!"uint64_t {name}(eita_sh *h, uint64_t *out) \{\n  uint64_t gas = 0;\n" ++
     String.intercalate "\n" body ++ "\n  return gas;\n}\n"
 
+/-- A gas-returning callback with the word input `new` (SSTORE's): `uint64_t name(eita_sh *h)`. -/
+def toFn (name : String) (s : Stmt) : E String := do
+  let body ← sC "  " s
+  return s!"uint64_t {name}(eita_sh *h) \{\n  uint64_t gas = 0;\n  const uint64_t *new_val = h->val.limb;\n" ++
+    String.intercalate "\n" body ++ "\n  return gas;\n}\n"
+
+/-- The SSTORE schedule dispatch in C, from `SstoreSched.ofFork` (THE one copy; the CL
+    printing is `sstoreDispatchCL`): each fork ordinal to its native routine. -/
+def sstoreDispatchC : String :=
+  let all := [SstoreSched.legacy, .eip1283, .eip2200, .berlin, .london]
+  let ords (s : SstoreSched) := (List.range (maxForkOrd + 1)).filter (fun k => SstoreSched.ofFork k = s)
+  let call (s : SstoreSched) := s!"eita_sstore_gas_{s.name}(out, refund, orig, cur, nv, cold); return;"
+  let decl (s : SstoreSched) :=
+    s!"void eita_sstore_gas_{s.name}(uint64_t *out, uint64_t refund, const u256_t *orig, const u256_t *cur, const u256_t *nv, uint64_t cold);"
+  let arms := (all.filter (· ≠ SstoreSched.ofFork (maxForkOrd + 1))).map fun s =>
+    String.join ((ords s).map fun k => s!"  case {k}: ") ++ call s
+  "\n".intercalate (all.map decl) ++ "\n" ++
+  "void eita_spec_sstore_plan(uint64_t fork, uint64_t *out, uint64_t refund, const u256_t *orig,\n" ++
+  "                           const u256_t *cur, const u256_t *nv, uint64_t cold) {\n" ++
+  "  switch (fork) {\n" ++ "\n".intercalate arms ++ "\n" ++
+  s!"  default: {call (SstoreSched.ofFork (maxForkOrd + 1))}\n" ++ "  }\n}\n"
+
 /-- `c/generated/storage_effect.c`. -/
 def file : E String := do
   let sload ← toFnRet "eita_spec_sload_effect" Evm.CL.EffectSload.term
+  let sstore ← toFn "eita_spec_sstore_effect" Evm.CL.EffectSstore.term
   return "/* c/generated/storage_effect.c — EMITTED by `lake exe emitStorageC` from the effect IR\n" ++
     "   (lean/Evm/CL/EffectC.lean); do not edit. The terms and their proofs: Evm.CL.EffectSload\n" ++
-    "   (sload_refines). The Lisp printing of the same terms: spec-sload-effect in\n" ++
-    "   src/generated/host.lisp. */\n" ++
+    "   (sload_refines), Evm.CL.EffectSstore (sstore_refines), the SSTORE dispatch\n" ++
+    "   Evm.CL.EffectIR.SstoreSched.ofFork. The Lisp printing of the same terms: spec-sload-effect,\n" ++
+    "   spec-sstore-effect, spec-sstore-gas-dispatch in src/generated/host.lisp. */\n" ++
     "#include \"../storage_host.h\"\n#include \"limb_ops.h\"\n\n" ++
-    "/* SLOAD (Evm.CL.EffectSload.term) */\n" ++ sload
+    "/* SLOAD (Evm.CL.EffectSload.term) */\n" ++ sload ++
+    "\n/* SSTORE (Evm.CL.EffectSstore.term) */\n" ++ sstore ++
+    "\n/* The SSTORE schedule of each fork (Evm.CL.EffectIR.SstoreSched.ofFork) */\n" ++ sstoreDispatchC
 
 end Evm.CL.EffectC
