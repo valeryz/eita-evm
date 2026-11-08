@@ -255,19 +255,31 @@
       (error "the root check runs `eita check-root`, and ~A does not exist: build it (./build.sh)" exe))
     (namestring exe)))
 
+(defun root-check-command (argv)
+  "The program and arguments that run ARGV (the checker's own command line) at background priority:
+   the root check reads the whole state from disk while the replay runs, and on a busy disk it must
+   not take the replay's reads' place (GCP 2026-11-04: the replay fell behind during a root check).
+   On Linux, through `ionice -c2 -n7` (best effort, lowest; not idle, which a busy replay could
+   starve) and `nice -n 10`, when ionice exists; elsewhere ARGV as is."
+  (if (and (member :linux *features*) (probe-file "/usr/bin/ionice") (probe-file "/usr/bin/nice"))
+      (values "/usr/bin/ionice" (append (list "-c2" "-n7" "/usr/bin/nice" "-n" "10") argv))
+      (values (first argv) (rest argv))))
+
 (defun snapshot-root-proc (dirs out)
   "`eita check-root` (state/root.lisp) over DIRS (a base, then layers oldest first), in the
    background. The checker exits when this process does (--parent), and its output files
    are fresh inodes: a checker left from a previous life of the replay can write to neither."
   (ignore-errors (delete-file out))
   (ignore-errors (delete-file (concatenate 'string out ".err")))
-  (sb-ext:run-program (root-check-executable)
-                      (append (list "--dynamic-space-size" (root-check-heap-mb) "--end-runtime-options"
-                                    "check-root" "--parent" (princ-to-string (sb-posix:getpid)))
-                              dirs (list (princ-to-string (root-check-threads))))
+  (multiple-value-bind (program args)
+      (root-check-command (append (list (root-check-executable)
+                                        "--dynamic-space-size" (root-check-heap-mb) "--end-runtime-options"
+                                        "check-root" "--parent" (princ-to-string (sb-posix:getpid)))
+                                  dirs (list (princ-to-string (root-check-threads)))))
+    (sb-ext:run-program program args
                       :search t :output out :if-output-exists :supersede :wait nil
                       ;; stderr beside the verdict: a checker that dies says why (state-N.rootout.err)
-                      :error (concatenate 'string (namestring out) ".err") :if-error-exists :supersede))
+                      :error (concatenate 'string (namestring out) ".err") :if-error-exists :supersede)))
 
 (defun spawn-root-check! (n expected-hex comps kind)
   (let ((out (namestring (root-out-path n))))
