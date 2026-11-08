@@ -304,7 +304,7 @@ theorem cell_disj (m₀ : RS) (c c' : Int) (l l' : Nat) (hc : c.natAbs ≤ W) (h
 
 /-- The instructions `cstep` has an arm for; every other one is `writeAll`. -/
 def special : AInstr → Bool
-  | .label _ | .cmpImm .. | .subImm .. | .addImm .. | .addReg .. | .addLsl5 .. | .movReg ..
+  | .label _ | .cmpImm .. | .subImm .. | .addImm .. | .addLsl5 .. | .movReg ..
   | .ldpOff .. | .ldrOff .. | .ldrBase .. | .stpOff .. | .strOff .. | .strBase ..
   | .blSym _ | .blr _ | .blFar _ => true
   | _ => false
@@ -481,14 +481,14 @@ theorem inv_store {m₀ : RS} {ρ : CV → BitVec 64} {D : Nat} {t : CS} {mm : R
     · exact hfv
     · exact ht1.frM c' l' hc'
 
-theorem not_kill_callee (r : Reg) (h : r ∉ callKills false) : AsmRun.callerSaved r = false := by
+theorem not_kill_callee (r : Reg) (h : r ∉ callKills) : AsmRun.callerSaved r = false := by
   cases r <;> simp_all [callKills, OpInstrs.callerSaved, AsmRun.callerSaved]
 
 /-- A call: the caller-saved registers and x30 forgotten, x0 named, the memory a new
     generation. -/
 theorem inv_call_aux {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : RS}
     (h : Inv m₀ ρ d s m) (hx : CallExec m m') (K : CS) (eoff : K.off = s.off) (elt : K.lt = s.lt)
-    (efl : K.fl = none) (erv : ∀ r, r ≠ .x23 → K.rv r = if r ∈ callKills false then none else s.rv r) :
+    (efl : K.fl = none) (erv : ∀ r, r ≠ .x23 → K.rv r = if r ∈ callKills then none else s.rv r) :
     Inv m₀ (ext m₀ ρ d m') (d + 1)
       (({ K with mem := [], gen := d + 1 } : CS).setR .x0 (some (.fresh d .x0))) m' := by
   have hs := inv_succ m' h
@@ -530,9 +530,9 @@ theorem inv_call_aux {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m
 theorem inv_call {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : RS}
     (h : Inv m₀ ρ d s m) (hx : CallExec m m') :
     Inv m₀ (ext m₀ ρ d m') (d + 1)
-      (({ ((callKills false).foldl (fun s r => s.setR r none) { s with fl := none }) with
+      (({ ((callKills).foldl (fun s r => s.setR r none) { s with fl := none }) with
           mem := [], gen := d + 1 } : CS).setR .x0 (some (.fresh d .x0))) m' := by
-  obtain ⟨eoff, elt, efl, _, _⟩ := kill_fields (callKills false) { s with fl := none }
+  obtain ⟨eoff, elt, efl, _, _⟩ := kill_fields (callKills) { s with fl := none }
   exact inv_call_aux h hx _ eoff elt efl (fun r e => rv_kill _ _ _ e)
 
 theorem exec_some {i : AInstr} {m m' m2 : RS} (hc : isCtl i = false) (hs : AsmRun.step m i = some m2)
@@ -584,7 +584,7 @@ theorem fall_subImm {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m'
     (hsep : mayWrite (.subImm dd a k) m → placed s (.subImm dd a k) = false → WinKept m₀ m m') :
     Inv m₀ (ext m₀ ρ d m') (d + 1) out m' := by
   have hs := inv_succ m' h
-  simp only [cstep, spWords, Bool.not_false, if_true, Option.map_some] at hc
+  simp only [cstep] at hc
   split at hc; · cases hc
   rename_i h24
   split at hc; · cases hc
@@ -620,7 +620,7 @@ theorem fall_addImm {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m'
     (hsep : mayWrite (.addImm dd a k) m → placed s (.addImm dd a k) = false → WinKept m₀ m m') :
     Inv m₀ (ext m₀ ρ d m') (d + 1) out m' := by
   have hs := inv_succ m' h
-  simp only [cstep, spWords, Bool.not_false, if_true, Option.map_some] at hc
+  simp only [cstep] at hc
   split at hc; · cases hc
   rename_i h24
   split at hc; · cases hc
@@ -649,18 +649,6 @@ theorem fall_addImm {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m'
         refine ⟨?_, hw⟩
         simp only [Holds, val]; rw [h.x23, ← BitVec.ofInt_natCast, ← BitVec.ofInt_add]; congr 1; omega
       · exact ⟨by simp [Holds, val, ext], by simp [Fr]⟩
-
-theorem fall_addReg {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : RS} {out : CS} (dd b a : Reg)
-    (h : Inv m₀ ρ d s m) (hc : cstep d (.addReg dd b a) s = some out) (hex : Exec (.addReg dd b a) m m')
-    (hsep : mayWrite (.addReg dd b a) m → placed s (.addReg dd b a) = false → WinKept m₀ m m') :
-    Inv m₀ (ext m₀ ρ d m') (d + 1) out m' := by
-  simp only [cstep, Bool.not_false, Bool.true_or, if_true] at hc
-  split at hc; · cases hc
-  rename_i h24
-  split at hc; · cases hc
-  split at hc; · cases hc
-  rename_i h23; cases hc
-  exact fall_generic h hex hsep (by simpa using h23) (by simpa using h24) rfl
 
 theorem fall_addLsl5 {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : RS} {out : CS} (dd b a : Reg)
     (h : Inv m₀ ρ d s m) (hc : cstep d (.addLsl5 dd b a) s = some out) (hex : Exec (.addLsl5 dd b a) m m')
@@ -945,7 +933,6 @@ theorem fall_inv {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : 
   all_goals first
     | exact fall_subImm _ _ _ h hc hex hsep
     | exact fall_addImm _ _ _ h hc hex hsep
-    | exact fall_addReg _ _ _ h hc hex hsep
     | exact fall_addLsl5 _ _ _ h hc hex hsep
     | exact fall_movReg _ _ h hc hex
     | exact fall_cmpImm _ _ h hc hex hsep
@@ -980,7 +967,7 @@ theorem lt_taken (x y : Int) (hx : x.natAbs ≤ 1048576) (hy : y.natAbs ≤ 1048
 theorem jump_inv {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m : RS} {i : AInstr} {out : CS} {l : String}
     (hsp : 0 ≤ sp₀ m₀ ∧ sp₀ m₀ ≤ 1024) (h : Inv m₀ ρ d s m) (hc : cstep d i s = some out)
     (hl : localBranch i = some l) (hb : ∀ c l, i = .bcLbl c l → bcHolds c m.flags = true) :
-    Inv m₀ (ext m₀ ρ d m) (d + 1) (ctaken false i s out) m := by
+    Inv m₀ (ext m₀ ρ d m) (d + 1) (ctaken i s out) m := by
   have hsp' : special i = false := by cases i <;> simp_all [localBranch, special]
   have hd : defs i = [] := by cases i <;> simp_all [localBranch, defs]
   obtain ⟨e, -, -, -⟩ := cstep_other d i s out hsp' hc
@@ -992,10 +979,8 @@ theorem jump_inv {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m : RS}
   · rename_i c l' k hk
     split
     · rename_i hkw
-      simp only [Option.bind_eq_some_iff, spWords, Bool.not_false, if_true, Option.some.injEq] at hk
-      obtain ⟨k0, hk0, rfl⟩ := hk
-      have hlt : sp₀ m₀ + s.off < k0 := by
-        have hf := h.fl k0 hk0
+      have hlt : sp₀ m₀ + s.off < k := by
+        have hf := h.fl k hk
         have := hb _ _ rfl
         rw [hf, h.x23, ← BitVec.ofInt_natCast] at this
         have hcw : cwin = 65536 := rfl
@@ -1041,8 +1026,8 @@ theorem caches_of_ok {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m :
 
 /-- **At `br x27` the cache is coherent** whenever the exit check passed. -/
 theorem coherent_of_exitOk {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m : RS}
-    (hsp : 0 ≤ sp₀ m₀ ∧ sp₀ m₀ ≤ 1024) (h : Inv m₀ ρ d s m) (hok : exitOk s false = true) : Coherent m := by
-  simp only [exitOk, Bool.false_or, Bool.and_eq_true] at hok
+    (hsp : 0 ≤ sp₀ m₀ ∧ sp₀ m₀ ≤ 1024) (h : Inv m₀ ρ d s m) (hok : exitOk s = true) : Coherent m := by
+  simp only [exitOk, Bool.and_eq_true] at hok
   have hz : ∀ (rs : List Reg), rs = tosRegs ∨ rs = nosRegs → ∀ r l, (r, l) ∈ rs.zipIdx → l < 4 := by
     intro rs hrs r l hm
     rcases hrs with rfl | rfl <;> simp [tosRegs, nosRegs, List.zipIdx] at hm <;> omega
@@ -1087,7 +1072,7 @@ inductive JR (is : List AInstr) (m₀ : RS) : Nat → Nat → CS → RS → Prop
       isCall i = true → CallExec m m' → JR is m₀ (d + 1) (j + 1) out m'
   | jump {d j s m i out k} : JR is m₀ d j s m → is[j]? = some i → cstep d i s = some out →
       (localBranch i).bind (labelTarget is j) = some k →
-      (∀ c l, i = .bcLbl c l → bcHolds c m.flags = true) → JR is m₀ (d + 1) k (ctaken false i s out) m
+      (∀ c l, i = .bcLbl c l → bcHolds c m.flags = true) → JR is m₀ (d + 1) k (ctaken i s out) m
 
 /-- **Arena separation**, the one assumption about memory: on every run, an instruction
     that is not a call, that may write memory (a store form, or one outside the modelled
@@ -1101,18 +1086,18 @@ def Sep (is : List AInstr) (m₀ : RS) : Prop :=
     WinKept m₀ m m'
 
 /-- `cwalk` found nothing on the paths from (d, j, s) within `F + 1` steps. -/
-def Clean (is : List AInstr) (d j : Nat) (s : CS) : Prop := ∃ F, cwalk is false (F + 1) d j s = []
+def Clean (is : List AInstr) (d j : Nat) (s : CS) : Prop := ∃ F, cwalk is (F + 1) d j s = []
 
 theorem clean_step {is : List AInstr} {d j : Nat} {s : CS} {i : AInstr} (hcl : Clean is d j s)
     (hi : is[j]? = some i) (hb : i ≠ .brCont) :
     ∃ out, cstep d i s = some out ∧ ∀ k e, (k, e) ∈ cedges is j i s out → Clean is (d + 1) k e := by
   obtain ⟨F, hF⟩ := hcl
-  have e : cwalk is false (F + 1) d j s = (match cstep d i s false with
+  have e : cwalk is (F + 1) d j s = (match cstep d i s with
       | none => [j]
-      | some out => (cedges is j i s out false).flatMap fun (k, e) => cwalk is false F (d + 1) k e) := by
+      | some out => (cedges is j i s out).flatMap fun (k, e) => cwalk is F (d + 1) k e) := by
     rw [cwalk, hi]; cases i <;> first | (exact absurd rfl hb) | rfl
   rw [e] at hF
-  cases hout : cstep d i s false with
+  cases hout : cstep d i s with
   | none => rw [hout] at hF; cases hF
   | some out =>
     rw [hout] at hF
@@ -1123,7 +1108,7 @@ theorem clean_step {is : List AInstr} {d j : Nat} {s : CS} {i : AInstr} (hcl : C
     | succ F => exact ⟨F, this⟩
 
 theorem clean_exit {is : List AInstr} {d j : Nat} {s : CS} (hcl : Clean is d j s)
-    (hi : is[j]? = some .brCont) : exitOk s false = true := by
+    (hi : is[j]? = some .brCont) : exitOk s = true := by
   obtain ⟨F, hF⟩ := hcl
   simp only [cwalk, hi] at hF
   split at hF
@@ -1135,7 +1120,7 @@ theorem mem_fall {is : List AInstr} {j : Nat} {i : AInstr} {s out : CS} (h : noF
 
 theorem mem_jump {is : List AInstr} {j k : Nat} {i : AInstr} {s out : CS}
     (h : (localBranch i).bind (labelTarget is j) = some k) :
-    (k, ctaken false i s out) ∈ cedges is j i s out := by simp [cedges, h]
+    (k, ctaken i s out) ∈ cedges is j i s out := by simp [cedges, h]
 
 theorem call_fall {i : AInstr} (h : isCall i = true) : noFallthrough i = false := by
   cases i <;> simp_all [isCall, noFallthrough]

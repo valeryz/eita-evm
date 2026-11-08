@@ -1058,11 +1058,10 @@ paths (a `phi` per difference, and a join that took one side's TOS when the othe
 sp < 1); that join, a call keeping the stack, and an unchecked write to x23/x24 were
 each unsound, and the proof made them visible.
 
-With `x86 := true` the same analysis reads the x86-64 bodies (`Op.instrsX86?`): sp is a
-byte offset (an immediate is whole words, or the path is lost), a stack address is
-`sub d, x23, #32k` / `add d, x24, d`, a call kills the SysV caller-saved homes, and
-only the TOS (x6-x9, r8-r11) is register-cached, so only it is checked. (Its soundness
-against `X86Sem` is not proved yet.) -/
+The x86-64 bodies are checked after lowering, with the x86 register file
+(`X86Cache.xcacheIncoherent`, proved sound in `X86CacheSound`): an `x86 := true` mode of
+this analysis read them under ARM names and was unsound there (registers sharing an x86
+home, the lowering's temporaries, NOS read from memory at the current sp). -/
 
 inductive CV where
   | cell (g : Nat) (c : Int) (l : Nat)  -- limb l of stack word sp₀+c in memory generation g
@@ -1117,10 +1116,6 @@ def CS.store (j : Nat) (s : CS) (c : Int) (l : Nat) (r : Reg) : CS :=
   | some v => s.setM c l v
   | none => (s.setR r (some (.fresh j r))).setM c l (.fresh j r)
 
-/-- An sp immediate in words: as is on ARM64; on x86-64 (bytes) only a whole word. -/
-def spWords (x86 : Bool) (k : Int) : Option Int :=
-  if !x86 then some k else if k % 32 == 0 then some (k / 32) else none
-
 /-- `idx c` inside the window, else an opaque name. -/
 def idxOr (j : Nat) (d : Reg) (c : Option Int) : CV :=
   match c with | some c => if c.natAbs ≤ cwin.natAbs then .idx c else .fresh j d | none => .fresh j d
@@ -1132,13 +1127,13 @@ def storeAddrRegs : AInstr → List Reg
   | .strbReg _ b i => [b, i]
   | _ => []
 
-/-- Registers a call kills: the AAPCS64 / SysV caller-saved set, and x30 (`bl` writes it). -/
-def callKills (x86 : Bool) : List Reg := .x30 :: callerSaved x86
+/-- Registers a call kills: the AAPCS64 caller-saved set, and x30 (`bl` writes it). -/
+def callKills : List Reg := .x30 :: callerSaved false
 
 /-- The transfer of an instruction, `j` the name its results get; `none` when the analysis cannot follow the body
     (sp or the stack base written by anything but `sub|add x23, x23, #k`, a stack
     address at an offset that is not a limb, a byte store into the stack). -/
-def cstep (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : Option CS :=
+def cstep (j : Nat) (i : AInstr) (s : CS) : Option CS :=
   if (defs i).contains .x24 then none else
   if storeAddrRegs i |>.any (fun r => (s.word r).isSome) then none else
   let s0 : CS := { s with fl := none }
@@ -1150,22 +1145,15 @@ def cstep (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : Option CS :=
   | .subImm d a k =>
       if a != .x23 then other else
       if d == .x23 then
-        match spWords x86 k with
-        | some k => if (s.off - k).natAbs ≤ cwin.natAbs
-                    then some { s0 with off := s.off - k, lt := s.lt.map (· - k) } else none
-        | none => none
-      else some (s0.setR d (some (idxOr j d ((spWords x86 k).map (s.off - ·)))))
+        if (s.off - k).natAbs ≤ cwin.natAbs
+        then some { s0 with off := s.off - k, lt := s.lt.map (· - k) } else none
+      else some (s0.setR d (some (idxOr j d (some (s.off - k)))))
   | .addImm d a k =>
       if a != .x23 then other else
       if d == .x23 then
-        match spWords x86 k with
-        | some k => if (s.off + k).natAbs ≤ cwin.natAbs
-                    then some { s0 with off := s.off + k, lt := s.lt.map (· + k) } else none
-        | none => none
-      else some (s0.setR d (some (idxOr j d ((spWords x86 k).map (s.off + ·)))))
-  | .addReg d b a =>
-      if !x86 || b != .x24 || d == .x23 then other else
-      some (s0.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d)))
+        if (s.off + k).natAbs ≤ cwin.natAbs
+        then some { s0 with off := s.off + k, lt := s.lt.map (· + k) } else none
+      else some (s0.setR d (some (idxOr j d (some (s.off + k)))))
   | .addLsl5 d b a =>
       if b != .x24 then other else if d == .x23 then none else
       some (s0.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d)))
@@ -1196,24 +1184,24 @@ def cstep (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : Option CS :=
       | none => some s0
   | .strBase r base => match s.word base with | some c => some (CS.store j s0 c 0 r) | none => some s0
   | .blSym _ | .blr _ | .blFar _ =>
-      let s := (callKills x86).foldl (fun s r => s.setR r none) s0
+      let s := callKills.foldl (fun s r => s.setR r none) s0
       some ({ s with mem := [], gen := j + 1 }.setR .x0 (some (.fresh j .x0)))
   | _ => other
 
 /-- The state on the taken edge of a local branch: after `cmp x23, #k ; b.lt` (only
     labels between), sp < k. -/
-def ctaken (x86 : Bool) (i : AInstr) (s out : CS) : CS :=
-  match i, s.fl.bind (fun k => spWords x86 k) with
+def ctaken (i : AInstr) (s out : CS) : CS :=
+  match i, s.fl with
   | .bcLbl .lt _, some k =>
       if k ≤ cwin then { out with lt := some (match out.lt with | some x => min x k | none => k) }
       else out
   | _, _ => out
 
 /-- The out-edges of instruction j: (target, state on that edge). -/
-def cedges (is : List AInstr) (j : Nat) (i : AInstr) (s out : CS) (x86 : Bool := false) :
+def cedges (is : List AInstr) (j : Nat) (i : AInstr) (s out : CS) :
     List (Nat × CS) :=
   (if noFallthrough i then [] else [(j + 1, out)]) ++
-  (match (localBranch i).bind (labelTarget is j) with | some k => [(k, ctaken x86 i s out)] | none => [])
+  (match (localBranch i).bind (labelTarget is j) with | some k => [(k, ctaken i s out)] | none => [])
 
 /-- A limb's value stripped of its guards; `okAt t`: every guard holds once sp₀ ≥ t. -/
 def CV.strip : CV → CV | .when _ v => v.strip | v => v
@@ -1221,32 +1209,32 @@ def CV.okAt (t : Int) : CV → Bool | .when k v => k ≤ t && v.okAt t | _ => tr
 
 /-- At `br x27`: each cached register equals the limb it caches, and the guards on both
     hold whenever the word is owed (sp₀ + c ≥ 0); or the word is not owed (sp < 1 / 2). -/
-def exitOk (s : CS) (x86 : Bool) : Bool :=
+def exitOk (s : CS) : Bool :=
   let ok (rs : List Reg) (c : Int) : Bool :=
     rs.zipIdx.all fun (r, l) => match s.rv r with
       | some v => v.strip == (s.mv c l).strip && v.okAt (-c) && (s.mv c l).okAt (-c)
       | none => false
-  (s.lt.any (· ≤ 1) || ok tosRegs (s.off - 1)) && (x86 || s.lt.any (· ≤ 2) || ok nosRegs (s.off - 2))
+  (s.lt.any (· ≤ 1) || ok tosRegs (s.off - 1)) && (s.lt.any (· ≤ 2) || ok nosRegs (s.off - 2))
 
 /-- Every path from instruction j, `d` steps in (the names a step makes are keyed by
     `d`, so they are new on the path): the indices where a path fails (an exit that
     breaks the cache, an instruction the analysis cannot follow, falling off the body,
     out of fuel — the bodies are acyclic, so `length + 1` steps reach every exit). -/
-def cwalk (is : List AInstr) (x86 : Bool) : Nat → Nat → Nat → CS → List Nat
+def cwalk (is : List AInstr) : Nat → Nat → Nat → CS → List Nat
   | 0, _, j, _ => [j]
   | fuel + 1, d, j, s =>
     match is[j]? with
     | none => [j]
-    | some .brCont => if exitOk s x86 then [] else [j]
+    | some .brCont => if exitOk s then [] else [j]
     | some i =>
-      match cstep d i s x86 with
+      match cstep d i s with
       | none => [j]
-      | some out => (cedges is j i s out x86).flatMap fun (k, e) => cwalk is x86 fuel (d + 1) k e
+      | some out => (cedges is j i s out).flatMap fun (k, e) => cwalk is fuel (d + 1) k e
 
 /-- Indices where some path leaves the stack cache incoherent (or the analysis lost
     it) — empty when the body keeps the cache coherent. -/
-def cacheIncoherent (is : List AInstr) (x86 : Bool := false) : List Nat :=
-  (cwalk is x86 (is.length + 1) 0 0 CS.entry).eraseDups
+def cacheIncoherent (is : List AInstr) : List Nat :=
+  (cwalk is (is.length + 1) 0 0 CS.entry).eraseDups
 
 /-- Every op lowers, and the ARM64 body keeps the stack cache coherent. -/
 def cacheCoherent (p : Prog) : Bool :=

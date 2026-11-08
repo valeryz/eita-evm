@@ -100,3 +100,9 @@
  Classical.choice,
  Quot.sound,
  Evm.CL.ARM64.Interp.handler_stack_cache_coherent._native.native_decide.ax_1_1]
+'Evm.CL.X86CacheSound.xcacheIncoherent_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.X86CacheSound.xrun_ret_coherent' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.X86CacheSound.x86_handler_runs_cache_coherent' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound,
+ Evm.CL.X86CacheSound.x86_handler_tos_cache_coherent._native.native_decide.ax_1_1]

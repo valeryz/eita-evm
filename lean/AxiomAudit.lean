@@ -43,6 +43,7 @@ import Evm.CL.ARM64.CallGasDenote
 import Evm.Parallel.BlockSTM
 import Evm.CL.CacheSound
 import Evm.CL.ARM64.Interp
+import Evm.CL.X86CacheSound
 -- the rest of the modules that use native_decide (the extern rule, at the end)
 import Evm.CL.Boundary
 import Evm.CL.DispatchTable
@@ -133,6 +134,10 @@ import Evm.CL.ARM64.SstoreGasSem
 -- so every handler body's runs keep the cache (via the native_decide verdict).
 #print axioms Evm.CL.CacheSound.cacheIncoherent_sound
 #print axioms Evm.CL.ARM64.Interp.handler_runs_cache_coherent
+-- …and on x86-64, over the lowered bodies and `X86Sem.xstep` (also for `xrun`).
+#print axioms Evm.CL.X86CacheSound.xcacheIncoherent_sound
+#print axioms Evm.CL.X86CacheSound.xrun_ret_coherent
+#print axioms Evm.CL.X86CacheSound.x86_handler_runs_cache_coherent
 
 /-! ## native_decide never runs an `@[extern]` / `@[implemented_by]` of ours
 
