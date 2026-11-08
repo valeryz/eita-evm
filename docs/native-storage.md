@@ -38,6 +38,11 @@ tables are THE copy: the Lisp `slots` struct and its table code are deleted. Lis
 `acct-slot-get`, `acct-slot-put!`, `acct-slot-present-p`, `acct-slots-map`, `acct-slots-drop!` and `%ws-copy`
 (state/world.lisp), which pass limbs, so bignums are made only where Lisp needs an integer.
 
+Since the Velvet swap the table is no longer hand-written: `c/world_slots_emit.c` is printed from Velvet methods
+proved for every capacity against `WorldSlotsModel` (proofs in a separate Velvet package, to be published), and
+`c/world_slots.c` is the glue (struct packing, frees, the directory's pointer array); the ABI, the CBMC harness and
+the tests are unchanged. Trust: docs/trusted-surface.md, "Table primitives".
+
 Per-tx records stay where they are today, in the native TxState (c/tx_state.h): the EIP-2929 accessed-slot set,
 EIP-2200 originals (first-touch value and order), transient storage, refunds. Nothing moves; the native SLOAD/SSTORE
 reads and writes them directly instead of through Lisp wrappers.
@@ -130,7 +135,7 @@ Trust classification, reported per new piece:
 |---|---|
 | SLOAD/SSTORE effect logic (C) | derived (emitted from the effect IR; the IR -> C printer trusted, like toCL) |
 | limb eq / zero / compare / copy (C) | proved (Lean, WordOps) + emitted |
-| WorldSlots probe / insert / resize / remove / wipe / map | model-checked (CBMC: safety; small-size equivalence to the model) + tested (randomized vs model and vs the Lisp table, sanitizers) |
+| WorldSlots probe / insert / resize / remove / wipe / map | proved (Velvet, every capacity) + emitted; glue trusted; still model-checked (CBMC) + tested (randomized vs model, sanitizers) |
 | native journal append / type-0 restore | model-checked + tested |
 | Lisp accessors routed to the native table | tested (differential, fixtures, 30k replay) |
 | hook tiers (a)-(c) | tested (fact-log rows and storage view identical to the Lisp path's over the 30k range; fixture rows and watched accesses equal a digest recorded from it) |

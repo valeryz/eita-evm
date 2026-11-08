@@ -122,11 +122,12 @@ log and storage view of the 30k range compared with the ones step 5's Lisp path 
 `tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
 emitted file).
 
-### Table primitives — model-checked + tested (built: owner note 6 step 2)
+### Table primitives — proved in Velvet for every capacity, emitted (built: owner note 6 step 2; emitted since the Velvet swap)
 
-`c/world_slots.{h,c}` (about 150 lines): per account id, one open-addressed table of slot -> value, under a
-directory per account table. The Lean model is a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put /
-remove / drop / copy, with the lemmas each primitive is tested for).
+`c/world_slots.h` (the ABI) over `c/world_slots_emit.c` (generated, do not edit) and `c/world_slots.c` (glue):
+per account id, one open-addressed table of slot -> value, under a directory per account table. The Lean model is
+a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put / remove / drop / copy). Until this swap the table was
+164 lines of hand-written C (126 of code), model-checked by CBMC at capacities 4 and 8 only.
 
 | primitive | contract (on the model) | memory-safety obligations |
 |---|---|---|
@@ -139,14 +140,33 @@ remove / drop / copy, with the lemmas each primitive is tested for).
 | `eita_ws_map(w, id, fn)` / the Lisp walk `acct-slots-map` | fn(key, value) for every key of id, in table order | no write to id during the walk |
 | growth (`ws_grow`, inside put) | the map unchanged; capacity doubled when over half full, else a same-size rehash | the old arrays freed after the copy |
 
-**How it is checked.** CBMC (`c/cbmc/run.sh`, 11 proofs, about 5 minutes, in CI): for an ARBITRARY table of
-capacity 4 or 8 satisfying the probing invariant, each of get, place (a put with room), remove and grow is
-memory-safe (bounds, pointers, frees, leaks, overflow, conversions), keeps the invariant and the load bound, and
-agrees with the finite-map model on an arbitrary key; the directory (growth, independent accounts, drop, copy)
-with concrete ids. Not covered by CBMC: the doubling from 8 to 16 (beyond the memory cap; the randomized tests
-grow through 2^17). Randomized: `c/test_world_slots` under ASan + UBSan (random ops against a reference map,
-bulk growth) and on a trace of the Lean model itself (`lake exe worldSlotsVectors`); `tests/world-slots.lisp`
-against a finite map and against the Lisp table it replaced, walk order included; the fixtures (every
+**Proved.** Every table decision is a Velvet method (Lean, Velvet's vcgen; the proofs use only `propext`,
+`Classical.choice` and `Quot.sound`, no `sorry`, no `native_decide`, no solver axiom), proved for EVERY capacity
+against the model, and `c/world_slots_emit.c` is printed from those methods: the probe and its insertion index
+(the first non-full slot on the probe path), place, remove, the load test and the growth rule, the rehash
+(occupancy `4·used <= 3·cap` kept, the map unchanged, aborts only past `WS_MAX_CAP`), lookup, the walk step,
+the 4-entry fresh table, the directory size rule (aborts only for an id >= 2^40) and the array copy. At the world
+level, the glue's operations (touch, put, remove, drop, get, has-table, copy) are proved equal to the model's
+under the abstraction, the walk visits exactly the present (key, value) pairs in index order, and every abort
+condition is stated exactly. The printer indexes arrays only under a proved bound, so every array access in the
+emitted C is in bounds by proof. The proofs, the printer and a drift check that regenerates
+`c/world_slots_emit.c` and fails on any difference live in Eita's separate Velvet package (its own Lean toolchain;
+core gains no Lean dependency); they will be published.
+
+**Still trusted.**
+- The Velvet C printer: Lean method bodies -> C, the same class as the effect IR's printers.
+- `Nat` fits in 64 bits: the methods compute on `Nat`, the C on `uint64_t`. Informally bounded: the emitted
+  aborts keep capacities and ids below 2^40, so `8·cap`, `4·(used+1)` and the directory size cannot wrap.
+- The glue `c/world_slots.c` (135 lines, 90 of code): packs and unpacks the struct, frees the arrays a grow replaced,
+  keeps the directory's pointer array, calls the map callback. It makes no table decision; the package's
+  world-level proofs mirror it line by line, but the glue itself is hand-written C.
+
+**Still checked** (unchanged, now on the emitted C). CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
+table of capacity 4 or 8 satisfying the probing invariant, get, place, remove and grow are memory-safe (bounds,
+pointers, frees, leaks, overflow, conversions) and agree with the model; the directory with concrete ids. Since
+the Velvet proofs cover every capacity, CBMC is now a cross-check of the C as compiled (the printer, the glue, the
+`Nat`/`uint64_t` gap) rather than the only evidence. Randomized: `c/test_world_slots` under ASan + UBSan and on a
+trace of the Lean model itself (`lake exe worldSlotsVectors`); `tests/world-slots.lisp`; the fixtures (every
 GeneralStateTests storage directory) and the 30k replay.
 
 ### The SSTORE effect in C, its journal entry and the native revert — derived + tested (built: step 4)

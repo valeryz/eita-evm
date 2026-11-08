@@ -165,7 +165,7 @@ test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
 
-$(BUILD)/world_slots.o: world_slots.c world_slots.h | $(BUILD)
+$(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/storage_host.o: storage_host.c storage_host.h world_slots.h tx_state.h generated/limb_ops.h | $(BUILD)
@@ -181,7 +181,7 @@ test_world_slots: $(BUILD)/test_world_slots
 test_world_slots_model: $(BUILD)/test_world_slots
 	cd ../lean && lake build worldSlotsVectors >/dev/null && lake env ./.lake/build/bin/worldSlotsVectors 50000 > ../c/$(BUILD)/ws-vectors.txt
 	$(BUILD)/test_world_slots $(BUILD)/ws-vectors.txt
-$(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots.h | $(BUILD)
+$(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -o $@ test_world_slots.c world_slots.c
 
 $(BUILD)/test_tx_state: test_tx_state.c tx_state.c tx_state.h tx_arena.h | $(BUILD)
