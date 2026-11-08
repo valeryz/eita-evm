@@ -126,9 +126,15 @@ up to 13 layers): 18.3–20.5 s, the plain check of the same state 18.7–21.6 s
    being checked may be composed over: the checker reads the files it was given, which GC
    pins until the verdict names them (I8).
 4. **Compositions are exact**: a resume loads the components its anchor names and checks
-   each one's bytes against the recorded content hash (I3); a point without an anchored
-   composition (a bisect layer, a copied snapshot) is root-checked before anything runs on
-   it.
+   each one against the recorded content hash (I3): its manifest (each file's name, size
+   and FNV) must hash to it and every file have its recorded size. The bytes are not
+   re-read: the root check read exactly these files, a component is immutable once
+   published, and the next anchor's root check reads every byte again
+   (`EITA_RESUME_VERIFY=1` re-hashes them first: 206 GB of Ethereum base, about 14 min at
+   250 MB/s). The fences are built on a thread of their own while the replay runs (lookups
+   binary-search until then): another 190 GB read. A point without an anchored
+   composition (a bisect layer, a copied snapshot) has its bytes re-hashed and is
+   root-checked before anything runs on it.
 5. **One point per block** in recovery: the first sealed of its anchored compositions
    (passed checks, fewest components first), the base alone, the widest layer chain.
 6. **Reorg window**: compaction and tip-anchor checks stay `reorg-depth` behind the

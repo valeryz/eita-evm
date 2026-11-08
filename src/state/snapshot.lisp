@@ -250,7 +250,8 @@
   acct slot-map code-map code-idx
   (acct-fence nil) (slot-fence nil)     ; the in-memory indexes of accounts.dat, storage.dat
   (n-accounts 0 :type fixnum) (n-slots 0 :type fixnum) (n-codes 0 :type fixnum)
-  (bloom nil))                          ; a layer's address filter (built at open)
+  (bloom nil)                           ; a layer's address filter (built at open)
+  (fence-thread nil))                   ; the thread building the fences (`snap-open` :background)
 
 (defun read-manifest (dir)
   (with-open-file (in (merge-pathnames "MANIFEST.sexp" (as-dir dir)) :if-does-not-exist nil)
@@ -283,8 +284,11 @@
 (defun snap-open (dir &key (fence t))
   "Map the snapshot at DIR. FENCE: build its in-memory indexes (`build-fence`, a pass over
    the keys); without them a point lookup binary-searches the whole file (for a reader
-   that only scans). A snapshot from before the fences also holds accounts.idx and
-   storage.idx: listed in its manifest (so verified and hashed as before), never read."
+   that only scans). :BACKGROUND builds them on a thread of their own and publishes each
+   when done, lookups binary-searching until then: a resume runs at once instead of first
+   reading every key (Ethereum's base: 190 GB, a quarter of an hour). A snapshot from
+   before the fences also holds accounts.idx and storage.idx: listed in its manifest (so
+   verified and hashed as before), never read."
   (let* ((dir (as-dir dir)) (m (snap-sealed-p dir)))
     (unless m (error "snapshot ~A is not complete (no manifest, or a file of the wrong size)" dir))
     (flet ((mf (name) (map-file (merge-pathnames name dir))))
@@ -293,9 +297,26 @@
                              :acct (mf "accounts.dat") :slot-map (mf "storage.dat")
                              :code-map (mf "code.dat") :code-idx (mf "code.idx")
                              :n-accounts (getf c :accounts) :n-slots (getf c :slots) :n-codes (getf c :codes))))
-          (when fence
-            (setf (snap-acct-fence s) (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s))
-                  (snap-slot-fence s) (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s))))
+          (flet ((fences ()
+                   ;; each published whole: its contents before the pointer to it (the
+                   ;; replay's lookups read it without a lock; ARM64 orders their dependent loads)
+                   (let ((f (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s))))
+                     (sb-thread:barrier (:write))
+                     (setf (snap-acct-fence s) f))
+                   (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s))))
+                     (sb-thread:barrier (:write))
+                     (setf (snap-slot-fence s) f))))
+            (case fence
+              ((nil))
+              (:background
+               (setf (snap-fence-thread s)
+                     (sb-thread:make-thread
+                      (lambda ()
+                        ;; a failed build leaves lookups on the binary search: slower, not wrong
+                        (handler-case (fences)
+                          (error (e) (format *error-output* "~&[snapshot] fence of ~A not built: ~A~%" dir e))))
+                      :name "snapshot fence")))
+              (t (fences))))
           (when (snap-layer-p s)
             (let ((b (build-bloom s))) (setf (snap-bloom s) b)))
           s)))))
@@ -308,6 +329,8 @@
 
 (defun snap-close (s)
   (when s
+    ;; a fence still being built reads the mappings
+    (when (snap-fence-thread s) (sb-thread:join-thread (snap-fence-thread s) :default nil))
     (dolist (m (list (snap-acct s) (snap-slot-map s) (snap-code-map s) (snap-code-idx s)))
       (unmap m))))
 

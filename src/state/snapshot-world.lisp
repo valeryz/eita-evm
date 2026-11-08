@@ -528,16 +528,21 @@
     (back-world! world s '())
     (list (eita.state.snapshot:component-of s))))
 
-(defun open-composition (comps)
-  "Open COMPS (oldest first) after checking each one's bytes against its recorded content
-   hash (I3; a component without one is accepted on its manifest). A refused component is
-   quarantined (*.corrupt) and the resume fails loudly. Returns (values base layers)."
+(defun open-composition (comps &key trust)
+  "Open COMPS (oldest first) after checking each one against its recorded content hash
+   (I3; a component without one is accepted on its manifest): its bytes re-hashed, or with
+   TRUST (the composition of a passed root check) its manifest — the files' names, sizes
+   and FNVs, the sizes checked on disk — hashed, the bytes not re-read. A refused component
+   is quarantined (*.corrupt) and the resume fails loudly. Returns (values base layers)."
   (let ((snaps '()))
     (dolist (c comps)
       (let* ((path (eita.state.snapshot:component-path (snapshot-dir) c))
              (want (car (last c)))
              (s (handler-case
-                    (let* ((s (eita.state.snapshot:snap-open path)) (got (eita.state.snapshot:snap-verify s)))
+                    (let* ((s (eita.state.snapshot:snap-open path :fence :background))
+                           (got (if trust
+                                    (eita.state.snapshot:snap-content-hash (eita.state.snapshot:snap-manifest s))
+                                    (eita.state.snapshot:snap-verify s))))
                       (when (and want (not (string-equal want got)))
                         (eita.state.snapshot:snap-close s)
                         (error "content hash ~A, recorded ~A" got want))
@@ -554,9 +559,9 @@
         (error "resume: composition ~S is not a base under layers" comps))
       (values (first snaps) (reverse (rest snaps))))))
 
-(defun resume-stack! (world comps)
-  "Back WORLD by the composition COMPS (oldest first)."
-  (multiple-value-bind (base layers) (open-composition comps)
+(defun resume-stack! (world comps &key trust)
+  "Back WORLD by the composition COMPS (oldest first); TRUST: `open-composition`'s."
+  (multiple-value-bind (base layers) (open-composition comps :trust trust)
     (back-world! world base layers)
     (format t "~&resume: ~A~{ + ~A~} (~D accounts, ~D slots in the base)~%"
             (eita.state.snapshot:snap-dir base) (mapcar #'eita.state.snapshot:snap-dir (reverse layers))

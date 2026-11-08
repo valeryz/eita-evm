@@ -243,16 +243,23 @@
 
 (defun resume-from-anchor! (world rn)
   "Anchored restart at RN (recovery.lisp's resume point, or an operator's bisect point):
-   the world starts empty over the composition a passed root check recorded for RN, its
-   bytes checked against the recorded hashes. A point without one (a layer kept for
-   bisecting, a copied snapshot) is resolved to its chain, root-checked now,
-   synchronously, and recorded before anything runs on it. Returns the first block."
-  (let ((comps (find-if #'composition-sealed-p (anchor-compositions rn))))
+   the world starts empty over the composition a passed root check recorded for RN. Its
+   components' manifests must hash to the recorded hashes and their files have the sizes
+   the manifests record; the bytes are not re-read (`open-composition` :trust) — the root
+   check read exactly these files, a component is immutable once published, and the next
+   anchor's root check reads every byte again. EITA_RESUME_VERIFY=1 re-hashes them first
+   (206 GB of Ethereum base: half of a 28-minute resume). A point without a passed check (a
+   layer kept for bisecting, a copied snapshot) is resolved to its chain, its bytes
+   re-hashed, root-checked now, synchronously, and recorded before anything runs on it.
+   Returns the first block."
+  (let ((comps (find-if #'composition-sealed-p (anchor-compositions rn)))
+        (verify (let ((v (sb-ext:posix-getenv "EITA_RESUME_VERIFY"))) (and v (plusp (length v)) (string/= v "0")))))
     (if comps
-        (progn
-          (resume-stack! world comps)
-          (format t "~&resume: composition ~A is anchored at ~D (root checked)~%"
-                  (eita.state.snapshot:composition-string comps) rn))
+        (let ((t0 (get-internal-real-time)))
+          (resume-stack! world comps :trust (not verify))
+          (format t "~&resume: composition ~A is anchored at ~D (root checked)~:[; manifests match it, bytes not re-read (EITA_RESUME_VERIFY=1 re-hashes them)~;, bytes re-hashed~]; resume took ~,1F s~%"
+                  (eita.state.snapshot:composition-string comps) rn verify
+                  (/ (- (get-internal-real-time) t0) internal-time-units-per-second)))
         (multiple-value-bind (anchors dumps files) (eita.state.recovery:read-view (snapshot-dir))
           (declare (ignore dumps))
           (let ((chain (if (eita.state.snapshot:snap-sealed-p (eita.state.snapshot:snap-path (snapshot-dir) rn))
