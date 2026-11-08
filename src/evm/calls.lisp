@@ -184,18 +184,12 @@
               (setf *current-state*   parent-state)
               (setf *current-address* saved-addr)))
           ;; Copy the child's output BEFORE scrubbing its memory slice (output_ptr points
-          ;; into it). The interpreter raises `reverted` for REVERT and for every
-          ;; exceptional halt; only REVERT writes the output pointer (offset 112, zeroed per
-          ;; frame), so a NULL pointer is an exceptional halt (stop #16: calling those
-          ;; :revert made Arc CallFrom refund its retained 1/64 after an OOG child).
-          (let* ((halted   (not (zerop (mem-ref sub-state :uint8 128))))
-                 (reverted (not (zerop (mem-ref sub-state :uint8 129))))
-                 (output-ptr (mem-ref sub-state :pointer 112))
+          ;; into it). An exceptional halt is not a :revert (frame-status; stop #16: calling
+          ;; those :revert made Arc CallFrom refund its retained 1/64 after an OOG child).
+          (let* ((output-ptr (mem-ref sub-state :pointer 112))
                  (output-len (mem-ref sub-state :uint64 120))
                  (gas-left (mem-ref sub-state :uint64 8))
-                 (status (cond ((and halted (not reverted)) :return)
-                               ((and reverted (not (null-pointer-p output-ptr))) :revert)
-                               (t :halt)))
+                 (status (frame-status sub-state))
                  (output (when (and (not (eq status :halt)) (plusp output-len))
                            (let ((out-copy (alloc-bytes output-len)))   ; escapes -> disjoint buffer
                              (%memcpy out-copy output-ptr output-len)

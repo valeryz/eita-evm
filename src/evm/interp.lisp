@@ -67,6 +67,19 @@
     (if (or (null-pointer-p p) (zerop n)) #()
         (foreign->bytes p n))))
 
+(defun frame-status (state)
+  "How the frame in STATE ended: :return, :revert or :halt (an exceptional halt: EELS
+   execute_code's `except ExceptionalHalt` -- out of gas, invalid opcode or jump, stack
+   under/overflow, static-context write, out-of-bounds returndata, ... -- gas_left := 0,
+   output := b\"\"). The interpreter and the JIT raise `reverted` (offset 129) for REVERT and
+   for every exceptional halt; only REVERT writes the output pointer (offset 112, zeroed per
+   frame), so reverted with a NULL output is the exceptional halt (stop #16)."
+  (let ((halted (not (zerop (mem-ref state :uint8 128))))
+        (reverted (not (zerop (mem-ref state :uint8 129)))))
+    (cond ((and halted (not reverted)) :return)
+          ((and reverted (not (null-pointer-p (mem-ref state :pointer 112)))) :revert)
+          (t :halt))))
+
 (defun %frame-memory (state)
   "The frame's memory (ptr@40, size@48) as a Lisp vector."
   (let ((p (mem-ref state :pointer 40)) (n (mem-ref state :uint64 48)))
@@ -83,9 +96,14 @@
    log the first divergence. Leaves the INTERP (trusted) result in STATE.
    Compared: gas, halted/reverted, output, the frame's final memory, the refund counter
    and every journal entry the tx wrote (its storage, balance, nonce, warm-up and created
-   effects). The restore between the tiers is what run-tx-frame! does after a frame (the
-   memory arena scrubbed, the last returndata freed) plus the journal rewind and tier A's
-   logs, transfers and frame records dropped (tests/diff-tiers.lisp).
+   effects). The memory is skipped exactly when both tiers end in an exceptional halt
+   (frame-status :halt): that halt discards the frame's memory (no output, gas 0), and the
+   tiers legitimately leave different bytes there -- the JIT checks gas per chunk and halts
+   at the chunk's start, the interpreter runs ops up to the exact out-of-gas point (203
+   such TIERDIFFs on the 30k bundle, every other observable equal). The restore between
+   the tiers is what run-tx-frame! does after a frame (the memory arena scrubbed, the last
+   returndata freed) plus the journal rewind and tier A's logs, transfers and frame records
+   dropped (tests/diff-tiers.lisp).
    EITA_DIFF_TIERS=N cross-checks every Nth tx (1 = all)."
   (unless *diff-snap* (setf *diff-snap* (foreign-alloc :uint8 :count +substate-bytes+)))
   (incf (getf *diff-stats* :txs))
@@ -98,7 +116,7 @@
     (run-frame state code)                                   ; tier A: JIT
     (let ((ag (mem-ref state :uint64 8)) (ah (mem-ref state :uint8 128))
           (ar (mem-ref state :uint8 129)) (ao (%frame-output state))
-          (am (%frame-memory state)) (aj (%journal-bytes *tx-arena-root* jsnap)) (af (ts-refund)))
+          (as (frame-status state)) (am (%frame-memory state)) (aj (%journal-bytes *tx-arena-root* jsnap)) (af (ts-refund)))
       ;; as run-tx-frame! after a frame: tier B's memory must read zero where it expands
       (zero-bytes *memory-arena* 0 (mem-ref state :uint64 48))
       (free-frame-returndata state)
@@ -108,8 +126,8 @@
       (let ((*force-interp* t)) (run-frame state code))     ; tier B: interp
       (let ((bg (mem-ref state :uint64 8)) (bh (mem-ref state :uint8 128))
             (br (mem-ref state :uint8 129)) (bo (%frame-output state))
-            (bm (%frame-memory state)) (bj (%journal-bytes *tx-arena-root* jsnap)) (bf (ts-refund)))
-        (unless (and (= ag bg) (= ah bh) (= ar br) (equalp ao bo) (equalp am bm) (equalp aj bj) (= af bf))
+            (bs (frame-status state)) (bm (%frame-memory state)) (bj (%journal-bytes *tx-arena-root* jsnap)) (bf (ts-refund)))
+        (unless (and (= ag bg) (= ah bh) (= ar br) (equalp ao bo) (or (and (eq as :halt) (eq bs :halt)) (equalp am bm)) (equalp aj bj) (= af bf))
           (incf (getf *diff-stats* :divergences))
           (format *error-output*
                   "TIERDIFF block ~D addr ~X: JIT(gas=~D halt=~D rev=~D out=~D mem=~D jrnl=~D refund=~D) /= INTERP(gas=~D halt=~D rev=~D out=~D mem=~D jrnl=~D refund=~D) same out/mem/journal ~A/~A/~A code=~A~%"

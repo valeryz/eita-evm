@@ -164,11 +164,7 @@
       (cond (create (storage-host-sync!) (eita-run state))
             (*diff-tiers* (diff-run-tiers state code))
             (t (run-frame state code)))
-      (let* ((halted   (not (zerop (mem-ref state :uint8 128))))
-             (reverted (not (zerop (mem-ref state :uint8 129))))
-             (status (cond ((and halted (not reverted)) :return)
-                           ((and reverted (not (null-pointer-p (mem-ref state :pointer 112)))) :revert)
-                           (t :halt)))
+      (let* ((status (frame-status state))
              (gas-left (if (eq status :halt) 0 (mem-ref state :uint64 8)))
              ;; copy BEFORE scrubbing the memory: the output pointer points into it
              (output (if (eq status :halt) #() (%frame-output state))))
