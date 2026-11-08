@@ -24,7 +24,12 @@
 (defvar *base* nil "The base snapshot under the stack (eita.state.snapshot:snap), or NIL.")
 (defvar *layers* '()
   "The stack above *BASE*, newest first: RAM-LAYER structs (frozen, not yet on disk), then
-   layer snaps. Replaced, never mutated, under *STACK-LOCK*; read without it (a list).")
+   layer snaps. Replaced, never mutated, under *STACK-LOCK*; read without it (a list) by
+   the replay thread's faults. So every publication is preceded by a write barrier: the
+   new conses (and the snap they name) are visible before the pointer to them on weakly
+   ordered ARM64; a reader's loads through the pointer are address-dependent, which ARM64
+   orders without a read barrier (SBCL's :data-dependency barrier is a no-op there).
+   A reader that reads it twice (and needs one stack) takes the lock: `live-components`.")
 (defvar *stack-lock* (sb-thread:make-mutex :name "layer stack"))
 
 (defvar *code-intern* (make-hash-table :test 'eql :weakness :value)
@@ -134,6 +139,7 @@
    fault hooks installed."
   (clear-hot! world)
   (sb-thread:with-mutex (*stack-lock*)
+    (sb-thread:barrier (:write))
     (setf *base* base *layers* layers))
   (setf *keep-zero-slots* t
         *fault-account-hook* #'snap-fault-account
@@ -229,6 +235,7 @@
     (let ((snap (write-ram-tables l below base)))
       (sb-thread:with-mutex (*stack-lock*)
         (let ((new (substitute snap l *layers*)))
+          (sb-thread:barrier (:write))
           (setf *layers* new *writer-busy* nil
                 *written* (cons (+ (layer-bytes snap) (or (car *written*) 0)) (cons l (cdr *written*)))))))))
 
@@ -286,7 +293,7 @@
                            :accts (world-accts world) :ready ready)))
     (clear-hot! world)
     (sb-thread:with-mutex (*stack-lock*)
-      (let ((new (cons l *layers*))) (setf *layers* new)))
+      (let ((new (cons l *layers*))) (sb-thread:barrier (:write)) (setf *layers* new)))
     (incf (getf *snap-stats* :freezes))
     (pipe-put *writer-pipe* l)
     l))
@@ -307,17 +314,22 @@
    the snap replaces the RAM layer in the stack: unpinned, a GC in that window deleted the
    layer under the writer — `rename: No such file`, the replay died; Arc stress, 2026-11-08),
    a compaction's output (written, not yet in the stack) and what the root check in flight
-   reads (a minor compaction may have replaced it in the stack)."
-  (append
-   (loop for l in *layers* when (ram-layer-p l) collect (list :layer (ram-layer-parent l) (ram-layer-block l)))
-   (mapcar (lambda (c) (subseq c 0 (1- (length c))))
-           (append (mapcar #'eita.state.snapshot:component-of (remove-if-not #'eita.state.snapshot:snap-p (cons *base* *layers*)))
-                   (and *pending-root* (fifth *pending-root*))))
-   (and *compacting-base* (list (list :base (eita.state.snapshot:snap-block *compacting-base*))))
-   (and *compactor-job*
-        (ecase (first *compactor-job*)
-          (:minor (list (list :layer (third *compactor-job*) (fourth *compactor-job*))))
-          (:major (list (list :base (third *compactor-job*))))))))
+   reads (a minor compaction may have replaced it in the stack).
+   One read of the stack, under *STACK-LOCK*: read twice, it was correct only because
+   APPEND reads the RAM layers before the snaps; in the other order the writer's swap of
+   layer N between the two reads drops N from both (a Veil protocol model, 10 steps)."
+  (multiple-value-bind (base layers)
+      (sb-thread:with-mutex (*stack-lock*) (values *base* *layers*))
+   (append
+    (loop for l in layers when (ram-layer-p l) collect (list :layer (ram-layer-parent l) (ram-layer-block l)))
+    (mapcar (lambda (c) (subseq c 0 (1- (length c))))
+            (append (mapcar #'eita.state.snapshot:component-of (remove-if-not #'eita.state.snapshot:snap-p (cons base layers)))
+                    (and *pending-root* (fifth *pending-root*))))
+    (and *compacting-base* (list (list :base (eita.state.snapshot:snap-block *compacting-base*))))
+    (and *compactor-job*
+         (ecase (first *compactor-job*)
+           (:minor (list (list :layer (third *compactor-job*) (fourth *compactor-job*))))
+           (:major (list (list :base (third *compactor-job*)))))))))
 
 (defun composition-dirs (comps)
   (mapcar (lambda (c) (string-right-trim "/" (namestring (eita.state.snapshot:component-path (snapshot-dir) c)))) comps))
@@ -403,6 +415,7 @@
            (sb-thread:with-mutex (*stack-lock*)
              (let* ((pos (position (first run) *layers*))
                     (new (append (subseq *layers* 0 pos) (list composed) (nthcdr (+ pos (length run)) *layers*))))
+               (sb-thread:barrier (:write))
                (setf *layers* new)))
            (setf *retired* (append run *retired*))
            (format t "~&[layers] composed ~D layers into layer-~D-~D~%" (length run)
@@ -450,6 +463,7 @@
       (let ((gone (cons *base* (member m *layers* :key #'layer-block)))
             (keep (ldiff *layers* (member m *layers* :key #'layer-block))))
         (setf *retired* (append gone *retired*))
+        (sb-thread:barrier (:write))
         (setf *base* s *layers* keep)))
     (setf *compacting-base* nil)
     (format t "~&[layers] base is now snap-~D (~D layers above it)~%" m (length *layers*))))
@@ -486,7 +500,7 @@
          (top (if keep (layer-block (first keep)) (eita.state.snapshot:snap-block *base*))))
     (when (and (null keep) (> (eita.state.snapshot:snap-block *base*) b))
       (error "rollback to ~D: below the base snap-~D (the reorg is deeper than the layers)" b (eita.state.snapshot:snap-block *base*)))
-    (sb-thread:with-mutex (*stack-lock*) (setf *layers* keep))
+    (sb-thread:with-mutex (*stack-lock*) (sb-thread:barrier (:write)) (setf *layers* keep))
     (dolist (l drop)
       (eita.state.snapshot:snap-close l)
       (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir l)))) :search t))
