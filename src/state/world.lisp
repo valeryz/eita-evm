@@ -360,6 +360,27 @@
                        (words-u256 (sb-sys:sap-ref-64 w (+ o 32)) (sb-sys:sap-ref-64 w (+ o 40))
                                    (sb-sys:sap-ref-64 w (+ o 48)) (sb-sys:sap-ref-64 w (+ o 56)))))))))))
 
+(defun acct-table-bytes (tb)
+  "What TB holds in memory, as (values lisp native): its arrays and address bignums in the
+   heap, its slot tables in native memory (the directory, each table's header and its
+   entries: cap x (64 + 1) bytes, c/world_slots.h). Shared code vectors are not counted.
+   O(ids): computed once per frozen table, and per hot-budget check."
+  (declare (type acct-table tb))
+  (let ((lisp (+ (* 8 (+ (length (acct-table-keys tb)) (length (acct-table-vals tb))
+                         (length (acct-table-addrs tb)) (length (acct-table-balance tb))
+                         (length (acct-table-nonce tb)) (length (acct-table-code tb))
+                         (length (acct-table-bits tb))))
+                 (* 32 (acct-table-count tb))))
+        (native 0) (w (acct-table-ws tb)))
+    (when w
+      (let ((n (sb-sys:sap-ref-64 w 0)) (dir (sb-sys:sap-ref-sap w 8)))
+        (incf native (+ 24 (* 8 n)))
+        (dotimes (id n)
+          (let ((p (sb-sys:sap-ref-sap dir (* 8 id))))
+            (unless (zerop (sb-sys:sap-int p))
+              (incf native (+ 40 (* 65 (sb-sys:sap-ref-64 p 16)))))))))
+    (values lisp native)))
+
 (defun world-storage-get (w addr slot)
   (with-acct (tb a) w addr (values (acct-slot-get tb a slot))))
 

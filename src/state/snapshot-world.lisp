@@ -55,7 +55,8 @@
 (defstruct ram-layer
   block parent root
   accts                                 ; the frozen hot set (an ACCT-TABLE): faulted, wiped bits
-  ready)                                ; NIL, or a function that waits for the stream's checkpoint at BLOCK
+  ready                                 ; NIL, or a function that waits for the stream's checkpoint at BLOCK
+  (bytes 0))                            ; ACCTS' memory, heap and native (`acct-table-bytes`)
 
 (defun ram-layer-op (op l &rest args)
   "The reader's protocol (eita.state.snapshot:*foreign-layer*) for a frozen RAM layer. An account
@@ -221,7 +222,7 @@
 (defvar *retired* '() "Snaps swapped out of the stack, closed once no thread can be reading them.")
 (defvar *written* '()
   "Frozen RAM layers the writer has put on disk since the last `collect-written!` (out of
-   the stack: no reader can reach them), and their bytes on disk: (bytes . layers).")
+   the stack: no reader can reach them), and the memory their tables hold: (bytes . layers).")
 
 (defun stack-below (l)
   "The disk layers below L in the stack, newest first."
@@ -237,24 +238,31 @@
         (let ((new (substitute snap l *layers*)))
           (sb-thread:barrier (:write))
           (setf *layers* new *writer-busy* nil
-                *written* (cons (+ (layer-bytes snap) (or (car *written*) 0)) (cons l (cdr *written*)))))))))
+                *written* (cons (+ (ram-layer-bytes l) (or (car *written*) 0)) (cons l (cdr *written*)))))))))
 
 (defun collect-written! ()
-  "Replay thread, between blocks: once the layers written since the last call add up to a
-   quarter of the nursery, drop their frozen hot sets and run a full GC. Without it the
-   dead hot sets are promoted with the live data (13.8 GB of them in gen 5 against a
-   live hot set of 3.5 GB, 250k blocks into a life at Ethereum 14.0M) and stay until
-   those generations' rare collections, scattered over the heap; SBCL's large
+  "Replay thread, between blocks: once the tables of the layers written since the last call
+   hold a quarter of the state budget (`*hot-budget-bytes*`), drop them and run a full GC.
+   Without it the dead hot sets are promoted with the live data (13.8 GB of them in gen 5
+   against a live hot set of 3.5 GB, 250k blocks into a life at Ethereum 14.0M) and stay
+   until those generations' rare collections, scattered over the heap; SBCL's large
    allocations search only upward from the highest page allocated since the last GC, so
    at 33-50 % heap use they found no free run of 64 KB-38 MB (four production deaths).
-   The tables are cut loose first: the writer's stack may still hold the struct (a
-   conservative root). A full GC at ~2 GB live costs 1-2 s per layer point; at the tip (a
-   layer per block) it runs every few hundred blocks."
-  (let ((w (and *written* (>= (car *written*) (floor (sb-ext:bytes-consed-between-gcs) 4))
+   Counted in the tables' memory, heap and native, not in their layers' bytes on disk: at
+   the tip (a layer per block, Ethereum 25M) a block's layer is 0.27 MB on disk and its
+   table 0.5 MB of heap plus 0.28 MB of native slot tables (0.8 MB of heap before those),
+   so the old trigger, a quarter of the nursery in disk bytes, let 1.8 GB pile up at a
+   10 GB heap and twice that at 20 GB, the native part unseen. The tables are cut loose first: the writer's stack may still hold the struct (a
+   conservative root); their native slot tables go with them (finalizers). A full GC at
+   ~2 GB live costs 1-2 s."
+  (let ((w (and *written* (>= (car *written*) (floor (hot-budget-bytes) 4))
                 (sb-thread:with-mutex (*stack-lock*) (shiftf *written* '())))))
     (when w
       (dolist (l (cdr w)) (setf (ram-layer-accts l) nil))
-      (sb-ext:gc :full t))))
+      (sb-ext:gc :full t)
+      (format t "~&[layers] dropped ~D written hot sets (~,1F MB); heap ~,1F MB after a full GC~%"
+              (length (cdr w)) (/ (car w) 1048576.0) (/ (sb-kernel:dynamic-usage) 1048576.0))
+      (force-output))))
 
 (defun writer-loop ()
   (loop
@@ -290,7 +298,8 @@
    frozen layers are already queued (bounded memory)."
   (ensure-writer!)
   (let ((l (make-ram-layer :block n :parent (stack-top-block) :root root-hex
-                           :accts (world-accts world) :ready ready)))
+                           :accts (world-accts world) :ready ready
+                           :bytes (multiple-value-call #'+ (acct-table-bytes (world-accts world))))))
     (clear-hot! world)
     (sb-thread:with-mutex (*stack-lock*)
       (let ((new (cons l *layers*))) (sb-thread:barrier (:write)) (setf *layers* new)))
@@ -554,19 +563,26 @@
             (eita.state.snapshot:snap-n-accounts base) (eita.state.snapshot:snap-n-slots base))
     (force-output)))
 
-;;; ---------------------------------------------------------------- the hot budget
+;;; ---------------------------------------------------------------- the state budget
 
 (defstartup *hot-budget-bytes*
-  (let ((v (sb-ext:posix-getenv "EITA_HOT_BUDGET_MB"))) (and v (* 1024 1024 (parse-integer v))))
-  "With a stack backing the world, freeze early whenever the heap passes this many bytes
-   (checked every 1000 blocks), so resident memory is bounded by the budget, not by how
-   much one interval touches. NIL: freezes only on the schedule.")
+  (let ((v (sb-ext:posix-getenv "EITA_HOT_BUDGET_MB"))) (and v (plusp (length v)) (* 1024 1024 (parse-integer v))))
+  "EITA_HOT_BUDGET_MB: the memory the state's tables may hold, heap and native together
+   (`acct-table-bytes`): the hot set is frozen early when it passes this (checked every
+   1000 blocks), and the tables of written layers are dropped once they hold a quarter of
+   it (`collect-written!`). Unset: a quarter of the heap (`hot-budget-bytes`).")
+
+(defun hot-budget-bytes ()
+  "The state budget in bytes: EITA_HOT_BUDGET_MB, else a quarter of the heap (10 GB: 2.5 GB;
+   the nursery takes another quarter, and the GC's copy room is the live heap again)."
+  (or *hot-budget-bytes* (floor (sb-ext:dynamic-space-size) 4)))
 
 (defun hot-over-budget-p (n)
-  "The budget bounds the LIVE hot set: while a frozen layer still waits for the writer the
-   heap holds it too, and a freeze then would only cut a small layer (and pay a full GC)
-   for memory the writer is about to release, so the check waits for the writer."
-  (and *base* *hot-budget-bytes* (zerop (mod n 1000))
+  "Is the live hot set over the state budget (every 1000 blocks, with a stack under the
+   world)? While a frozen layer still waits for the writer the check waits too: a freeze
+   then would only cut a small layer for memory the writer is about to release. The
+   tables are measured (heap and native), not the heap: native slot tables are not in it,
+   and garbage the next GC frees is."
+  (and *base* (zerop (mod n 1000))
        (notany #'ram-layer-p *layers*)
-       (> (sb-kernel:dynamic-usage) *hot-budget-bytes*)
-       (progn (sb-ext:gc :full t) (> (sb-kernel:dynamic-usage) *hot-budget-bytes*))))
+       (> (multiple-value-call #'+ (acct-table-bytes (world-accts *current-world*))) (hot-budget-bytes))))

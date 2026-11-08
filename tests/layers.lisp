@@ -202,9 +202,76 @@
         (eita.state.recovery:run-gc dir :pinned (eita.state::live-components))))
     (check :gc-spares-frozen-layer (and (probe-file (merge-pathnames "layer-117-118/" dir)) t) t)))
 
+(defun tip-freezes-stay-bounded ()
+  "Every block a layer, as at the tip: a world over a base, each block's hot set frozen and
+   written by the writer thread, `collect-written!` polled between blocks. The tables the
+   written layers still hold never pass a quarter of the state budget plus one block's,
+   and are dropped (cut loose) when it is reached. The hot-budget check sees a large hot
+   set and not a small one. The stack's specials are set globally (the writer thread
+   reads the global values) and restored, the hooks `back-world!` installs with them."
+  (let* ((dir (format nil "~Atip/" *dir*))
+         (old-env (sb-ext:posix-getenv "EITA_STATE_DIR"))
+         (saved (list eita.state::*hot-budget-bytes* eita.state::*written* eita.state::*layers* eita.state::*base*
+                      eita.state::*current-world* eita.state::*keep-zero-slots* eita.state::*fault-account-hook*
+                      eita.state::*fault-slot-hook* eita.state::*storage-wipe-hook* eita.state::*cold-storage-map-hook*))
+         (world (eita.state:make-world))
+         (most 0) (one 0) (drops 0) (dropped '()))
+    (ensure-directories-exist dir)
+    (sb-posix:setenv "EITA_STATE_DIR" dir 1)
+    (setf eita.state::*hot-budget-bytes* (* 1024 1024) eita.state::*written* '()
+          eita.state::*current-world* world)
+    (unwind-protect
+         (let ((*standard-output* (make-broadcast-stream)))
+           (let ((tmp (snap-tmp-path dir 100)))
+             (let ((m (make-merge tmp 1 100 "0x00" nil)))
+               (merge-account m #x1000 :fields (list 1 1 +ec+ nil) :slots (list (cons 1 1)))
+               (merge-finish m '()))
+             (snap-publish dir 100 tmp))
+           (eita.state::back-world! world (snap-open (snap-path dir 100)) '())
+           (loop for b from 101 to 140
+                 do (loop for a from 0 below 20
+                          do (loop for k below 50
+                                   do (eita.state::world-storage-set world (+ #x2000 a) (+ (* 1000 b) k) (1+ k))))
+                    (let ((l (eita.state::freeze! world b "0x00")))
+                      (setf one (max one (eita.state::ram-layer-bytes l))))
+                    (eita.state::writer-drain!)
+                    (let ((before (cdr eita.state::*written*)))
+                      (eita.state::collect-written!)
+                      (when (and before (null eita.state::*written*))
+                        (incf drops) (setf dropped (append before dropped))))
+                    (setf most (max most (or (car eita.state::*written*) 0)))))
+      (eita.state::stop-background!)
+      (mapc #'snap-close (remove-if-not #'snap-p (cons eita.state::*base* eita.state::*layers*)))
+      ;; back-world! installed the snapshot hooks: the suites after this one run on plain worlds
+      (destructuring-bind (budget written layers base cw kz fa fs sw cs) saved
+        (setf eita.state::*hot-budget-bytes* budget eita.state::*written* written eita.state::*layers* layers
+              eita.state::*base* base eita.state::*current-world* cw eita.state::*keep-zero-slots* kz
+              eita.state::*fault-account-hook* fa eita.state::*fault-slot-hook* fs
+              eita.state::*storage-wipe-hook* sw eita.state::*cold-storage-map-hook* cs))
+      (if old-env (sb-posix:setenv "EITA_STATE_DIR" old-env 1) (sb-posix:unsetenv "EITA_STATE_DIR")))
+    (check :tip-one-block-measured (plusp one) t)
+    (check :tip-written-bounded (<= most (+ (floor (* 1024 1024) 4) one)) t)
+    (check :tip-written-dropped (plusp drops) t)
+    (check :tip-dropped-tables-cut (every (lambda (l) (null (eita.state::ram-layer-accts l))) dropped) t)
+    ;; the hot-budget check (replay thread only: bindings are fine): a hot set of 20,000
+    ;; slots is over 1 MB, an empty one is not
+    (let ((eita.state::*hot-budget-bytes* (* 1024 1024))
+          (eita.state::*base* t) (eita.state::*layers* '())
+          (w (eita.state:make-world)))
+      (let ((eita.state::*current-world* w))
+        (check :hot-budget-empty (eita.state:hot-over-budget-p 1000) nil)
+        (loop for k below 20000 do (eita.state::world-storage-set w #x3000 k 1))
+        (check :hot-budget-over (and (eita.state:hot-over-budget-p 1000) t) t)
+        (check :hot-budget-only-every-1000 (eita.state:hot-over-budget-p 1001) nil)
+        (multiple-value-bind (lisp native) (eita.state::acct-table-bytes (eita.state::world-accts w))
+          ;; 20,000 slots: at least 65 bytes each in native memory, and the table's arrays in the heap
+          (check :table-bytes-native (>= native (* 65 20000)) t)
+          (check :table-bytes-lisp (plusp lisp) t))))))
+
 (let ((rounds (if eita.test:*argument* (parse-integer eita.test:*argument*) 200)))
   (dotimes (r rounds) (round-1 r))
   (gc-spares-frozen-layer)
+  (tip-freezes-stay-bounded)
   (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
   (format t "~D rounds, ~D failures~%" rounds *fails*)
   (eita.test:finish :code (if (zerop *fails*) 0 1)))

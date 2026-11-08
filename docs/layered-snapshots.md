@@ -26,10 +26,19 @@ ordered stack of immutable **delta layers** (`layer-P-N/`: what blocks P+1..N ch
 * A **layer point** freezes the hot set: the world's tables become the newest frozen layer
   and the replay continues on empty ones. O(1): measured 0.0–4.7 ms against 19–21 s.
   Layer points: every anchor; a quarter of the anchor interval (resume and bisect points:
-  8,192 blocks on Arc); the hot budget (`EITA_HOT_BUDGET_MB`, now a freeze, not a
-  merge; checked every 1,000 blocks, and only while no frozen layer waits for the writer,
-  so it bounds the live hot set); and, within the chain's reorg depth of the head, every
-  block.
+  8,192 blocks on Arc); the state budget (`EITA_HOT_BUDGET_MB`, below); and, within the
+  chain's reorg depth of the head, every block.
+* The **state budget** (`EITA_HOT_BUDGET_MB`; unset, a quarter of the heap) bounds what the
+  state's tables hold in memory, heap and native slot tables together (`acct-table-bytes`,
+  measured from the tables, not from the heap). Two uses, one number: the live hot set is
+  frozen early when it passes the budget (checked every 1,000 blocks, only while no frozen
+  layer waits for the writer); and the tables of layers already written are dropped, with
+  a full GC, once they hold a quarter of it (`collect-written!`, logged as
+  `[layers] dropped N written hot sets`). The second is what bounds memory at the tip,
+  where every block is a layer. It used to count the layers' bytes on disk (a quarter of
+  the nursery), but a block's table holds about three times its layer's bytes, a third of
+  it native (Ethereum 25M: 0.27 MB on disk, 0.5 MB heap + 0.28 MB native per block), so
+  1.8 GB piled up between collections at a 10 GB heap, twice that at 20 GB.
 * The **writer** thread turns a frozen layer into `layer-P-N/` and swaps it into the stack.
 * An **anchor** queues a root check of the stack at its block. `state/root.lisp` reads the
   base plus the layers (no merged snapshot is written) with half the hardware threads, at
