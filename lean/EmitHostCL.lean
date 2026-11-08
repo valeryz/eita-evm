@@ -13,8 +13,6 @@ import Evm.CL.ForkEmit
 import Evm.CL.EffectSelfdestruct  -- the derived cb-selfdestruct effect; proved in EffectSelfdestructProof
 import Evm.CL.EffectSettle        -- the derived fee settlement; proved in EffectSettleProof
 import Evm.CL.EffectEndTx         -- the derived end-of-tx deletions; proved in EffectEndTxProof
-import Evm.CL.EffectSstore        -- the derived cb-sstore effect; proved in EffectSstoreProof
-import Evm.CL.EffectSload         -- the derived cb-sload effect; proved in EffectSloadProof
 import Evm.CL.EffectCreate        -- the derived cb-create effect; proved in EffectCreateProof
 import Evm.CL.EffectCall          -- the derived cb-call effect; proved in EffectCallProof
 import Evm.CL.EffectTx            -- the derived apply-tx effect; proved in EffectTxProof
@@ -71,19 +69,6 @@ def main : IO Unit := do
   IO.println Evm.CL.EffectEndTx.destroyCL
   IO.println ""
   IO.println Evm.CL.EffectEndTx.sweepCL
-  IO.println ""
-  IO.println ";; The SSTORE host effect (Evm.CL.EffectSstore.term), proved equal to every fork's"
-  IO.println ";; SSTORE in Evm.CL.EffectSstoreProof. Returns the gas (the fork's schedule's cost)."
-  IO.println Evm.CL.EffectSstore.termCL
-  IO.println ""
-  IO.println ";; The SSTORE schedule dispatch (Evm.CL.EffectIR.SstoreSched.ofFork, the one copy the"
-  IO.println ";; term's meaning sstorePlan reads) and the native routines it binds (each proved equal"
-  IO.println ";; to its spec schedule in Evm.CL.ARM64.SstoreGasSem). sstore-gas-native calls it."
-  IO.println Evm.CL.EffectIR.sstoreDispatchCL
-  IO.println ""
-  IO.println ";; The SLOAD host effect (Evm.CL.EffectSload.term), proved equal to every fork's SLOAD"
-  IO.println ";; in Evm.CL.EffectSloadProof. Returns (values gas value)."
-  IO.println Evm.CL.EffectSload.termCL
   IO.println ""
   IO.println ";; The CREATE/CREATE2 host effect (Evm.CL.EffectCreate.term), proved equal to every"
   IO.println ";; fork's CREATE (Evm.Frontier.Vm.Create.run) in Evm.CL.EffectCreateProof. Returns"

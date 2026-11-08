@@ -78,28 +78,8 @@
 ;; The cold-account surcharge for SELFDESTRUCT (EIP-2929, Berlin+; warm adds 0, not 100,
 ;; so it can't come from the access table) is the Lean-emitted spec-selfdestruct-cold-gas.
 
-;;; SSTORE gas/refunds and account/slot access costs come from the
-;;; natives emitted out of the Lean spec (Evm.CL.ARM64.SstoreGas) —
-;;; no Lisp re-encoding of the per-fork schedules.
-
-;; Scratch for the sstore plans: out[2] at 0, orig at byte 16,
-;; cur at 48, new at 80.
-(defstartup *sstore-gas-buf*
-  (foreign-alloc :uint64 :count 14 :initial-element 0))
-
-(defun sstore-gas-native (refund original current new-val cold?)
-  "The fork's SSTORE plan (cost, new refund) through the emitted dispatch
-   (spec-sstore-gas-dispatch, Evm.CL.EffectIR.SstoreSched). Returns (values cost new-refund)."
-  (let ((out  *sstore-gas-buf*)
-        (orig (inc-pointer *sstore-gas-buf* 16))
-        (cur  (inc-pointer *sstore-gas-buf* 48))
-        (new  (inc-pointer *sstore-gas-buf* 80))
-        (cold (if cold? 1 0)))
-    (u256-write orig original)
-    (u256-write cur  current)
-    (u256-write new  new-val)
-    (spec-sstore-gas-dispatch out refund orig cur new cold)
-    (values (mem-aref out :uint64 0) (mem-aref out :uint64 1))))
+;;; Account/slot access costs come from the natives emitted out of the Lean spec; the SSTORE
+;;; schedules (Evm.CL.ARM64.SstoreGas) are called by the native SSTORE (c/storage_host.c).
 
 ;; _eita_access_costs[ord][kind]{cold,warm}, emitted from the IR
 ;; metadata ladder + Berlin EIP-2929 constants.

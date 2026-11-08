@@ -102,21 +102,25 @@ term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No h
 ### The SLOAD effect in C — derived (built: step 3)
 
 `c/generated/storage_effect.c` (`eita_spec_sload_effect`) is `Evm.CL.EffectSload.term` printed as C by
-`Evm.CL.EffectC` (`lake exe emitStorageC`, drift-checked); the term and its proof (`sload_refines`) are the
-ones the Lisp `spec-sload-effect` is printed from. Trusted: the printer (the same class as `toCL`; it fails
-on any construct outside its subset rather than skipping it) and the primitives below.
+`Evm.CL.EffectC` (`lake exe emitStorageC`, drift-checked); the term and its proof (`sload_refines`) are
+untouched, and since step 6 this is the term's only printing. Trusted: the printer (the same class as `toCL`;
+it fails on any construct outside its subset rather than skipping it) and the primitives below.
 
-### The native SLOAD host — tested (built: step 3)
+### The SLOAD/SSTORE host — tested (built: steps 3-6)
 
-`c/storage_host.{h,c}` (about 60 lines): `eita_cb_sload` in the callbacks vtable's SLOAD slot runs the
-emitted effect on a hit and calls the Lisp callback otherwise (a miss returns before any effect, so the
-Lisp effect runs the whole term); the frame account's id comes from a 64-entry cache the Lisp path fills,
-keyed by the slot tables' serial (a freed table's address may be reused). Its primitives: `eita_sh_hit`
-(`eita_ws_get`), `eita_sh_sload` (`limb_copy`), `eita_sh_access_slot` / `eita_sh_orig_record` (the native
-TxState, unchanged). Off while an observer or the read stream is on, in the differential's reference tier
-and with EITA_NATIVE_STORAGE=0. **Checked by** the differential (native vs Lisp effect on every tx of the
-fixtures, sampled on the 30k replay), the fixtures and the replay; the lint `check-derived-gas.py` covers
-its C (no gas constant outside the emitted file).
+`c/storage_host.{h,c}`: `eita_cb_sload` / `eita_cb_sstore` in the callbacks vtable's SLOAD/SSTORE slots are the
+opcodes' one execution path (step 6). Each binds the frame account and key (the account's id from a 64-entry
+cache keyed by the slot tables' serial, a freed table's address may be reused; an address not in it is
+learned once from Lisp, `cb-storage-learn`), runs the emitted effect, then calls the Lisp hook
+(`cb-storage-hook`) when the read stream is on, the account is watched, or (SSTORE) the slot changed while the
+incremental root checker tracks dirty slots. Its primitives: `eita_sh_fault` (`eita_ws_get`; a key absent from a
+lazy world is loaded through `cb-storage-fault`, the world's fault hook, and read again; absent = zero; the
+observers' first touch), `eita_sh_sload` (`limb_copy`, and the value kept as the current one),
+`eita_sh_access_slot` / `eita_sh_orig_record` (the native TxState, unchanged). **Checked by** the fixtures
+(every GeneralStateTests storage directory), the differential (JIT vs interpreter), the 30k replay, the fact
+log and storage view of the 30k range compared with the ones step 5's Lisp path wrote, and
+`tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
+emitted file).
 
 ### Table primitives — model-checked + tested (built: owner note 6 step 2)
 
@@ -148,8 +152,8 @@ GeneralStateTests storage directory) and the 30k replay.
 ### The SSTORE effect in C, its journal entry and the native revert — derived + tested (built: step 4)
 
 `eita_spec_sstore_effect` and `eita_spec_sstore_plan` (c/generated/storage_effect.c) are
-`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (the terms `spec-sstore-effect` and
-`spec-sstore-gas-dispatch` are printed from; `sstore_refines` untouched); the schedules themselves are the
+`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (their only printing since step 6;
+`sstore_refines` untouched); the schedules themselves are the
 emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasSem`). The host primitives
 (c/storage_host.c, tested):
 
@@ -157,16 +161,22 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 |---|---|
 | `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
 | `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as the Lisp's `refund-add!`); returns the cost |
-| `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`) |
-| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order |
+| `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
+| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
-SSTORE runs natively only when no observer, read stream or incremental root checker (its dirty set) is on.
-**Checked by** the differential, which compares the journal entries byte for byte (native vs Lisp effect on
-every tx of the storage fixtures, sampled on the 30k replay), the fixtures (every SSTORE/refund/revert
-directory) and the replay.
+**Checked by** the fixtures (every SSTORE/refund/revert directory), the differential (to step 5 native vs the
+Lisp effect, journal entries byte for byte, on every tx of the storage fixtures and sampled on the 30k replay;
+from step 6 JIT vs interpreter on the one path) and the replay.
 
-### Lisp accessors and hooks — tested
+### Lisp accessors and hook tiers — tested (built: steps 2, 5 and 6)
 
-The routed Lisp accessors (the routing list in docs/native-storage.md) and the hook tiers are tested: the differential
-mode (native path vs the Lisp path), the fixtures including every SSTORE/refund/revert directory, the 30k replay
-(0 mismatches), and byte-identical fact-log rows and storage view against the Lisp path.
+The routed Lisp accessors (the routing list in docs/native-storage.md) and the hook tiers:
+(a) the observers' first-touch log (c/storage_host.c `eita_sh_touch`: one ordered log of every slot's first
+touch in a tx with its value then, written by the native effects and by `observe-slot-touch!`, read by
+`do-storage-changes`); (b) the watch filter (up to 16 accounts whose SLOAD/SSTOREs call the hook, which calls
+`*storage-access-hook*`); (c) the hook mode: the native effect plus `cb-storage-hook` per access while the read
+stream is on (step 5 swapped the vtable to the Lisp callbacks instead; step 6 deleted them). **Checked by** the
+differential, the fixtures, the 30k replay, `tests/native-storage-hooks.lisp` (observed fixtures: rows equal with
+and without the watch; rows and watched accesses equal a digest recorded from step 5's Lisp path), and the fact
+log and storage view of the 30k range compared with the ones the Lisp path wrote (step 5: rows and content
+hashes in every sealed segment; step 6: against step 5's Lisp-path outputs).

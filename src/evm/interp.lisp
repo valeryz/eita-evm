@@ -10,9 +10,6 @@
 ;; (evm/frames.lisp) and the differential tier replay below snapshots.
 (defconstant +substate-bytes+ 608)   ; sizeof(EvmState), c/evm_state.h
 
-(defvar *native-storage-ref* nil
-  "True while the differential's reference tier runs: the Lisp storage effects only (the
-   native SLOAD path off; storage-host-sync!, evm/callbacks.lisp).")
 (declaim (ftype function storage-host-sync!))
 
 (defun run-frame (state code)
@@ -108,7 +105,7 @@
       (dotimes (i +substate-bytes+) (setf (mem-aref state :uint8 i) (mem-aref *diff-snap* :uint8 i)))
       (revert-journal-to *tx-arena-root* jsnap)              ; restore pre-state
       (setf (fill-pointer *obs-events*) esnap *obs-frame-next* fsnap)   ; drop tier A's logs, transfers, frames
-      (let ((*force-interp* t) (*native-storage-ref* t)) (run-frame state code))   ; tier B: interp, Lisp storage effects
+      (let ((*force-interp* t)) (run-frame state code))     ; tier B: interp
       (let ((bg (mem-ref state :uint64 8)) (bh (mem-ref state :uint8 128))
             (br (mem-ref state :uint8 129)) (bo (%frame-output state))
             (bm (%frame-memory state)) (bj (%journal-bytes *tx-arena-root* jsnap)) (bf (ts-refund)))

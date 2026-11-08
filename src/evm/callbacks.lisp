@@ -12,53 +12,25 @@
                                (logand (mem-aref ptr :uint64 2) #xFFFFFFFF))
       (logand (u256-read ptr) #.(1- (ash 1 160)))))
 
-;;; The native SLOAD/SSTORE path (c/storage_host.h; docs/native-storage.md): the vtable's
-;;; SLOAD and SSTORE slots are eita_cb_sload / eita_cb_sstore, which run the C printing of the
-;;; same terms (c/generated/storage_effect.c, Evm.CL.EffectC) on a hit in the native slot table
-;;; and call cb-sload / cb-sstore below otherwise (a miss, a frame account it has no id for, or
-;;; the path off). With an observer the native path stays on and enters each slot's first
-;;; touch in the observers' first-touch log (bit 2; tier (a) of docs/native-storage.md). Off
-;;; while the read stream is on (it sees each access: the storage view), in the
-;;; differential's reference tier and with EITA_NATIVE_STORAGE=0; SSTORE also while the
-;;; incremental root checker tracks dirty slots (journal-push!'s mpt-touch!).
-(defstartup *native-storage* (not (equal (sb-posix:getenv "EITA_NATIVE_STORAGE") "0")))
+;;; SLOAD and SSTORE (c/storage_host.h; docs/native-storage.md): the vtable's SLOAD and SSTORE
+;;; slots are eita_cb_sload / eita_cb_sstore, their one execution path, the C printing of the
+;;; Lean terms (c/generated/storage_effect.c, Evm.CL.EffectC) against the native slot tables.
+;;; Lisp is called for data and observation only: cb-storage-learn (an account's id),
+;;; cb-storage-fault (a lazy world's absent key) and cb-storage-hook (after the effect: the
+;;; read stream, the watched accounts, the incremental root checker's dirty slots).
 (defstartup *storage-host* (foreign-symbol-pointer "eita_sh_g"))
-
-(defstartup *storage-hook-mode* nil
-  "True while the shared vtable's SLOAD/SSTORE slots hold the Lisp callbacks themselves (the
-   hook mode, tier (c): the read stream, the differential's reference tier, the path off).")
-(defvar *shared-callbacks*)                       ; calls.lisp
-
-(defun storage-hook-mode! (hook)
-  "Point the shared vtable's SLOAD/SSTORE slots at the Lisp callbacks (HOOK) or at the
-   native ones: a table swap on a mode change, nothing per access."
-  (let ((cb (and (boundp '*shared-callbacks*) *shared-callbacks*)))
-    (when cb
-      (setf (mem-aref cb :pointer 0) (if hook (callback cb-sload) (foreign-symbol-pointer "eita_cb_sload"))
-            (mem-aref cb :pointer 1) (if hook (callback cb-sstore) (foreign-symbol-pointer "eita_cb_sstore")))))
-  (setf *storage-hook-mode* hook))
 
 (declaim (inline storage-host-sync!))
 (defun storage-host-sync! ()
-  "At a frame's entry: the native storage path's world tables, per-tx state, fork, switches
-   (bit 0 SLOAD, bit 1 SSTORE) and zero-slot rule."
+  "At a frame's entry: the world's slot tables, the per-tx state, the fork, the flags
+   (c/storage_host.h EITA_SH_*) and the zero-slot rule."
   (let ((h *storage-host*) (w *current-world*))
     (setf (mem-ref h :pointer 0) (if w (eita.state::acct-table-ws! (world-accts w)) (null-pointer))
           (mem-ref h :pointer 8) *tx-state*
           (mem-ref h :uint64 16) *fork-ord*
-          (mem-ref h :uint64 24) (if (and w *native-storage* (not *native-storage-ref*) (not *view-log*))
-                                     (logior 1 (if *mpt-tracking* 0 2) (if *observer* 4 0))
-                                     0)
-          (mem-ref h :uint64 80) (if eita.state::*keep-zero-slots* 1 0))
-    (let ((hook (zerop (mem-ref h :uint64 24))))
-      (unless (eq hook *storage-hook-mode*) (storage-hook-mode! hook)))))
-
-(declaim (inline storage-host-learn!))
-(defun storage-host-learn! (a)
-  "After a slow-path SLOAD/SSTORE of the frame account A: give the native path A's id."
-  (unless (zerop (mem-ref *storage-host* :uint64 24))
-    (%sh-cache-put (eita.state::u256-word a 0) (eita.state::u256-word a 1) (eita.state::u256-word a 2)
-                   (eita.state::acct-table-intern (world-accts *current-world*) a))))
+          (mem-ref h :uint64 24) (logior (if *observer* 4 0) (if eita.state::*fault-slot-hook* 8 0)
+                                         (if *view-log* 16 0) (if *mpt-tracking* 32 0))
+          (mem-ref h :uint64 80) (if eita.state::*keep-zero-slots* 1 0))))
 
 (defvar *storage-watch* '()
   "The watched accounts (tier (b)): each SLOAD/SSTORE of one calls *storage-access-hook*. Set
@@ -67,42 +39,37 @@
   "(lambda (op addr slot value)) for each SLOAD (:sload, the value read) or SSTORE (:sstore,
    the value written) of a watched account, synchronously, in execution order.")
 (defun storage-watch! (addr)
-  "Watch ADDR: its accesses take the Lisp path, whose hook sees each one."
+  "Watch ADDR: each of its accesses calls the hook, which calls *storage-access-hook*."
   (unless (member addr *storage-watch*)
     (when (zerop (%sh-watch (eita.state::u256-word addr 0) (eita.state::u256-word addr 1) (eita.state::u256-word addr 2)))
       (error "storage-watch!: the watch filter is full"))
     (push addr *storage-watch*)))
 (defun storage-watch-clear! () (%sh-watch-clear) (setf *storage-watch* '()))
-(declaim (inline storage-watched))
-(defun storage-watched (op a slot v)
-  (when (and *storage-watch* *storage-access-hook* (member a *storage-watch*))
-    (funcall *storage-access-hook* op a (word-int slot) v)))
 
-(defcallback cb-sload :uint64
-    ((ctx :pointer) (addr :pointer) (slot :pointer) (out :pointer))
-  "The native handler popped the key; the effect — read, EIP-2929 warm-up, original value at
-   first touch, the fork's price — is the Lean-emitted spec-sload-effect (Evm.CL.EffectSload,
-   proved equal to every fork's SLOAD). Every slot read is on the read stream."
-  (declare (ignore ctx))
-  ;; the key stays where the handler left it (an opaque word: word-int)
-  (let ((a (read-addr addr)))
-    (multiple-value-bind (g v) (spec-sload-effect a slot)
-      (u256-write out v)
-      (storage-watched :sload a slot v)
-      (storage-host-learn! a)
-      (cb-gas-check "sload" g :addr a :slot (word-int slot)))))
+(defcallback cb-storage-learn :uint64 ((addr :pointer))
+  "The id of the frame account at ADDR in the current world (added when it has none)."
+  (eita.state::acct-table-intern (world-accts *current-world*) (read-addr addr)))
 
-(defcallback cb-sstore :uint64
-    ((ctx :pointer) (addr :pointer) (slot :pointer) (val :pointer))
-  "The native handler popped the key and value and passed EIP-214 and the EIP-2200/1706
-   sentry; the effect — read, EIP-2929 warm-up, original value, the fork's schedule, the
-   refund, the journaled write — is the Lean-emitted spec-sstore-effect
-   (Evm.CL.EffectSstore, proved equal to every fork's SSTORE)."
-  (declare (ignore ctx))
+(defcallback cb-storage-fault :void ((addr :pointer) (key :pointer))
+  "Load KEY of the account at ADDR, absent from its table, through the world's fault hook
+   (fault-slot!'s, outside the read stream)."
+  (let ((*view-log* nil)) (funcall eita.state::*fault-slot-hook* (read-addr addr) (u256-read key))))
+
+(defcallback cb-storage-hook :void ((op :uint64) (addr :pointer) (key :pointer) (val :pointer) (cur :pointer))
+  "After an SLOAD (OP 0: VAL the value read) or SSTORE (OP 1: VAL the value written over CUR)
+   of the account at ADDR: the read stream sees what the effect read and wrote (an SSTORE
+   that changes its slot reads it again for the journal entry, then writes), the root checker
+   the changed slot, the watch hook the access."
   (let ((a (read-addr addr)) (v (u256-read val)))
-    (prog1 (cb-gas-check "sstore" (spec-sstore-effect a slot v) :addr a :slot (word-int slot) :val v)
-      (storage-watched :sstore a slot v)
-      (storage-host-learn! a))))
+    (if (zerop op)
+        (when *view-log* (eita.state::view-log-read :storage a key v))
+        (let ((c (u256-read cur)))
+          (when *view-log*
+            (eita.state::view-log-read :storage a key c)
+            (unless (= v c) (eita.state::view-log-read :storage a key c) (eita.state::view-log-write :storage a key c v)))
+          (when (and *mpt-tracking* (/= v c)) (mpt-touch! a (word-int key)))))
+    (when (and *storage-watch* *storage-access-hook* (member a *storage-watch*))
+      (funcall *storage-access-hook* (if (zerop op) :sload :sstore) a (word-int key) v))))
 
 ;; TLOAD/TSTORE are fully native: the emitted handlers call
 ;; eita_ts_tload/eita_ts_tstore via arena->tx_state directly (keyed

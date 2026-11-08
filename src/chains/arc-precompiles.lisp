@@ -206,7 +206,7 @@
   "Metered `write` (helpers.rs:320-378) minus the sentry: the slot is warm from the
    preceding read; cost = sstore_base_cost(original, present, new). Returns the
    cost; the caller charges it, then stores. ORIGINAL = start-of-tx value via the
-   engine's orig-record!/orig-get! seam (same one cb-sstore uses)."
+   engine's orig-record!/orig-get! seam (the SSTORE effect's, natively: eita_sh_orig_*)."
   (let* ((present (storage-of *current-world* addr slot))
          (original (progn (orig-record! addr slot present) (orig-get! addr slot present))))
     (spec-arc-write-gas (if (= new present) 1 0) (if (= original present) 1 0) (if (zerop original) 1 0))))

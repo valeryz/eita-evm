@@ -3,20 +3,21 @@ import Evm.CL.EffectSstore
 
 /-! # CL/EffectC — the effect IR printed as C, for the native storage path
 
-`Stmt.toCL` (Evm.CL.EffectIR) prints a callback's effect as Common Lisp; this prints the same
-term as C, for the subset the native SLOAD path runs (docs/native-storage.md, owner note 6). The
-term, its meaning (`Stmt.run`) and its proofs (`Evm.CL.EffectSloadProof`) are untouched: only the
-printing is new, so the trusted part is this printer (the same class as `toCL`) and the
-primitives it prints to (`c/storage_host.h`, `c/generated/limb_ops.h`; docs/trusted-surface.md).
+`Stmt.toCL` (Evm.CL.EffectIR) prints the other callbacks' effects as Common Lisp; this prints the
+SLOAD and SSTORE terms as C, their one execution path (docs/native-storage.md, owner note 6 and
+its addendum 2: there is no Lisp printing of these terms). The terms, their meaning (`Stmt.run`)
+and their proofs (`Evm.CL.EffectSloadProof`, `EffectSstoreProof`) are untouched: the trusted part
+is this printer (the same class as `toCL`) and the primitives it prints to (`c/storage_host.h`,
+`c/generated/limb_ops.h`; docs/trusted-surface.md).
 
-The printed function runs on the native fast path of a callback: inputs `self` (the frame's
-account) and `key` live in the storage host `h`; it returns the gas, or `EITA_SH_MISS` when the
-slot is not in the native table — before any effect, so the Lisp effect then runs the whole term
-(the slow path: the fault-in, the hooks). Each primitive is one call:
+The printed function is the SLOAD/SSTORE callback's effect: inputs `self` (the frame's account)
+and `key` live in the storage host `h`; it returns the gas. `faultSlot` is the host's fault: a
+key absent from the native table is loaded through the world's fault hook first (a lazy world),
+and then reads as its value or zero. Each primitive is one call:
 
 | IR | C |
 |---|---|
-| `faultSlot self key` | `if (!eita_sh_hit(h)) return EITA_SH_MISS;` (a present key is live: nothing to fault) |
+| `faultSlot self key` | `eita_sh_fault(h);` (a present key is live: nothing to fault) |
 | `letW x (sload self key)` | `uint64_t x[4]; eita_sh_sload(h, x);` |
 | `warmSlot g self key x` | `int x = (g) && eita_sh_access_slot(h);` |
 | `origRecord self key w` | `eita_sh_orig_record(h, w);` |
@@ -66,7 +67,7 @@ def gC : GExp → E String
 def sC (i : String) : Stmt → E (List String)
   | .skip => pure []
   | .seq s t => return (← sC i s) ++ (← sC i t)
-  | .faultSlot a k => do selfKey a k; pure [s!"{i}if (!eita_sh_hit(h)) return EITA_SH_MISS;"]
+  | .faultSlot a k => do selfKey a k; pure [s!"{i}eita_sh_fault(h);"]
   | .letW x (.sload a k) s => do
       selfKey a k
       return [s!"{i}uint64_t {x}[4];", s!"{i}eita_sh_sload(h, {x});"] ++ (← sC i s)
@@ -98,8 +99,8 @@ def toFn (name : String) (s : Stmt) : E String := do
   return s!"uint64_t {name}(eita_sh *h) \{\n  uint64_t gas = 0;\n  const uint64_t *new_val = h->val.limb;\n" ++
     String.intercalate "\n" body ++ "\n  return gas;\n}\n"
 
-/-- The SSTORE schedule dispatch in C, from `SstoreSched.ofFork` (THE one copy; the CL
-    printing is `sstoreDispatchCL`): each fork ordinal to its native routine. -/
+/-- The SSTORE schedule dispatch in C, from `SstoreSched.ofFork` (THE one copy): each fork
+    ordinal to its native routine. -/
 def sstoreDispatchC : String :=
   let all := [SstoreSched.legacy, .eip1283, .eip2200, .berlin, .london]
   let ords (s : SstoreSched) := (List.range (maxForkOrd + 1)).filter (fun k => SstoreSched.ofFork k = s)
@@ -121,8 +122,7 @@ def file : E String := do
   return "/* c/generated/storage_effect.c — EMITTED by `lake exe emitStorageC` from the effect IR\n" ++
     "   (lean/Evm/CL/EffectC.lean); do not edit. The terms and their proofs: Evm.CL.EffectSload\n" ++
     "   (sload_refines), Evm.CL.EffectSstore (sstore_refines), the SSTORE dispatch\n" ++
-    "   Evm.CL.EffectIR.SstoreSched.ofFork. The Lisp printing of the same terms: spec-sload-effect,\n" ++
-    "   spec-sstore-effect, spec-sstore-gas-dispatch in src/generated/host.lisp. */\n" ++
+    "   Evm.CL.EffectIR.SstoreSched.ofFork. The one execution path of SLOAD and SSTORE. */\n" ++
     "#include \"../storage_host.h\"\n#include \"limb_ops.h\"\n\n" ++
     "/* SLOAD (Evm.CL.EffectSload.term) */\n" ++ sload ++
     "\n/* SSTORE (Evm.CL.EffectSstore.term) */\n" ++ sstore ++

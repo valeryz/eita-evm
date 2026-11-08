@@ -35,6 +35,4 @@ def term : Stmt :=
   .seq (.sstoreGas orig cur new (.var "cold")) <|
   .ite (.not (.weq new cur)) (.setStorage self key new) .skip
 
-def termCL : String := Stmt.toDefun "spec-sstore-effect" ["self", "key", "new"] term
-
 end Evm.CL.EffectSstore

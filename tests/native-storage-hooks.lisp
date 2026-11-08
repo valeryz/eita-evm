@@ -1,28 +1,31 @@
-;;;; tests/native-storage-hooks.lisp — the native storage path's hook tiers (docs/native-storage.md,
-;;;; owner note 6 step 5) give observers exactly what the Lisp path gives them.
+;;;; tests/native-storage-hooks.lisp — observers see SLOAD/SSTORE exactly as the deleted Lisp
+;;;; effect path showed them (docs/native-storage.md, owner note 6 step 5 and addendum 2).
 ;;;;
-;;;; Each fixture directory runs twice under an observer, with the native SLOAD/SSTORE path on
-;;;; and off (*native-storage*: off is the hook mode, tier (c): the vtable's slots are the Lisp
-;;;; callbacks). Both runs must produce the same rows, in the same order:
-;;;;   (a) every tx's net storage changes (do-storage-changes: the first-touch log the native
-;;;;       hits and the Lisp path share), and its account changes;
-;;;;   (b) every SLOAD/SSTORE of the watched accounts (*storage-access-hook*), the watch set
-;;;;       being the accounts the first run changed most.
-;;;; And the native path must have run (its hit counters move). Run:
-;;;; (eita.test:run-all :only '("native-storage-hooks")).
+;;;; Each fixture directory runs twice under an observer: without and with the watch filter
+;;;; (tier (b): the accounts the first run changed most, *storage-access-hook* on each of their
+;;;; SLOADs/SSTOREs). Then:
+;;;;   - both runs produce the same rows (hooks observe, never perturb): every tx's net storage
+;;;;     changes (do-storage-changes: the native first-touch log, tier (a)) and account changes;
+;;;;   - the rows, the watched accesses and the summary hash to the digest recorded from the
+;;;;     Lisp effect path (step 5's hook mode, rel-ns5, before it was deleted): +reference+;
+;;;;   - the native SLOADs/SSTOREs ran (eita_sh_g's counters move).
+;;;; Run: (eita.test:run-all :only '("native-storage-hooks")).
 
 (defpackage #:eita.test.native-storage-hooks (:use #:cl))
 (in-package #:eita.test.native-storage-hooks)
 
 (defparameter *ok* t)
 (defvar *rows*)
-(defparameter *hits* 0 "Native hits in the native runs, over every directory.")
 
-(defun observed-run (dir native watch)
+(defparameter +reference+
+  ;; (directory rows accesses digest), recorded from the Lisp path at e7fcd13 (*native-storage* nil)
+  '(("bcStateTests/" 12301 6128 "36135509b72cbb1d")
+    ("bcExample/" 162 40 "2e1f450cd773cb2c")))
+
+(defun observed-run (dir watch)
   "The rows of DIR's fixtures: (values storage/account rows, watched-access rows, summary)."
   (let* ((*rows* '()) (accesses '())
          (eita.evm::*force-interp* t)
-         (eita.evm::*native-storage* native)
          (eita.evm::*storage-access-hook*
            (lambda (op a slot v) (push (list op a slot v) accesses)))
          (eita.state:*observer*
@@ -43,7 +46,14 @@
       (eita.evm::storage-watch-clear!)
       (values (reverse *rows*) (reverse accesses) line))))
 
-(defun native-hits ()
+(defun digest (&rest parts)
+  "FNV-1a 64 over the standard printing of PARTS, as 16 hex digits."
+  (let ((h #xcbf29ce484222325))
+    (loop for c across (with-standard-io-syntax (let ((*print-readably* nil)) (prin1-to-string parts)))
+          do (setf h (ldb (byte 64 0) (* (logxor h (char-code c)) #x100000001b3))))
+    (format nil "~(~16,'0X~)" h)))
+
+(defun counters ()
   (let ((h (cffi:foreign-symbol-pointer "eita_sh_g")))
     (+ (cffi:mem-ref h :uint64 40) (cffi:mem-ref h :uint64 64))))
 
@@ -55,28 +65,23 @@
       (mapcar #'car (subseq (sort all #'> :key #'cdr) 0 (min n (length all)))))))
 
 (let ((root (eita.test::fixtures-dir)))
-  (dolist (sub '("bcStateTests/" "bcExample/"))
-    (let* ((dir (concatenate 'string root sub)) (h0 (native-hits)))
-      (multiple-value-bind (rows-ref acc0 line-ref) (observed-run dir nil '())
-        (declare (ignore acc0))
-        (let ((watch (busiest rows-ref 8)))
-          (multiple-value-bind (rows-ref2 acc-ref) (observed-run dir nil watch)
-            (let ((h1 (native-hits)))
-              (multiple-value-bind (rows-nat acc-nat line-nat) (observed-run dir t watch)
-                (let ((hits (- (native-hits) h1))
-                      (pass (and (equal rows-ref rows-ref2) (equal rows-ref rows-nat) (equal acc-ref acc-nat)
-                                 (equal line-ref line-nat) (search " fail=0 " line-nat))))
-                  (format t "  ~A: ~D rows, ~D watched accesses (~D accounts), native hits ~D (reference runs ~D); ~A~%"
-                          sub (length rows-nat) (length acc-nat) (length watch) hits (- h1 h0)
-                          (if pass "identical" "DIFFERENT"))
-                  (incf *hits* hits)
-                  (unless (and pass (zerop (- h1 h0)) (plusp (length acc-nat)))
-                    (setf *ok* nil)
-                    (unless (equal rows-ref rows-nat)
-                      (let ((i (mismatch rows-ref rows-nat :test #'equal)))
-                        (format t "    first row difference at ~A: ~S vs ~S~%" i
-                                (and i (nth i rows-ref)) (and i (nth i rows-nat)))))))))))))))
+  (dolist (ref +reference+)
+    (destructuring-bind (sub n-rows n-acc want) ref
+      (let* ((dir (concatenate 'string root sub)) (c0 (counters)))
+        (multiple-value-bind (rows0 acc0 line0) (observed-run dir '())
+          (declare (ignore acc0))
+          (let ((watch (busiest rows0 8)))
+            (multiple-value-bind (rows acc line) (observed-run dir watch)
+              (let* ((got (digest rows acc line)) (ran (- (counters) c0))
+                     (pass (and (equal rows0 rows) (equal line0 line) (search " fail=0 " line)
+                                (= n-rows (length rows)) (= n-acc (length acc)) (string= want got)
+                                (plusp ran) (plusp (length acc)))))
+                (format t "  ~A: ~D rows, ~D watched accesses (~D accounts), digest ~A (reference ~A), ~D SLOAD/SSTOREs; ~A~%"
+                        sub (length rows) (length acc) (length watch) got want ran (if pass "PASS" "FAIL"))
+                (unless (equal rows0 rows)
+                  (let ((i (mismatch rows0 rows :test #'equal)))
+                    (format t "    the watch changed the rows: first difference at ~A: ~S vs ~S~%" i
+                            (and i (nth i rows0)) (and i (nth i rows)))))
+                (unless pass (setf *ok* nil))))))))))
 
-(format t "  native hits over the native runs: ~D~%" *hits*)
-(unless (plusp *hits*) (setf *ok* nil))
 (eita.test:finish :code (if *ok* 0 1))

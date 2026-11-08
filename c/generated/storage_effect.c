@@ -1,15 +1,14 @@
 /* c/generated/storage_effect.c — EMITTED by `lake exe emitStorageC` from the effect IR
    (lean/Evm/CL/EffectC.lean); do not edit. The terms and their proofs: Evm.CL.EffectSload
    (sload_refines), Evm.CL.EffectSstore (sstore_refines), the SSTORE dispatch
-   Evm.CL.EffectIR.SstoreSched.ofFork. The Lisp printing of the same terms: spec-sload-effect,
-   spec-sstore-effect, spec-sstore-gas-dispatch in src/generated/host.lisp. */
+   Evm.CL.EffectIR.SstoreSched.ofFork. The one execution path of SLOAD and SSTORE. */
 #include "../storage_host.h"
 #include "limb_ops.h"
 
 /* SLOAD (Evm.CL.EffectSload.term) */
 uint64_t eita_spec_sload_effect(eita_sh *h, uint64_t *out) {
   uint64_t gas = 0;
-  if (!eita_sh_hit(h)) return EITA_SH_MISS;
+  eita_sh_fault(h);
   uint64_t value[4];
   eita_sh_sload(h, value);
   const int cold = (h->fork >= 10) && eita_sh_access_slot(h);
@@ -23,7 +22,7 @@ uint64_t eita_spec_sload_effect(eita_sh *h, uint64_t *out) {
 uint64_t eita_spec_sstore_effect(eita_sh *h) {
   uint64_t gas = 0;
   const uint64_t *new_val = h->val.limb;
-  if (!eita_sh_hit(h)) return EITA_SH_MISS;
+  eita_sh_fault(h);
   uint64_t current[4];
   eita_sh_sload(h, current);
   const int cold = (h->fork >= 10) && eita_sh_access_slot(h);

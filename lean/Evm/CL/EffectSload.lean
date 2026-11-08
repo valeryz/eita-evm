@@ -39,6 +39,4 @@ def term : Stmt :=
   .seq (.ret (.var "value")) <|
   .charge gas
 
-def termCL : String := Stmt.toDefunRet "spec-sload-effect" ["self", "key"] term
-
 end Evm.CL.EffectSload

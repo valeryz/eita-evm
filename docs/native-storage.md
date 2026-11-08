@@ -1,8 +1,10 @@
 # Native storage: SLOAD/SSTORE without the Lisp host (plan, owner note 6)
 
-Status: steps 2-4 of 5 built (the native slot tables, every storage path routed; native SLOAD; native SSTORE
-with its journal entry and the native type-0 revert). Branch `perf-native-storage` off
-`perf-x86`.
+Status: built (steps 2-6): the native slot tables, every storage path routed; native SLOAD; native SSTORE with
+its journal entry and the native type-0 revert; the hook tiers; and (step 6, the owner's addendum 2) one execution
+path: the Lisp SLOAD/SSTORE effects are deleted, every SLOAD/SSTORE runs the C-emitted effect, and Lisp is called
+only for data (an account's id, a lazy world's fault-in) and observation (the per-access hook). Branch
+`perf-native-storage` off `perf-x86`.
 
 ## Why
 
@@ -53,7 +55,7 @@ Each must read/write through the native accessors before the Lisp tables can go.
 | `storage-wipe-journaled!` (+ `*cold-storage-map-hook*`, `snap-cold-storage-map`) | evm/calls.lisp, state/snapshot-world.lisp | a journaled wipe of RAM + cold-tier slots | `eita_ws_map` over the account, journal entries as today |
 | `account-uncreate!` | state/world.lisp | revert of a CREATE drops the account's storage | `eita_ws_wipe` |
 | `spec-restore-journal-entry` type 0 (generated) | generated/host.lisp | revert of an SSTORE | native restore in `eita_ts_revert` (mixed journal, one order) |
-| `spec-sload-effect`, `spec-sstore-effect` (generated) | generated/host.lisp | the effects | step 3/4: the C-emitted twins on the fast path; the Lisp ones stay for hook mode |
+| `spec-sload-effect`, `spec-sstore-effect` (generated) | generated/host.lisp | the effects | step 3/4: the C-emitted twins; step 6: deleted (with `spec-sstore-gas-dispatch` and `sstore-gas-native`) |
 | `do-storage-changes`, `observe-slot-touch!`, `observe-tx-end!` | evm/observe-tx.lisp | observers' pre/post values | tier (a): read the native originals + current value |
 | `write-ram-tables`, `ram-layer-op`, `back-world!`, snapshot layers | state/snapshot-world.lisp | checkpoints, layered snapshots | `eita_ws_map` per account |
 | `copy-world*`, `populate-world`, `world-state-root` | state/worlds.lisp | fixtures, roots | copy / map the native table |
@@ -83,10 +85,12 @@ SSTORE writes its type-0 entry into the existing native journal arena (#248). `e
 natively (into WorldSlots); the Lisp revert loop keeps handling the other host types in the same reverse order, so the
 journal stays one mixed sequence.
 
-### 4. Slow paths stay in Lisp
+### 4. Data paths stay in Lisp
 
-A miss (the slot is not loaded) calls out once: the Lisp fault-in (snapshot / RPC) installs the value in WorldSlots
-and the native path continues. Wipes and cold-storage maps likewise call into Lisp.
+A key absent from a lazy world's table calls out once (`cb-storage-fault`): the Lisp fault-in (snapshot / RPC)
+installs the value in WorldSlots and the native effect continues (still absent: the value is zero). An account
+first seen under a world calls out once for its id (`cb-storage-learn`). Wipes and cold-storage maps likewise call
+into Lisp. No effect runs in Lisp (step 6).
 
 ### 5. Hooks in three tiers
 
@@ -94,8 +98,9 @@ and the native path continues. Wipes and cold-storage maps likewise call into Li
 (`do-storage-changes`, the fact log, folds, the storage view, read-set recording);
 (b) filtered synchronous hooks: a watch filter (empty in normal runs) probed per access, calling into Lisp only on a
 hit;
-(c) full hook mode: swap to the existing Lisp SLOAD/SSTORE handlers by a dispatch-table swap (the trace-table
-mechanism of the x86 direct-threading step), zero cost when off.
+(c) full hook mode: the native effect plus one Lisp call per access (`cb-storage-hook`) while the read stream is on
+(it sees each read and write: the storage view), and per changing SSTORE while the incremental root checker
+tracks dirty slots. Steps 3-5 swapped the vtable to the Lisp handlers instead; step 6 deleted them.
 
 ## Trusted surface (owner addendum)
 
@@ -128,7 +133,7 @@ Trust classification, reported per new piece:
 | WorldSlots probe / insert / resize / remove / wipe / map | model-checked (CBMC: safety; small-size equivalence to the model) + tested (randomized vs model and vs the Lisp table, sanitizers) |
 | native journal append / type-0 restore | model-checked + tested |
 | Lisp accessors routed to the native table | tested (differential, fixtures, 30k replay) |
-| hook tiers (a)-(c) | tested (byte-identical fact-log rows and storage view vs the Lisp path) |
+| hook tiers (a)-(c) | tested (fact-log rows and storage view identical to the Lisp path's over the 30k range; fixture rows and watched accesses equal a digest recorded from it) |
 
 ## Steps (each: A/B on x300, 0 mismatches, the differential on in at least one gated run, fixtures incl. every
 ## GeneralStateTests SSTORE/refund/revert directory, asdf:test-system, the Lean gates)
@@ -140,21 +145,25 @@ Trust classification, reported per new piece:
 4. Native SSTORE fast path incl. journal and refunds. Measure.
 5. Observers on the native records (tier a), the watch filter (b), the hook-mode swap (c), with tests that the
    fact-log rows and the storage view are byte-identical to the Lisp path over the 30k range.
+6. (Addendum 2) One execution path: delete the Lisp SLOAD/SSTORE effects (and their Lisp printings); hook mode is
+   the native path plus a callback per access; the differential compares the tiers against each other and the
+   interpreter-level references (fixtures) rather than a Lisp storage path.
 
 ## Tests
 
 - Table: randomized ops vs a Lisp reference (puts, overwrites, removes, wipes, grows, colliding keys, reverts).
 - Effects: the C-emitted SLOAD/SSTORE vs the Lisp-emitted ones on random (fork, warm/cold, original, current, new)
   tuples, gas and refund deltas equal; the EIP-2200/2929/3529 vectors.
-- Engine: the differential mode (EITA_DIFF_TIERS) with tier A = native storage, tier B = the Lisp path (hook mode),
-  every tx over 30 blocks and sampled over the 30k; fixtures incl. GeneralStateTests stSStoreTest, stRefundTest,
+- Engine: the differential mode (EITA_DIFF_TIERS), JIT vs interpreter (to step 5 tier B also ran the Lisp storage
+  path; from step 6 both tiers run the one native path), every tx over 30 blocks and sampled over the 30k; fixtures incl. GeneralStateTests stSStoreTest, stRefundTest,
   stRevertTest, stSelfBalance / create-collision dirs; the 30k replay with 0 mismatches.
-- Observers: the fact-log rows and the storage view byte-identical between native and Lisp paths over 30k.
+- Observers: the fact-log rows and the storage view byte-identical between native and Lisp paths over 30k (step 6:
+  against the outputs recorded from step 5's Lisp path).
 - Arc: x300 has no Arc bundle. Run the core's Arc regression that needs no production data if one exists; the owner's
   session must run regress-arc / the image gate before merge.
 
 ## Complexity
 
-A feature. It deletes the Lisp `slots` storage tables and their front cache (state/world.lisp), and the Lisp
-SLOAD/SSTORE path stops being the default (it stays for hook mode). Net line delta reported per step;
+A feature. It deletes the Lisp `slots` storage tables and their front cache (state/world.lisp), and (step 6) the
+Lisp SLOAD/SSTORE effects, their Lisp printings, the Lisp SSTORE dispatch and the hook-mode swap. Net line delta reported per step;
 `complexity exception: pending owner approval` for any remainder.

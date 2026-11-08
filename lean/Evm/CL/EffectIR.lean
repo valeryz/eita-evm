@@ -388,8 +388,8 @@ inductive SstoreSched where
   | legacy | eip1283 | eip2200 | berlin | london
   deriving DecidableEq, Repr
 
-/-- The fork dispatch — THE one copy: the term's meaning (`sstorePlan`) and the emitted CL
-    dispatch (`sstoreDispatchCL`) both read it. EIP-1283 at Constantinople only (Petersburg
+/-- The fork dispatch — THE one copy: the term's meaning (`sstorePlan`) and the emitted C
+    dispatch (`Evm.CL.EffectC.sstoreDispatchC`) both read it. EIP-1283 at Constantinople only (Petersburg
     reverts it), EIP-2200 at Istanbul/Muir Glacier, EIP-2929 at Berlin, EIP-3529 from London. -/
 def SstoreSched.ofFork (k : Nat) : SstoreSched :=
   if k = 6 then .eip1283 else if k < 8 then .legacy else if k < 10 then .eip2200
@@ -420,23 +420,6 @@ theorem SstoreSched.ofFork_ge (k : Nat) (h : k ≥ 11) : SstoreSched.ofFork k = 
 /-- The last fork ordinal (`Evm.Fork.amsterdam`); the emitted dispatch lists every ordinal up
     to it and sends the rest to `ofFork_ge`'s schedule. -/
 def maxForkOrd : Nat := 21
-
-/-- The emitted SSTORE dispatch and its native bindings: for each schedule, in order of first
-    use, the ordinals `0..maxForkOrd` that `ofFork` maps to it (the London schedule takes
-    the `t` arm, `ofFork_ge`). Replaces `sstore-gas-native`'s hand-written `cond`. -/
-def sstoreDispatchCL : String :=
-  let all := [SstoreSched.legacy, .eip1283, .eip2200, .berlin, .london]
-  let ords (s : SstoreSched) := (List.range (maxForkOrd + 1)).filter (fun k => SstoreSched.ofFork k = s)
-  let call (s : SstoreSched) := s!"(%sstore-gas-{s.name} out refund orig cur new cold)"
-  let defcfun (s : SstoreSched) :=
-    s!"(defcfun (\"eita_sstore_gas_{s.name}\" %sstore-gas-{s.name}) :void\n" ++
-    "  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))"
-  let arms := (all.filter (· ≠ SstoreSched.ofFork (maxForkOrd + 1))).map fun s =>
-    s!"    (({" ".intercalate ((ords s).map toString)}) {call s})"
-  "\n".intercalate (all.map defcfun) ++ "\n" ++
-  "(defun spec-sstore-gas-dispatch (out refund orig cur new cold)\n" ++
-  "  (case *fork-ord*\n" ++ "\n".intercalate arms ++ "\n" ++
-  s!"    (t {call (SstoreSched.ofFork (maxForkOrd + 1))})))"
 
 def WExp.eval (c : Ctx) (h : HState) : WExp → Evm.U256
   | .var x     => c.word x
@@ -866,9 +849,5 @@ def Stmt.toDefunChild (name : String) (params : List String) (s : Stmt) : String
     rejection (`%rej`) and the top frame's result (`%child`); returns `(values gas out rej)`. -/
 def Stmt.toDefunTx (name : String) (params : List String) (s : Stmt) : String :=
   s!"(defun {name} ({" ".intercalate params})\n  (let ((%gas 0) (%out 0) (%rej 0) (%child nil) (%rd nil))\n    (declare (ignorable %child %rd))\n{Stmt.body "    " s}\n    (values %gas %out %rej)))"
-
-/-- A callback with a word result: returns `(values gas out)`. -/
-def Stmt.toDefunRet (name : String) (params : List String) (s : Stmt) : String :=
-  s!"(defun {name} ({" ".intercalate params})\n  (let ((%gas 0) (%out 0))\n{Stmt.body "    " s}\n    (values %gas %out)))"
 
 end Evm.CL.EffectIR

@@ -73,56 +73,6 @@
           (account-delete! *current-world* a))))
     %gas))
 
-;; The SSTORE host effect (Evm.CL.EffectSstore.term), proved equal to every fork's
-;; SSTORE in Evm.CL.EffectSstoreProof. Returns the gas (the fork's schedule's cost).
-(defun spec-sstore-effect (self key new)
-  (let ((%gas 0))
-    (fault-slot! self key)
-    (let ((current (storage-of *current-world* self key)))
-      (let ((cold (and (>= *fork-ord* 10) (access-slot! self key))))
-        (orig-record! self key current)
-        (let ((original (orig-get! self key current)))
-          (multiple-value-bind (%cost %refund) (sstore-gas-native (ts-refund) original current new cold)
-            (let ((%d (- %refund (ts-refund)))) (unless (zerop %d) (refund-add! %d)))
-            (incf %gas %cost))
-          (when (not (= new current))
-            (journal-push! (current-arena) 0 self key (storage-of *current-world* self key))
-            (setf (storage-of *current-world* self key) new)))))
-    %gas))
-
-;; The SSTORE schedule dispatch (Evm.CL.EffectIR.SstoreSched.ofFork, the one copy the
-;; term's meaning sstorePlan reads) and the native routines it binds (each proved equal
-;; to its spec schedule in Evm.CL.ARM64.SstoreGasSem). sstore-gas-native calls it.
-(defcfun ("eita_sstore_gas_legacy" %sstore-gas-legacy) :void
-  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))
-(defcfun ("eita_sstore_gas_eip1283" %sstore-gas-eip1283) :void
-  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))
-(defcfun ("eita_sstore_gas_eip2200" %sstore-gas-eip2200) :void
-  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))
-(defcfun ("eita_sstore_gas_berlin" %sstore-gas-berlin) :void
-  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))
-(defcfun ("eita_sstore_gas_london" %sstore-gas-london) :void
-  (out :pointer) (refund :uint64) (orig :pointer) (cur :pointer) (new :pointer) (cold :uint64))
-(defun spec-sstore-gas-dispatch (out refund orig cur new cold)
-  (case *fork-ord*
-    ((0 1 2 3 4 5 7) (%sstore-gas-legacy out refund orig cur new cold))
-    ((6) (%sstore-gas-eip1283 out refund orig cur new cold))
-    ((8 9) (%sstore-gas-eip2200 out refund orig cur new cold))
-    ((10) (%sstore-gas-berlin out refund orig cur new cold))
-    (t (%sstore-gas-london out refund orig cur new cold))))
-
-;; The SLOAD host effect (Evm.CL.EffectSload.term), proved equal to every fork's SLOAD
-;; in Evm.CL.EffectSloadProof. Returns (values gas value).
-(defun spec-sload-effect (self key)
-  (let ((%gas 0) (%out 0))
-    (fault-slot! self key)
-    (let ((value (storage-of *current-world* self key)))
-      (let ((cold (and (>= *fork-ord* 10) (access-slot! self key))))
-        (orig-record! self key value)
-        (setf %out value)
-        (incf %gas (if (>= *fork-ord* 10) (if cold 2100 100) (if (>= *fork-ord* 8) 800 (if (>= *fork-ord* 3) 200 50))))))
-    (values %gas %out)))
-
 ;; The CREATE/CREATE2 host effect (Evm.CL.EffectCreate.term), proved equal to every
 ;; fork's CREATE (Evm.Frontier.Vm.Create.run) in Evm.CL.EffectCreateProof. Returns
 ;; (values gas-used pushed-word return-data).

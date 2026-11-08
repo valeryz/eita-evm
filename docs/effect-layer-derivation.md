@@ -316,7 +316,9 @@ touch, run the fork's schedule `sstorePlan` (EIP-1283 at Constantinople, EIP-220
 Istanbul/Muir Glacier, EIP-2929 at Berlin, EIP-3529 from London, the legacy schedule
 otherwise) — it sets the refund counter and the gas — and write the slot if it changes
 (journaled). Emitted as `spec-sstore-effect`; `cb-sstore` is a three-line wrapper (and the
-`EITA_TRACE_SSTORE` toggle is gone: the read stream carries every slot read).
+`EITA_TRACE_SSTORE` toggle is gone: the read stream carries every slot read). Since owner note 6
+step 6 the term is printed as C only (`Evm.CL.EffectC`, `eita_spec_sstore_effect`, the one
+execution path; docs/native-storage.md): the Lisp printing and `cb-sstore` are deleted.
 
 **Theorem** (`Evm.CL.EffectSstoreProof.sstore_refines`): for every fork `f`, with the key
 and value on the stack, not static, and (Istanbul+) more than 2300 gas left: if the
@@ -345,7 +347,8 @@ routine, London's as the `t` arm (`ofFork_ge`) — and the five `defcfun` bindin
 it, warm it (Berlin+), record its original at first touch (the cache the SSTORE schedules
 read; the spec keeps one from Berlin), return the value (`ret`), charge the fork's price —
 the spec's own constants: 50, 200 (EIP-150), 800 (EIP-1884), 2100 cold / 100 warm
-(EIP-2929). The access-cost table's SLOAD row is no longer read.
+(EIP-2929). The access-cost table's SLOAD row is no longer read. Since owner note 6 step 6 printed
+as C only (`eita_spec_sload_effect`), with the SSTORE dispatch (`sstoreDispatchC`).
 
 **Theorem** (`Evm.CL.EffectSloadProof.sload_refines`): for every fork, with the key on the
 stack and room for the result, the handler the IR binds (`sload_binding`: Frontier's,

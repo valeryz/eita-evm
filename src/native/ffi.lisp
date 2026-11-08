@@ -25,10 +25,6 @@
 (defcfun ("eita_call_gas_tangerine" %call-gas-tangerine) :void
   (out :pointer) (flags :uint64) (delegated :uint64)
   (gas-arg :uint64) (avail :uint64))
-;; The per-fork SSTORE gas/refund routines (Evm.CL.ARM64.SstoreGas) are bound, and
-;; dispatched on *fork-ord*, by the Lean-emitted spec-sstore-gas-dispatch
-;; (src/generated/host.lisp; Evm.CL.EffectIR.SstoreSched). Uniform ABI: out[2] =
-;; {cost, newRefund}; orig/cur/new point at u256 values; cold is 0/1. Precondition: refund < 2^63.
 ;; Repoint the native dispatch table (emitted per-fork from the Lean
 ;; metadata) — defaults to Cancun when never called.
 (defcfun ("eita_set_fork" %set-fork) :void (ord :uint64))
@@ -132,16 +128,14 @@
   (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64))
 (defcfun ("eita_ws_drop" %ws-drop) :void (w :pointer) (id :uint64))
 (defcfun ("eita_ws_copy" %ws-copy) :void (dst :pointer) (id :uint64) (src :pointer))
-;; The native SLOAD/SSTORE path (c/storage_host.h): the Lisp path records a frame account's id;
-;; a revert restores the SSTORE entries it can natively first.
+;; SLOAD/SSTORE (c/storage_host.h): a revert restores the SSTORE entries it can natively first.
 (defcfun ("eita_sh_revert_storage" %sh-revert-storage) :void (arena :pointer) (target :uint64))
-;; The observers' first-touch log (one owner for the native and the Lisp paths).
+;; The observers' first-touch log (one owner: the native effects and observe-slot-touch!).
 (defcfun ("eita_sh_touch_l" %sh-touch) :void (id :uint64) (a0 :uint64) (a1 :uint64) (a2 :uint64)
   (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64) (v0 :uint64) (v1 :uint64) (v2 :uint64) (v3 :uint64))
 (defcfun ("eita_sh_touch_reset" %sh-touch-reset) :void)
-;; The watch filter: these accounts' accesses take the Lisp path (*storage-access-hook*).
+;; The watch filter: these accounts' accesses call the hook (*storage-access-hook*).
 (defcfun ("eita_sh_watch" %sh-watch) :uint64 (a0 :uint64) (a1 :uint64) (a2 :uint64))
 (defcfun ("eita_sh_watch_clear" %sh-watch-clear) :void)
 (defcfun ("eita_sh_touch_count" %sh-touch-count) :uint64)
 (defcfun ("eita_sh_touch_at" %sh-touch-at) :pointer (i :uint64))
-(defcfun ("eita_sh_cache_put" %sh-cache-put) :void (a0 :uint64) (a1 :uint64) (a2 :uint64) (id :uint64))
