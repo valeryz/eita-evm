@@ -189,8 +189,22 @@
                           want)
                 (setf eita.state.root::*big* big)))))))))
 
+(defun gc-spares-frozen-layer ()
+  "A frozen RAM layer whose layer-P-N/ the writer has published but not yet swapped into the
+   stack: no resume point names it, and the replay's GC (prune-dumps!: run-gc pinned by
+   live-components) must leave it (2026-11-08: it deleted it under the writer)."
+  (let ((dir (format nil "~Agc/" *dir*)))
+    (ensure-directories-exist (merge-pathnames "layer-117-118/" dir))
+    (let ((eita.state::*layers* (list (eita.state::make-ram-layer :block 118 :parent 117)))
+          (eita.state::*base* nil) (eita.state::*pending-root* nil)
+          (eita.state::*compacting-base* nil) (eita.state::*compactor-job* nil))
+      (let ((*standard-output* (make-broadcast-stream)))
+        (eita.state.recovery:run-gc dir :pinned (eita.state::live-components))))
+    (check :gc-spares-frozen-layer (and (probe-file (merge-pathnames "layer-117-118/" dir)) t) t)))
+
 (let ((rounds (if eita.test:*argument* (parse-integer eita.test:*argument*) 200)))
   (dotimes (r rounds) (round-1 r))
+  (gc-spares-frozen-layer)
   (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
   (format t "~D rounds, ~D failures~%" rounds *fails*)
   (eita.test:finish :code (if (zerop *fails*) 0 1)))

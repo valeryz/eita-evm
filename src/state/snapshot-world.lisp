@@ -303,9 +303,13 @@
 
 (defun live-components ()
   "What GC must not delete under the replay, as recovery.lisp names files: the running
-   stack's disk components, a compaction's output (written, not yet in the stack) and what
-   the root check in flight reads (a minor compaction may have replaced it in the stack)."
+   stack's disk components, its frozen RAM layers (the writer publishes layer-P-N/ before
+   the snap replaces the RAM layer in the stack: unpinned, a GC in that window deleted the
+   layer under the writer — `rename: No such file`, the replay died; Arc stress, 2026-11-08),
+   a compaction's output (written, not yet in the stack) and what the root check in flight
+   reads (a minor compaction may have replaced it in the stack)."
   (append
+   (loop for l in *layers* when (ram-layer-p l) collect (list :layer (ram-layer-parent l) (ram-layer-block l)))
    (mapcar (lambda (c) (subseq c 0 (1- (length c))))
            (append (mapcar #'eita.state.snapshot:component-of (remove-if-not #'eita.state.snapshot:snap-p (cons *base* *layers*)))
                    (and *pending-root* (fifth *pending-root*))))
