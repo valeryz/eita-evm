@@ -1038,58 +1038,74 @@ no NOS, so the next AND read the clobbered x10 (mainnet 26,042,126 tx 135; x86-6
 caches no NOS and was right). `Op.denote` keeps `nos` as a field of its own, so
 `clz_correct` held — the emit/denote gap of the #260 family.
 
-The check is a value numbering over the flattened body, per path: a register or stack
-limb holds a symbolic value (`CV`) — an entry stack limb, an sp-relative index or stack
-address (`sub x14, x23, #k` / `add x14, x24, x14, lsl #5`), or the opaque result of one
-instruction; a join of two different values is a `phi` keyed by both, so a register
-and a limb that were equal on both sides stay equal. A store to a stack address moves
-the stored value into the limb, a load reads it; a call kills the caller-saved
-registers (x10-x13 among them on ARM64) and, by the ABI of the C helpers and host
-callbacks, writes no word of the frame's stack; stores through any other base are not
-the stack (state fields, EVM memory, the C scratch frame). `cmp x23, #k ; b.lt` is the
-guarded reload: on its taken edge sp < k, so the words below are not owed. At every
-`br x27` the cached registers must equal the limbs they cache.
+The check is a value numbering over the flattened body, run separately on every path
+(each instruction at most once: the bodies are acyclic): a register or stack limb holds
+a symbolic value (`CV`) — a stack limb as it was in a memory generation, an sp-relative
+index or stack address (`sub x14, x23, #k` / `add x14, x24, x14, lsl #5`), or the
+opaque result of one step. A store to a stack address moves the stored value into the
+limb, a load reads it; a call kills the caller-saved registers (x10-x13 among them on
+ARM64) and x30, and starts a new memory generation (the callee may write any stack
+word); a store through any other base is assumed not to be the stack (`Sep`: state
+fields, EVM memory, the C scratch frame). `cmp x23, #k ; b.lt` is the guarded reload:
+on its taken edge sp < k, so the words below are not owed. The entry caches carry a
+guard (`when`): x6-x9 are stack[sp-1] only if sp ≥ 1. At every `br x27` the cached
+registers must equal the limbs they cache. The analysis gives up (`none`) where it
+cannot follow sp or the stack base, or a byte/zero store into a stack word.
+
+`CacheSound.cacheIncoherent_sound` proves this check sound against the `AsmRun`
+semantics: a body it accepts keeps the cache on every run. An earlier version joined
+paths (a `phi` per difference, and a join that took one side's TOS when the other had
+sp < 1); that join, a call keeping the stack, and an unchecked write to x23/x24 were
+each unsound, and the proof made them visible.
 
 With `x86 := true` the same analysis reads the x86-64 bodies (`Op.instrsX86?`): sp is a
-byte offset (an immediate is whole words, or the path is `bad`), a stack address is
+byte offset (an immediate is whole words, or the path is lost), a stack address is
 `sub d, x23, #32k` / `add d, x24, d`, a call kills the SysV caller-saved homes, and
-only the TOS (x6-x9, r8-r11) is register-cached, so only it is checked. -/
+only the TOS (x6-x9, r8-r11) is register-cached, so only it is checked. (Its soundness
+against `X86Sem` is not proved yet.) -/
 
 inductive CV where
-  | cell (c : Int) (l : Nat)       -- limb l of stack word sp₀+c as it was at entry
-  | idx (c : Int)                  -- the integer sp₀+c
-  | addr (c : Int)                 -- the address of stack word sp₀+c
-  | fresh (j : Nat) (r : Reg)      -- what instruction j wrote into r
-  | phi (j : Nat) (a b : CV)       -- a at one predecessor of j, b at the other
+  | cell (g : Nat) (c : Int) (l : Nat)  -- limb l of stack word sp₀+c in memory generation g
+  | idx (c : Int)                       -- the integer sp₀+c
+  | addr (c : Int)                      -- the address of stack word sp₀+c
+  | fresh (j : Nat) (r : Reg)           -- what instruction j wrote into r
+  | when (k : Int) (v : CV)             -- v, but only when sp₀ ≥ k (the entry caches)
   deriving DecidableEq, Repr, Inhabited
 
-/-- One path's state: sp − sp₀, the known register values, the stack limbs written so
-    far (the rest hold their entry value), the known bound sp < `lt`, and `bad` when the
-    body moved sp in a way the analysis does not follow. -/
+/-- One path's state: sp − sp₀, the known register values, the stack limbs written in
+    this memory generation (the rest hold `cell gen`), the generation (0 at entry, j+1
+    after the call at j), the known bound sp < `lt`, and `fl = some k` when the flags
+    are those of `cmp x23, #k`. -/
 structure CS where
   off  : Int
   regs : List (Reg × CV)
   mem  : List ((Int × Nat) × CV)
+  gen  : Nat
   lt   : Option Int
-  bad  : Bool
+  fl   : Option Nat
   deriving DecidableEq, Repr, Inhabited
 
 def tosRegs : List Reg := [.x6, .x7, .x8, .x9]
 def nosRegs : List Reg := [.x10, .x11, .x12, .x13]
 
+/-- The window of sp-relative words the analysis names (|c| ≤ `cwin`); an index
+    outside it is opaque, so two named words never alias modulo 2^64. -/
+def cwin : Int := 65536
+
 def CS.rv (s : CS) (r : Reg) : Option CV :=
   if r == .x23 then some (.idx s.off) else (s.regs.find? (·.1 == r)).map (·.2)
 def CS.mv (s : CS) (c : Int) (l : Nat) : CV :=
-  ((s.mem.find? (·.1 == (c, l))).map (·.2)).getD (.cell c l)
+  ((s.mem.find? (·.1 == (c, l))).map (·.2)).getD (.cell s.gen c l)
 def CS.setR (s : CS) (r : Reg) (v : Option CV) : CS :=
   { s with regs := (match v with | some v => [(r, v)] | none => []) ++ s.regs.filter (·.1 != r) }
 def CS.setM (s : CS) (c : Int) (l : Nat) (v : CV) : CS :=
   { s with mem := ((c, l), v) :: s.mem.filter (·.1 != (c, l)) }
 
+/-- At entry x6-x9 cache word sp₀-1 (owed when sp₀ ≥ 1), x10-x13 word sp₀-2 (sp₀ ≥ 2). -/
 def CS.entry : CS :=
-  { off := 0, mem := [], lt := none, bad := false,
-    regs := (tosRegs.zipIdx.map fun (r, l) => (r, CV.cell (-1) l)) ++
-            (nosRegs.zipIdx.map fun (r, l) => (r, CV.cell (-2) l)) }
+  { off := 0, mem := [], gen := 0, lt := none, fl := none,
+    regs := (tosRegs.zipIdx.map fun (r, l) => (r, CV.when 1 (.cell 0 (-1) l))) ++
+            (nosRegs.zipIdx.map fun (r, l) => (r, CV.when 2 (.cell 0 (-2) l))) }
 
 /-- The stack word a base register addresses, if it is one. -/
 def CS.word (s : CS) (b : Reg) : Option Int :=
@@ -1105,113 +1121,132 @@ def CS.store (j : Nat) (s : CS) (c : Int) (l : Nat) (r : Reg) : CS :=
 def spWords (x86 : Bool) (k : Int) : Option Int :=
   if !x86 then some k else if k % 32 == 0 then some (k / 32) else none
 
-/-- The transfer of instruction j. -/
-def cstep (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : CS :=
+/-- `idx c` inside the window, else an opaque name. -/
+def idxOr (j : Nat) (d : Reg) (c : Option Int) : CV :=
+  match c with | some c => if c.natAbs ≤ cwin.natAbs then .idx c else .fresh j d | none => .fresh j d
+
+/-- The registers an instruction may use as a store address other than the modelled
+    `str`/`stp` forms: a byte or zero store through a stack address is not followed. -/
+def storeAddrRegs : AInstr → List Reg
+  | .strZr b _ | .strbOff _ b _ | .strbBase _ b => [b]
+  | .strbReg _ b i => [b, i]
+  | _ => []
+
+/-- Registers a call kills: the AAPCS64 / SysV caller-saved set, and x30 (`bl` writes it). -/
+def callKills (x86 : Bool) : List Reg := .x30 :: callerSaved x86
+
+/-- The transfer of an instruction, `j` the name its results get; `none` when the analysis cannot follow the body
+    (sp or the stack base written by anything but `sub|add x23, x23, #k`, a stack
+    address at an offset that is not a limb, a byte store into the stack). -/
+def cstep (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : Option CS :=
+  if (defs i).contains .x24 then none else
+  if storeAddrRegs i |>.any (fun r => (s.word r).isSome) then none else
+  let s0 : CS := { s with fl := none }
   let writeAll (s : CS) : CS := (defs i).foldl (fun s d => s.setR d (some (.fresh j d))) s
-  let other (s : CS) : CS := if (defs i).contains .x23 then { s with bad := true } else writeAll s
+  let other : Option CS := if (defs i).contains .x23 then none else some (writeAll s0)
   match i with
-  | .subImm .x23 .x23 k => match spWords x86 k with
-      | some k => { s with off := s.off - k, lt := s.lt.map (· - k) } | none => { s with bad := true }
-  | .addImm .x23 .x23 k => match spWords x86 k with
-      | some k => { s with off := s.off + k, lt := s.lt.map (· + k) } | none => { s with bad := true }
-  | .subImm d .x23 k => s.setR d ((spWords x86 k).map (fun k => .idx (s.off - k)) <|> some (.fresh j d))
-  | .addImm d .x23 k => s.setR d ((spWords x86 k).map (fun k => .idx (s.off + k)) <|> some (.fresh j d))
-  | .addReg d .x24 a =>
-      if !x86 then other s else
-      s.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d))
-  | .addLsl5 d .x24 a =>
-      s.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d))
-  | .movReg d a => s.setR d (s.rv a)
+  | .label _ => some s
+  | .cmpImm a k => if a == .x23 then some { s with fl := some k } else other
+  | .subImm d a k =>
+      if a != .x23 then other else
+      if d == .x23 then
+        match spWords x86 k with
+        | some k => if (s.off - k).natAbs ≤ cwin.natAbs
+                    then some { s0 with off := s.off - k, lt := s.lt.map (· - k) } else none
+        | none => none
+      else some (s0.setR d (some (idxOr j d ((spWords x86 k).map (s.off - ·)))))
+  | .addImm d a k =>
+      if a != .x23 then other else
+      if d == .x23 then
+        match spWords x86 k with
+        | some k => if (s.off + k).natAbs ≤ cwin.natAbs
+                    then some { s0 with off := s.off + k, lt := s.lt.map (· + k) } else none
+        | none => none
+      else some (s0.setR d (some (idxOr j d ((spWords x86 k).map (s.off + ·)))))
+  | .addReg d b a =>
+      if !x86 || b != .x24 || d == .x23 then other else
+      some (s0.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d)))
+  | .addLsl5 d b a =>
+      if b != .x24 then other else if d == .x23 then none else
+      some (s0.setR d (match s.rv a with | some (.idx c) => some (.addr c) | _ => some (.fresh j d)))
+  | .movReg d a => if d == .x23 then none else some (s0.setR d (s.rv a))
   | .ldpOff a b base o =>
+      if a == .x23 || b == .x23 then none else
       match s.word base with
-      | some c => if o == 0 || o == 16 then (s.setR a (some (s.mv c (o / 8)))).setR b (some (s.mv c (o / 8 + 1)))
-                  else writeAll s
-      | none => writeAll s
+      | some c => if o == 0 || o == 16 then
+                    some ((s0.setR a (some (s.mv c (o / 8)))).setR b (some (s.mv c (o / 8 + 1))))
+                  else other
+      | none => other
   | .ldrOff d base o =>
+      if d == .x23 then none else
       match s.word base with
-      | some c => if o % 8 == 0 && o < 32 then s.setR d (some (s.mv c (o / 8))) else writeAll s
-      | none => writeAll s
+      | some c => if o % 8 == 0 && o < 32 then some (s0.setR d (some (s.mv c (o / 8)))) else other
+      | none => other
   | .ldrBase d base =>
-      match s.word base with | some c => s.setR d (some (s.mv c 0)) | none => writeAll s
+      if d == .x23 then none else
+      match s.word base with | some c => some (s0.setR d (some (s.mv c 0))) | none => other
   | .stpOff a b base o =>
       match s.word base with
-      | some c => if o == 0 || o == 16 then (CS.store j (CS.store j s c (o / 8) a) c (o / 8 + 1) b)
-                  else { s with bad := true }
-      | none => s
+      | some c => if o == 0 || o == 16 then some (CS.store j (CS.store j s0 c (o / 8) a) c (o / 8 + 1) b)
+                  else none
+      | none => some s0
   | .strOff r base o =>
       match s.word base with
-      | some c => if o % 8 == 0 && o < 32 then CS.store j s c (o / 8) r else { s with bad := true }
-      | none => s
-  | .strBase r base => match s.word base with | some c => CS.store j s c 0 r | none => s
+      | some c => if o % 8 == 0 && o < 32 then some (CS.store j s0 c (o / 8) r) else none
+      | none => some s0
+  | .strBase r base => match s.word base with | some c => some (CS.store j s0 c 0 r) | none => some s0
   | .blSym _ | .blr _ | .blFar _ =>
-      let s := (callerSaved x86).foldl (fun s r => s.setR r none) s
-      s.setR .x0 (some (.fresh j .x0))
-  | _ => other s
+      let s := (callKills x86).foldl (fun s r => s.setR r none) s0
+      some ({ s with mem := [], gen := j + 1 }.setR .x0 (some (.fresh j .x0)))
+  | _ => other
 
-/-- Join at j: equal values stay, different ones become `phi j`; a side on which the TOS
-    (sp < 1) or NOS (sp < 2) word is not owed takes the other side's registers and limb. -/
-def cmeet (j : Nat) (a b : CS) : CS :=
-  if a.bad || b.bad || a.off != b.off then { a with bad := true } else
-  let vac (s : CS) (k : Int) : Bool := s.lt.any (· ≤ k)
-  let grp (r : Reg) : Int := if tosRegs.contains r then 1 else if nosRegs.contains r then 2 else 0
-  let pick (k : Int) (va vb : Option CV) : Option CV :=
-    if k > 0 && vac a k then vb else if k > 0 && vac b k then va else
-    match va, vb with
-    | some x, some y => some (if x == y then x else .phi j x y)
-    | _, _ => none
-  let rs := (a.regs.map (·.1) ++ b.regs.map (·.1)).eraseDups
-  let ms := (a.mem.map (·.1) ++ b.mem.map (·.1)).eraseDups
-  { off := a.off, bad := false,
-    lt := match a.lt, b.lt with | some x, some y => some (max x y) | _, _ => none,
-    regs := rs.filterMap fun r => (pick (grp r) (a.rv r) (b.rv r)).map (r, ·),
-    mem := ms.filterMap fun (c, l) =>
-      let k : Int := if c == a.off - 1 then 1 else if c == a.off - 2 then 2 else 0
-      (pick k (some (a.mv c l)) (some (b.mv c l))).map ((c, l), ·) }
+/-- The state on the taken edge of a local branch: after `cmp x23, #k ; b.lt` (only
+    labels between), sp < k. -/
+def ctaken (x86 : Bool) (i : AInstr) (s out : CS) : CS :=
+  match i, s.fl.bind (fun k => spWords x86 k) with
+  | .bcLbl .lt _, some k =>
+      if k ≤ cwin then { out with lt := some (match out.lt with | some x => min x k | none => k) }
+      else out
+  | _, _ => out
 
 /-- The out-edges of instruction j: (target, state on that edge). -/
-def cedges (is : List AInstr) (j : Nat) (i : AInstr) (s : CS) (x86 : Bool := false) : List (Nat × CS) :=
-  let out := cstep j i s x86
-  let taken : CS :=
-    match i, (if j = 0 then none else is[j - 1]?) with
-    | .bcLbl .lt _, some (.cmpImm .x23 k) =>
-        match spWords x86 k with
-        | some k => { out with lt := some (match out.lt with | some x => min x k | none => k) }
-        | none => out
-    | _, _ => out
+def cedges (is : List AInstr) (j : Nat) (i : AInstr) (s out : CS) (x86 : Bool := false) :
+    List (Nat × CS) :=
   (if noFallthrough i then [] else [(j + 1, out)]) ++
-  (match (localBranch i).bind (labelTarget is j) with | some k => [(k, taken)] | none => [])
+  (match (localBranch i).bind (labelTarget is j) with | some k => [(k, ctaken x86 i s out)] | none => [])
 
-/-- The state before each instruction (Jacobi iteration over the predecessors, so a
-    join is recomputed, never re-joined; the bodies are acyclic). -/
-def creach (is : List AInstr) (x86 : Bool := false) : Array (Option CS) :=
-  let n := is.length
-  let pass (st : Array (Option CS)) : Array (Option CS) := Id.run do
-    let mut nxt : Array (Option CS) := (List.replicate (n + 1) none).toArray
-    nxt := nxt.set! 0 (some CS.entry)
-    for j in [0:n] do
-      match st[j]!, is[j]? with
-      | some s, some i =>
-        for (k, e) in cedges is j i s x86 do
-          if k ≤ n then nxt := nxt.set! k (match nxt[k]! with | none => some e | some x => some (cmeet k x e))
-      | _, _ => pure ()
-    return nxt
-  let rec fix : Nat → Array (Option CS) → Array (Option CS)
-    | 0, st => st
-    | fuel + 1, st => let st' := pass st; if st' == st then st else fix fuel st'
-  fix (n + 2) (((List.replicate (n + 1) (none : Option CS)).toArray).set! 0 (some CS.entry))
+/-- A limb's value stripped of its guards; `okAt t`: every guard holds once sp₀ ≥ t. -/
+def CV.strip : CV → CV | .when _ v => v.strip | v => v
+def CV.okAt (t : Int) : CV → Bool | .when k v => k ≤ t && v.okAt t | _ => true
 
-/-- Indices of the `br x27` exits where a cached register is not the limb it caches
-    (or the analysis lost sp) — empty when the body keeps the cache coherent. -/
+/-- At `br x27`: each cached register equals the limb it caches, and the guards on both
+    hold whenever the word is owed (sp₀ + c ≥ 0); or the word is not owed (sp < 1 / 2). -/
+def exitOk (s : CS) (x86 : Bool) : Bool :=
+  let ok (rs : List Reg) (c : Int) : Bool :=
+    rs.zipIdx.all fun (r, l) => match s.rv r with
+      | some v => v.strip == (s.mv c l).strip && v.okAt (-c) && (s.mv c l).okAt (-c)
+      | none => false
+  (s.lt.any (· ≤ 1) || ok tosRegs (s.off - 1)) && (x86 || s.lt.any (· ≤ 2) || ok nosRegs (s.off - 2))
+
+/-- Every path from instruction j, `d` steps in (the names a step makes are keyed by
+    `d`, so they are new on the path): the indices where a path fails (an exit that
+    breaks the cache, an instruction the analysis cannot follow, falling off the body,
+    out of fuel — the bodies are acyclic, so `length + 1` steps reach every exit). -/
+def cwalk (is : List AInstr) (x86 : Bool) : Nat → Nat → Nat → CS → List Nat
+  | 0, _, j, _ => [j]
+  | fuel + 1, d, j, s =>
+    match is[j]? with
+    | none => [j]
+    | some .brCont => if exitOk s x86 then [] else [j]
+    | some i =>
+      match cstep d i s x86 with
+      | none => [j]
+      | some out => (cedges is j i s out x86).flatMap fun (k, e) => cwalk is x86 fuel (d + 1) k e
+
+/-- Indices where some path leaves the stack cache incoherent (or the analysis lost
+    it) — empty when the body keeps the cache coherent. -/
 def cacheIncoherent (is : List AInstr) (x86 : Bool := false) : List Nat :=
-  let st := creach is x86
-  let ok (s : CS) (rs : List Reg) (c : Int) : Bool :=
-    rs.zipIdx.all fun (r, l) => s.rv r == some (s.mv c l)
-  (List.range is.length).filter fun j =>
-    match is[j]?, st[j]! with
-    | some .brCont, some s =>
-        s.bad || !((s.lt.any (· ≤ 1) || ok s tosRegs (s.off - 1)) &&
-                   (x86 || s.lt.any (· ≤ 2) || ok s nosRegs (s.off - 2)))
-    | _, _ => false
+  (cwalk is x86 (is.length + 1) 0 0 CS.entry).eraseDups
 
 /-- Every op lowers, and the ARM64 body keeps the stack cache coherent. -/
 def cacheCoherent (p : Prog) : Bool :=

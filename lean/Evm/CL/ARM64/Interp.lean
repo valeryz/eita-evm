@@ -18,6 +18,7 @@
 -/
 
 import Evm.CL.ARM64
+import Evm.CL.CacheSound
 import Evm.CL.ARM64.CallGas
 import Evm.CL.ARM64.SstoreGas
 import Evm.CL.ARM64.RunProgram
@@ -574,6 +575,24 @@ open Evm.CL.AsmCore Evm.CL.OpInstrs in
 theorem handler_stack_cache_coherent :
     ((handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2)).all cacheCoherent = true := by
   native_decide
+
+open Evm.CL.AsmCore Evm.CL.OpInstrs Evm.CL.CacheSound in
+/-- **…and so every body's runs keep it** — the check's verdict turned into a theorem about
+    the handlers through `cacheIncoherent_sound` (proof by reflection): over the
+    `AsmRun` instruction semantics, every run of a base or fork-variant body entered with
+    sp ∈ [0, 1024] and a coherent cache (x6-x9 = stack[sp-1], x10-x13 = stack[sp-2])
+    reaches every `br x27` coherent for the sp it leaves. Assumed: calls keep the
+    AAPCS64 callee-saved registers (memory is not assumed kept), and `Sep` — the stores
+    the analysis does not place in the stack (EVM memory, state, the C frame) and the
+    instructions outside `AsmRun.step` do not write the stack words around sp. -/
+theorem handler_runs_cache_coherent :
+    ∀ p ∈ (handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2),
+    ∀ m₀ : Evm.CL.AsmRun.RS, 0 ≤ sp₀ m₀ ∧ sp₀ m₀ ≤ 1024 → Coherent m₀ → Sep (bodyInstrs p) m₀ →
+    ∀ j m, Reach (bodyInstrs p) m₀ j m → (bodyInstrs p)[j]? = some .brCont → Coherent m := by
+  intro p hp m₀ hsp hc hsep
+  have := List.all_eq_true.mp handler_stack_cache_coherent p hp
+  simp only [cacheCoherent, Bool.and_eq_true, List.isEmpty_iff] at this
+  exact cacheIncoherent_sound _ this.2 m₀ hsp hc hsep
 
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
 /-- …and it rejects the bug: the CLZ body on the former x10-x13 temporaries. -/

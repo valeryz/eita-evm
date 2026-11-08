@@ -41,6 +41,8 @@ import Evm.CL.ARM64.SstoreGasDenote
 import Evm.CL.ARM64.MemCommitSem
 import Evm.CL.ARM64.CallGasDenote
 import Evm.Parallel.BlockSTM
+import Evm.CL.CacheSound
+import Evm.CL.ARM64.Interp
 -- the rest of the modules that use native_decide (the extern rule, at the end)
 import Evm.CL.Boundary
 import Evm.CL.DispatchTable
@@ -126,6 +128,11 @@ import Evm.CL.ARM64.SstoreGasSem
 
 -- Parallel execution refines sequential.
 #print axioms Evm.Parallel.BlockSTM.blockSTM_refines_seq
+
+-- The stack-cache check is sound against the AsmRun semantics (no native_decide), and
+-- so every handler body's runs keep the cache (via the native_decide verdict).
+#print axioms Evm.CL.CacheSound.cacheIncoherent_sound
+#print axioms Evm.CL.ARM64.Interp.handler_runs_cache_coherent
 
 /-! ## native_decide never runs an `@[extern]` / `@[implemented_by]` of ours
 
