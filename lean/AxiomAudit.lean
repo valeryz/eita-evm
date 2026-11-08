@@ -7,12 +7,12 @@
   since-removed loom dependency). Regenerate after an intended change:
 
     (cd lean && lake env lean AxiomAudit.lean | sed 's/^info: //' \
-      > ../scripts/generated/axiom-audit.txt)
+      | grep -v '^extern rule OK' > ../scripts/generated/axiom-audit.txt)
 
   Coverage (per review on PR #44): every effect-layer `*_refines`
   entry point, every emitted `*_eq_spec` / `*_is_spec` theorem, plus
   the IR-pipeline and BlockSTM headlines. A new axiom (or a
-  native_decide, whose ofReduceBool shows up here) must land in the
+  native_decide, whose `._native.native_decide.ax_…` shows up here) must land in the
   committed baseline deliberately, with eyes on it. -/
 
 import Evm.IR.Soundness
@@ -41,6 +41,25 @@ import Evm.CL.ARM64.SstoreGasDenote
 import Evm.CL.ARM64.MemCommitSem
 import Evm.CL.ARM64.CallGasDenote
 import Evm.Parallel.BlockSTM
+-- the rest of the modules that use native_decide (the extern rule, at the end)
+import Evm.CL.Boundary
+import Evm.CL.DispatchTable
+import Evm.CL.Fetch
+import Evm.CL.JumpDest
+import Evm.CL.Relax
+import Evm.CL.StackOps
+import Evm.CL.StaticGuard
+import Evm.CL.X86Alias
+import Evm.CL.X86Asm
+import Evm.CL.X86Dispatch
+import Evm.CL.X86Encode
+import Evm.CL.X86FlagProv
+import Evm.CL.X86Handler
+import Evm.CL.X86Interp
+import Evm.CL.X86Items
+import Evm.CL.X86JIT
+import Evm.CL.X86Run
+import Evm.CL.ARM64.SstoreGasSem
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect
@@ -107,3 +126,108 @@ import Evm.Parallel.BlockSTM
 
 -- Parallel execution refines sequential.
 #print axioms Evm.Parallel.BlockSTM.blockSTM_refines_seq
+
+/-! ## native_decide never runs an `@[extern]` / `@[implemented_by]` of ours
+
+`native_decide` proves `p` by running the compiled `decide p` (v4.29: an
+auxiliary axiom `<thm>._native.native_decide.ax_…` stating `decide p = true`;
+older: `Lean.ofReduceBool`). If that code reaches one of the spec's
+`@[extern]`s (keccak, sha256, bn254, p256, …: C) or an `@[implemented_by]`
+(a different Lean function), the theorem is about that implementation, not the
+definition it names. For every such axiom / `ofReduceBool` proof in an `Evm.*`
+module: walk the constants the evaluated term reaches — through definition and
+opaque values, instances, matchers and `_unsafe_rec` bodies, not proofs and
+types (never executed), and only through `Evm.*` constants (Lean core, Batteries
+and Mathlib cannot reach ours) — and fail on any `@[extern]` / `@[implemented_by]`
+there, naming the theorem and the path. Every `Evm/**.lean` file that uses
+native_decide must be imported above (checked), else its theorems go unseen.
+`externAllowed` takes a reasoned exception: (theorem, constant, why). -/
+
+namespace AxiomAudit.ExternRule
+open Lean
+
+/-- (theorem, constant it may run, why). Keyed by theorem: a new proof reaching the same
+    constant fails until it is reviewed and listed. -/
+def externAllowed : List (Name × Name × String) :=
+  -- The JIT emitters' corpus gates (2026-11-08, the rule's first run): each runs the
+  -- emitter over the fixture corpus as emitJIT itself runs it -- dagSlots through its
+  -- pointer-memoized `dagSlotsImpl` (the reference is never executed: structural dedup is
+  -- 2^k on DUP-shared trees), and the IR fold (dynCosts -> regionStep -> foldStep ->
+  -- execOp) through the C Keccak for a constant-input KECCAK256. They gate the shipped
+  -- emitter's output on the corpus (text identity, lowering, relocations, register
+  -- aliasing, flag provenance); no proof uses them (docs and comments only), so they say
+  -- nothing about the reference dagSlots or keccak256 that a lemma could build on.
+  let gates := [``Evm.CL.ARM64.JIT.chunk_text_derived, ``Evm.CL.X86FlagProv.no_flag_provenance_hazards,
+                ``Evm.CL.X86JIT.x86_chunks_lower, ``Evm.CL.X86JIT.x86_chunks_no_alias,
+                ``Evm.CL.X86JIT.x86_chunks_only_abs64]
+  gates.flatMap fun t =>
+    [(t, ``Evm.CL.ARM64.JIT.dagSlots, "emitter corpus gate: emitJIT's own dagSlotsImpl"),
+     (t, ``Evm.Crypto.keccak256Bytes, "emitter corpus gate: the IR fold's constant KECCAK256, emitJIT's own C Keccak")]
+
+def ours (env : Environment) (c : Name) : Bool :=
+  match env.getModuleIdxFor? c with
+  | some i => env.header.moduleNames[i.toNat]!.getRoot == `Evm
+  | none => false
+
+def isNativeAux (n : Name) : Bool :=
+  n.components.any (· == `native_decide) && n.components.any (· == `_native)
+
+def flagged (env : Environment) (c : Name) : Option String :=
+  if isExtern env c then some "@[extern]"
+  else (Compiler.implementedByAttr.getParam? env c).map (s!"@[implemented_by {·}]")
+
+/-- What running `c` may run: its value (definitions, opaques), its compiled `_unsafe_rec`. -/
+def execDeps (env : Environment) (c : Name) : Array Name :=
+  let v := match env.find? c with
+    | some (.defnInfo d) => d.value.getUsedConstants
+    | some (.opaqueInfo d) => d.value.getUsedConstants
+    | _ => #[]
+  if env.contains (c ++ `_unsafe_rec) then v.push (c ++ `_unsafe_rec) else v
+
+/-- Every flagged constant reachable from `start`, each with one path to it. -/
+partial def reach (env : Environment) (start : Array Name) : Array (List Name × String) :=
+  go (start.toList.map fun c => (c, [c])) {} #[]
+where
+  go : List (Name × List Name) → NameSet → Array (List Name × String) → Array (List Name × String)
+  | [], _, acc => acc
+  | (c, path) :: rest, seen, acc =>
+    if seen.contains c || !ours env c then go rest seen acc
+    else match flagged env c with
+      | some why => go rest (seen.insert c) (acc.push (path.reverse, why))
+      | none => go ((execDeps env c).toList.map (fun d => (d, d :: path)) ++ rest) (seen.insert c) acc
+
+/-- `Evm/**.lean` files that use native_decide, as module names. -/
+partial def nativeModules (dir : System.FilePath) (mod : Name) : IO (Array Name) := do
+  let mut out := #[]
+  for e in ← dir.readDir do
+    if ← e.path.isDir then out := out ++ (← nativeModules e.path (mod ++ .mkSimple e.fileName))
+    else if e.path.extension == some "lean" then
+      if ((← IO.FS.readFile e.path).splitOn "native_decide").length > 1 then
+        out := out.push (mod ++ .mkSimple (e.path.fileStem.getD e.fileName))
+  return out
+
+end AxiomAudit.ExternRule
+
+open Lean Elab Command AxiomAudit.ExternRule in
+#eval show CommandElabM Unit from do
+  let env ← getEnv
+  let missing := (← nativeModules "Evm" `Evm).filter (env.getModuleIdx? · |>.isNone)
+  unless missing.isEmpty do
+    throwError "extern rule: these modules use native_decide but AxiomAudit.lean does not import them: {missing.qsort Name.lt}"
+  let mut checked := 0
+  let mut bad : Array String := #[]
+  for (n, ci) in env.constants.map₁.toList do
+    unless ours env n do continue
+    let start? : Option (Name × Array Name) := match ci with
+      | .axiomInfo a => if isNativeAux n then some (n.getPrefix.getPrefix.getPrefix, a.type.getUsedConstants) else none
+      | .thmInfo t => if t.value.getUsedConstants.contains ``Lean.ofReduceBool then some (n, t.value.getUsedConstants) else none
+      | _ => none
+    let some (thm, start) := start? | continue
+    checked := checked + 1
+    for (path, why) in reach env start do
+      unless externAllowed.any (fun (t, c, _) => t == thm && c == path.getLast!) do
+        bad := bad.push s!"  {thm}: runs {path.getLast!} {why} via {path}"
+  if bad.isEmpty then
+    IO.eprintln s!"extern rule OK: {checked} native_decide / ofReduceBool proofs in Evm.*, none runs an Evm @[extern] / @[implemented_by] (allowed: {externAllowed.length} reviewed (theorem, constant) pairs)"
+  else
+    throwError "extern rule: {bad.size} native_decide proofs run an @[extern] / @[implemented_by]:\n{"\n".intercalate (bad.qsort (· < ·)).toList}"
