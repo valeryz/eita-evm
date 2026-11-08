@@ -52,6 +52,22 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), and mainnet
 replay with state-root checks. Gas for every precompile is computed in Lean, not here.
 
+## Assumptions of the interpreter's stack-cache proof (ARM64)
+
+`Evm.CL.CacheSound.cacheIncoherent_sound` and `Evm.CL.ARM64.Interp.handler_runs_cache_coherent` (core
+c3a1366) prove that every ARM64 interpreter handler keeps the register-cached top of the EVM stack (x6–x9,
+x10–x13) equal to the stack's words at every dispatch exit. They assume, and do not prove:
+
+- **Calls.** A C helper (`bl`, `blr`, far calls) preserves the AAPCS64 callee-saved registers, including x23
+  (depth), x24 (stack base) and sp; everything else, all memory included, may change.
+- **Memory separation (`Sep`).** A store the analysis does not place on the EVM stack (EVM memory, the state
+  struct, the C frame), and any instruction outside the modelled semantics (`AsmRun.step`), leaves the stack
+  words within sp₀ ± 65,538 unchanged.
+- **Entry.** The stack depth is within [0, 1024] on entry.
+
+Only `br x27` (dispatch) exits carry the obligation; fault and sync exits do not. The x86-64 checker
+(`cacheCoherent`'s x86 mode) is not yet proved sound.
+
 ## Platform glue (no EVM semantics)
 
 `lean/c/uds.c` (the JIT emit server's socket), `lean/c/x86_run.c` (the x86-64 emitter's test
