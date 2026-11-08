@@ -24,13 +24,30 @@ jobs:
         with:
           submodules: true
 
+      # elan and the Lean toolchain come from GitHub release downloads, which sometimes return 5xx for minutes at a
+      # time: cache ~/.elan (keyed by the elan release and lean/lean-toolchain) and retry the downloads.
+      - name: Cache elan and the Lean toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-v4.2.4-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain') }}
+
       - name: Install elan (pinned release; the toolchain is pinned by lean/lean-toolchain)
         env:
           ELAN_RELEASE: v4.2.4
         run: |
-          curl -sSfL "https://github.com/leanprover/elan/releases/download/${ELAN_RELEASE}/elan-x86_64-unknown-linux-gnu.tar.gz" | tar xz
-          ./elan-init -y --default-toolchain none
+          if [ ! -x "$HOME/.elan/bin/elan" ]; then
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 20 \
+              "https://github.com/leanprover/elan/releases/download/${ELAN_RELEASE}/elan-x86_64-unknown-linux-gnu.tar.gz" | tar xz
+            ./elan-init -y --default-toolchain none
+          fi
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          tc=$(cat lean/lean-toolchain)
+          for i in 1 2 3 4 5 6; do
+            "$HOME/.elan/bin/elan" toolchain install "$tc" && break
+            [ "$i" = 6 ] && exit 1
+            echo "toolchain download failed (attempt $i); retrying in 30 s"; sleep 30
+          done
 
       - name: C dependencies (secp256k1, mcl, OpenSSL, blst), SBCL, ocicl
         env:
