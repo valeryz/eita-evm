@@ -92,9 +92,6 @@ lean_exe x86ItemsVectors where
 lean_exe x86EncodeVectors where
   root := `X86EncodeVectors
 
-lean_exe jitChunkSnapshot where
-  root := `JitChunkSnapshot
-
 lean_exe asmItemsVectors where
   root := `AsmItemsVectors
 

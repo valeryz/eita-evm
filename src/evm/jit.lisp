@@ -23,23 +23,13 @@
 ;;; interp tier. Both tiers share the EvmState ABI and callbacks, so
 ;;; nothing else in this file changes behavior.
 ;;;
-;;; Per-program dylibs define the same symbols (_eita_run_chunk,
-;;; _eita_jit_entries, _eita_chunk_N), so they are dlopen'd
-;;; RTLD_LOCAL and resolved per-handle — CFFI's global symbol
-;;; resolution can't express that.
-
-(defcfun ("dlopen" %dlopen) :pointer (path :string) (mode :int))
-(defcfun ("dlsym" %dlsym) :pointer (handle :pointer) (name :string))
-(defconstant +rtld-now+   2)
-(defconstant +rtld-local+ 4)
-
 ;;; --- In-process binary loader (#235): no clang, no dlopen ------------
 ;;;
 ;;; `emitJIT bin` writes a serialized image blob (machine bytes + movabs
 ;;; relocs + (pc,off) entries; see Evm.CL.ARM64.JIT.emitProgramImage). We
 ;;; mmap it RW, patch each movabs reloc with the runtime address of the
-;;; named libeita symbol (the same handlers/helpers/stubs the clang dylib
-;;; linked against), flip the page to RX + invalidate icache, and hand the
+;;; named libeita symbol (the same handlers/helpers/stubs the chunk
+;;; code calls), flip the page to RX + invalidate icache, and hand the
 ;;; resulting run_chunk pointer + entries manifest to the SAME
 ;;; `_eita_execute_program` dispatcher. This SBCL is unhardened, so plain
 ;;; RW->RX mprotect is permitted (no MAP_JIT entitlement needed).
@@ -452,10 +442,6 @@
           (coerce (subseq code 0 (min 8 (length code))) 'list)
           (> (length code) 8)))
 
-(defun first-line (s)
-  (let ((nl (position #\Newline s)))
-    (string-trim '(#\Space #\Newline) (subseq s 0 (or nl (length s))))))
-
 (defstartup *jit-cache-dir*
   (let ((d (or (sb-posix:getenv "EITA_JIT_CACHE_DIR")
                (format nil "~A/.cache/eita-jit" (sb-posix:getenv "HOME")))))
@@ -463,48 +449,25 @@
     d)
   "DISK cache of compiled JIT chunks, keyed by (fork, keccak(code)). Within one
    run *jit-cache* (in-memory) already prevents recompiles; the disk cache means
-   a RE-RUN or a RESUMED image (whose in-memory cache was wiped) dlopen's the
-   already-built chunk directly, skipping emitJIT + clang. Set EITA_JIT_CACHE_DIR
+   a RE-RUN or a RESUMED image (whose in-memory cache was wiped) maps the
+   already-built chunk blob directly, skipping emitJIT. Set EITA_JIT_CACHE_DIR
    to relocate; rm -rf it to invalidate (e.g. after changing the chunk emitter).")
-
-(defstartup *inproc-jit*
-  (let ((v (sb-posix:getenv "EITA_INPROC_JIT"))) (if v (string/= v "0") t))
-  "DEFAULT ON. Build JITs by loading the emit-daemon's chunk BYTES in-process
-   (mmap -> relocation patch -> RX in the #259 double-mapped arena), instead of
-   the clang+dlopen path. The dlopen path leaks one resident dylib mapping per
-   chunk (fee5b5f unlinks the file but not the mapping) -> ~43G 'dyld private
-   memory' over a long replay -> DoS-region swap death, and is ~50x slower. The
-   arena loader is bounded (page-index eviction) and checkpoint-safe (9d25a27).
-   Opt OUT with EITA_INPROC_JIT=0 to fall back to clang+dlopen (a deprecated
-   cross-check kept only until inproc clears a full 0->5M). NOTE: this is the
-   in-process LOADER; the Lean->ARM64 emission is still the out-of-process
-   emitJIT daemon (true in-process emission is #235, not yet done).")
 
 (defstartup *lastframe-from*
   (let ((v (sb-posix:getenv "EITA_LASTFRAME_FROM"))) (and v (parse-integer v)))
   "Hang probe: from this block on, overwrite /tmp/eita_lastframe.hex with each
    JIT frame's code before running it, so a wedged frame leaves its culprit.")
 
-(defun jit-cache-path (code)
-  "Cache dylib path for CODE at the active fork. keccak(code) is collision-
-   resistant and matches the in-memory cache's content identity; the fork prefix
-   keeps per-fork chunk variants (opcode admission, sstore/exp/selfdestruct)
-   apart; the emitJIT binary's mtime versions the key so rebuilding the chunk
-   GENERATOR auto-invalidates the cache. (libeita changes need no invalidation —
-   the cached dylib dynamically links it, so a rebuilt handler is picked up at
-   dlopen; only the code GENERATED into the chunk depends on emitJIT.)"
-  (jit-cache-file code "dylib"))
-
 (defun jit-cache-file (code ext)
   (format nil "~A/v~A-f~D-~64,'0X.~A" *jit-cache-dir* (or (ignore-errors (file-write-date *emit-jit*)) 0)
           *fork-ord* (code-hash-int code) ext))
 
 (defun blob-cache-path (code)
-  "In-process loader blob path for CODE (same keying as jit-cache-path, .blob)."
+  "In-process loader blob path for CODE at the active fork (see jit-cache-file)."
   (jit-cache-file code "blob"))
 
 (defun try-build-jit-inproc (code)
-  "In-process twin of try-build-jit: a cache-keyed blob is mmap'd + patched in
+  "The JIT build: a cache-keyed blob is mmap'd + patched in
    this process (no clang, no dlopen). Cache HIT mmaps the disk blob directly;
    MISS asks the persistent emit daemon for the bytes, persists them, then maps.
    Returns (values run-chunk entries) or (values nil reason)."
@@ -526,55 +489,6 @@
       (error (e)
         (ignore-errors (delete-file blob))
         (values nil (format nil "inproc: ~A" e))))))
-
-(defun try-build-jit (code)
-  "Return (values run-chunk entries) for CODE, or (values nil reason). DISK-CACHED:
-   if the keyed chunk dylib already exists, dlopen it directly; otherwise emitJIT
-   + clang into a temp in the cache dir and atomically rename it in. Compile
-   failures (CompileError.unknownOpcode for not-yet-staged ops) return nil."
-  (let* ((dylib  (jit-cache-path code))
-         (cached (probe-file dylib))
-         (n (incf *jit-counter*))
-         (hex (with-output-to-string (s)
-                (loop for b across code do (format s "~2,'0x" b))))
-         (s-path (format nil "/tmp/eita-jit-rt-~D.S" n))
-         (tmp    (format nil "~A/.build-~D.dylib" *jit-cache-dir* n))
-         (err (make-string-output-stream)))
-    (unwind-protect
-        (progn
-          (unless cached
-            ;; emitJIT → .S, clang → tmp dylib (same fs as cache, so the rename
-            ;; below is atomic — a crashed compile never leaves a half-written
-            ;; cache entry).
-            (let ((p (sb-ext:run-program
-                      *emit-jit* (list hex (format nil "~D" *fork-ord*))
-                      :output s-path :if-output-exists :supersede :error err
-                      :environment (cons "DYLD_LIBRARY_PATH=/opt/homebrew/lib"
-                                         (sb-ext:posix-environ)))))
-              (unless (zerop (sb-ext:process-exit-code p))
-                (return-from try-build-jit
-                  (values nil (format nil "emitJIT: ~A"
-                                      (first-line (get-output-stream-string err)))))))
-            (let ((p (sb-ext:run-program
-                      "/usr/bin/clang"
-                      (list "-arch" "arm64" "-shared" "-o" tmp s-path
-                            (format nil "-L~A" (namestring (dir-of (native-path "libeita")))) "-leita")
-                      :error err)))
-              (unless (zerop (sb-ext:process-exit-code p))
-                (return-from try-build-jit
-                  (values nil (format nil "clang: ~A"
-                                      (first-line (get-output-stream-string err)))))))
-            (rename-file tmp dylib))
-          (let ((handle (%dlopen (namestring dylib) (logior +rtld-now+ +rtld-local+))))
-            (when (null-pointer-p handle)
-              ;; A corrupt cache entry: drop it so the next touch rebuilds.
-              (ignore-errors (delete-file dylib))
-              (return-from try-build-jit (values nil "dlopen failed")))
-            ;; `_eita_execute_program` indexes a dispatch table, not the manifest
-            (values (%dlsym handle "eita_run_chunk")
-                    (spec-dispatch-table (spec-manifest-pairs (%dlsym handle "eita_jit_entries"))))))
-      (ignore-errors (delete-file s-path))
-      (ignore-errors (delete-file tmp)))))   ; keep the CACHE dylib; only temps go
 
 (defstartup *jit-max-pc*
   (let ((v (sb-ext:posix-getenv "EITA_JIT_MAX_PC"))) (and v (parse-integer v)))
@@ -643,11 +557,11 @@
          (setf (gethash key *jit-cache*) n)
          (when (>= n *jit-threshold*)
            (multiple-value-bind (run-chunk extra aoff alen)
-               (if *inproc-jit* (try-build-jit-inproc code) (try-build-jit code))
+               (try-build-jit-inproc code)
              (cond
                (run-chunk
                 (incf (getf *jit-stats* :codes-jit))
-                ;; aoff/alen present only on the inproc/arena path (#259); they
+                ;; aoff/alen locate the chunk in the arena (#259); they
                 ;; pin this chunk while it runs so a nested JIT can't evict it.
                 (when (and *jit-max-pc*
                            (or (null *jit-max-pc-codelen*)

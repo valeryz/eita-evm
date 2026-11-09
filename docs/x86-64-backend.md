@@ -142,7 +142,7 @@ blocks 23501090…): the Mac and x86-64 Linux logs agree line for line on every
 completed block, every transaction `✓ exact` against its on-chain receipt
 gas. GST (LegacyTests/Cancun) per directory: x86-64 Linux == Mac on every
 directory compared (both tiers carry the same pre-existing interp-tier
-failures — `scripts/compare-batteries.sh`).
+failures).
 
 ### Stage 6: the x86-64 JIT tier (`lean/Evm/CL/X86JIT.lean`)
 

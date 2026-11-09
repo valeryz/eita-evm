@@ -6,8 +6,8 @@ new-account fee, revert dispatch) lived as hand-written CL in
 source of the +25000 new-account overcharge and the revert-ordering bug.
 
 This file is the start of *emitting* that logic from Lean, so the
-executable is the spec by construction. The pattern mirrors
-`EmitDemo`/`toCL`: a small IR with two interpretations of ONE definition —
+executable is the spec by construction. The pattern is
+a small IR with two interpretations of ONE definition —
 `eval` (Lean semantics, used to prove equivalence with the fork spec) and
 `toCL` (emitted CL). Because both come from the same IR term, the emitted
 CL cannot drift from the proved semantics.

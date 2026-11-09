@@ -44,7 +44,7 @@ scripts/run-battery.sh <fixture tree> [log]        # one SBCL per directory, a T
 
 Each runs on two tiers: the JIT (default: hot code compiled by the Lean-emitted JIT, via
 the `emitJIT` daemon) and the threaded interpreter (`EITA_NO_JIT=1`). Both must give the
-same verdict on every test (`scripts/compare-batteries.sh a.sum b.sum`).
+same verdict on every test (`diff <(grep pass= a.sum | sort) <(grep pass= b.sum | sort)`).
 
 ### The Cancun battery
 
@@ -58,7 +58,7 @@ git -C lean/external/ethereum-tests checkout c67e485f
 B=lean/external/ethereum-tests/LegacyTests/Cancun/BlockchainTests
 SBCL_ARGS="--dynamic-space-size 16GB" EITA_NO_JIT=1 scripts/run-battery.sh $B /tmp/interp.log > /tmp/interp.sum
 SBCL_ARGS="--dynamic-space-size 16GB"               scripts/run-battery.sh $B /tmp/jit.log    > /tmp/jit.sum
-scripts/compare-batteries.sh /tmp/interp.sum /tmp/jit.sum
+diff <(grep pass= /tmp/interp.sum | sort) <(grep pass= /tmp/jit.sum | sort)
 ```
 
 Expected on both tiers (about 30 minutes each, sequential):
