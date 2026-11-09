@@ -97,7 +97,7 @@ theorem pre_runX (H : Helpers) (hS : H.Spec) (hC : H.conv = x86Conv) (r : Region
   rw [frameOpenX_run]
   have hspB : (s.withSp (s.sp - BitVec.ofNat 64 (32 * n + 8))).sp = F.fp := rfl
   have hIB : InvX F (idxOf r) [] (s.withSp (s.sp - BitVec.ofNat 64 (32 * n + 8))) :=
-    ⟨hspB, by simpa using h23, by simpa using h24, fun k hk => by simpa using hstack k hk, fun _ h => by simp at h⟩
+    ⟨hspB, by simpa [F, frameOfX] using h23, by simpa [F, frameOfX] using h24, fun k hk => by simpa [F, frameOfX] using hstack k hk, fun _ h => by simp at h⟩
   have hWF : WFSlots F (idxOf r) (slotsOf r) := wfSlots_of r hW F rfl hneed
   obtain ⟨sC, hC', hIC, hDC⟩ := dag_loopX H hS hC F (idxOf r) _ hL (slotsOf r) [] _ (by simpa using hWF) hIB
   rw [hC']
@@ -246,7 +246,7 @@ theorem body_runX (H : Helpers) (hS : H.Spec) (hC : H.conv = x86Conv) (r : Regio
   · intro i hi
     simp only [AsmRun.withSp_mem]
     have := hstored i hi
-    simpa [Nat.zero_add] using this
+    simpa [newDepthOf, F, frameOfX] using this
   · intro k hck hkd
     simp only [AsmRun.withSp_mem]
     exact hXE.keepStack k hck hkd
@@ -278,7 +278,7 @@ theorem checks_runX (H : Helpers) (r : Region) (d : Nat) (hd : d ≤ 1024) (rest
       else []) ++ rest) s1 ∧ s1.regs = s.regs ∧ s1.sp = s.sp ∧ s1.mem = s.mem := by
     split
     · simp only [List.cons_append, List.nil_append]
-      rw [underflowCheckX_run H r.need d (by omega) (by omega) _ s h23, if_pos hneed]
+      rw [underflowCheckX_run H r.need d (by omega) (by omega) _ s h23, ite_eq_left hneed]
       exact ⟨_, rfl, rfl, rfl, rfl⟩
     · rw [List.nil_append]; exact ⟨s, rfl, rfl, rfl, rfl⟩
   obtain ⟨s1, h1, hr1, hs1, hm1⟩ := step1
@@ -288,7 +288,7 @@ theorem checks_runX (H : Helpers) (r : Region) (d : Nat) (hd : d ≤ 1024) (rest
   · rename_i hm
     have hlim : d < (1025 - r.maxNet).toNat := by have := hover hm; omega
     simp only [List.cons_append, List.nil_append]
-    rw [overflowCheckX_run H _ d (by omega) (by omega) _ s1 h23', if_pos hlim]
+    rw [overflowCheckX_run H _ d (by omega) (by omega) _ s1 h23', ite_eq_left hlim]
     exact ⟨_, rfl, by rw [AsmRun.withFlags_regs, hr1], by rw [AsmRun.withFlags_sp, hs1], by rw [AsmRun.withFlags_mem, hm1]⟩
   · rw [List.nil_append]; exact ⟨s1, rfl, hr1, hs1, hm1⟩
 

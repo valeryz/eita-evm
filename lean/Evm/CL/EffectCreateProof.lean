@@ -153,10 +153,10 @@ theorem finish_run (c : Ctx) (h : HState) : finish.run c h = finishClosed c h :=
   | ok h' g o rv =>
     cases rv
     · simp only [Stmt.run, BExp.eval, hr, ChildRes.isErr, ChildRes.isRev, ChildRes.out, ChildRes.gas,
-        GExp.eval, deposit, deposit_eval, Bool.false_eq_true, if_false]
+        GExp.eval, deposit, deposit_eval, Bool.false_eq_true, ite_false]
       by_cases hef : c.fork ≥ 11 ∧ 0 < o.size ∧ o.get! 0 = (0xEF : UInt8)
       · simp [hef, fail_run, failSt]
-      · simp only [hef, if_false]
+      · simp only [hef, ite_false]
         by_cases hd : g < Evm.Frontier.Vm.Gas.codeDeposit * o.size
         · by_cases hk1 : c.fork ≥ 1
           · simp [hd, hk1, Stmt.run, BExp.eval, GExp.eval, fail_run, failSt] <;> (try (intro a b d; exact absurd ⟨a, b, d⟩ hef))
@@ -204,7 +204,7 @@ def childH (c : Ctx) (h : HState) : HState :=
 set_option maxHeartbeats 4000000 in
 theorem proceed_run (c : Ctx) (h : HState) :
     proceed.run c h = runInit.run c (childH c h) := by
-  simp only [proceed, Stmt.run, BExp.eval, Bool.and_false, Bool.false_eq_true, if_false]
+  simp only [proceed, Stmt.run, BExp.eval, Bool.and_false, Bool.false_eq_true, ite_false]
   unfold childH
   by_cases hk : c.fork ≥ 4 <;> by_cases hv : c.word "value" = 0#256 <;>
     simp [hk, hv, transfer, Stmt.run, BExp.eval, WExp.eval, AExp.eval, Evm.Frontier.State.subBalance,
@@ -233,8 +233,8 @@ theorem afterWarm_run (c : Ctx) (h : HState) :
       = afterBump.run (c1Of c h) (hbOf c h) := by
   unfold c1Of hbOf
   by_cases hk : c.fork ≥ 10
-  · simp only [Stmt.run, BExp.eval, AExp.eval, hk, decide_true, if_true, Bool.true_and]
-  · simp only [Stmt.run, BExp.eval, AExp.eval, hk, decide_false, if_false, Bool.false_eq_true, Bool.false_and]
+  · simp only [Stmt.run, BExp.eval, AExp.eval, hk, decide_true, ite_true, Bool.true_and]
+  · simp only [Stmt.run, BExp.eval, AExp.eval, hk, decide_false, ite_false, Bool.false_eq_true, Bool.false_and]
 
 theorem afterBump_coll (c : Ctx) (h : HState) (hc : c.bool "coll" = true) :
     afterBump.run c h = { h with gas := h.gas + (c.nat "base" + fwdv c), out := 0 } := by
@@ -325,7 +325,7 @@ theorem start_failfast (hG : ¬ evm.gasLeft < base) (hov : ¬ (k ≥ 15 ∧ init
       = .done { evm with gasLeft := evm.gasLeft - base, returnData := Evm.Bytes.empty } := by
   have hov' : ¬ ((Rules.ofOrd k).eip3860 = true ∧ initCode.size > maxInitCodeSize) := by
     simpa [Rules.ofOrd] using hov
-  simp only [start, hG, hov', if_false, hff, if_true]
+  simp only [start, hG, hov', ite_false, hff, ite_true]
 
 theorem start_coll (hG : ¬ evm.gasLeft < base) (hov : ¬ (k ≥ 15 ∧ initCode.size > maxInitCodeSize))
     (hff : ¬ (evm.message.depth ≥ maxDepth ∨
@@ -335,7 +335,7 @@ theorem start_coll (hG : ¬ evm.gasLeft < base) (hov : ¬ (k ≥ 15 ∧ initCode
     start (Rules.ofOrd k) evm value initCode newAddr base = .done (e2Of k evm newAddr base) := by
   have hov' : ¬ ((Rules.ofOrd k).eip3860 = true ∧ initCode.size > maxInitCodeSize) := by
     simpa [Rules.ofOrd] using hov
-  simp only [start, hG, hov', if_false, hff, hcol, if_true, e2Of, env2Of, fwdOf, Rules.ofOrd]
+  simp only [start, hG, hov', ite_false, hff, hcol, ite_true, e2Of, env2Of, fwdOf, Rules.ofOrd]
   have hov2 : 15 ≤ k → initCode.size ≤ maxInitCodeSize := fun h => Nat.le_of_not_lt (fun h' => hov ⟨h, h'⟩)
   by_cases h10 : k ≥ 10 <;> by_cases h3 : k ≥ 3 <;> simp [h10, h3] <;> exact hov2
 
@@ -352,7 +352,7 @@ theorem start_run (hG : ¬ evm.gasLeft < base) (hov : ¬ (k ≥ 15 ∧ initCode.
           (childState (Rules.ofOrd k) (env2Of k evm newAddr).state evm.message.currentTarget newAddr value) := by
   have hov' : ¬ ((Rules.ofOrd k).eip3860 = true ∧ initCode.size > maxInitCodeSize) := by
     simpa [Rules.ofOrd] using hov
-  simp only [start, hG, hov', if_false, hff, hcol, e2Of, env2Of, fwdOf, msgFwd, msgOf, Rules.ofOrd,
+  simp only [start, hG, hov', ite_false, hff, hcol, e2Of, env2Of, fwdOf, msgFwd, msgOf, Rules.ofOrd,
     Bool.false_eq_true]
   have hov2 : 15 ≤ k → initCode.size ≤ maxInitCodeSize := fun h => Nat.le_of_not_lt (fun h' => hov ⟨h, h'⟩)
   by_cases h10 : k ≥ 10 <;> by_cases h3 : k ≥ 3 <;> simp [h10, h3] <;> exact hov2
@@ -426,13 +426,13 @@ theorem agree_hb (k : Nat) (evm : Evm) (newAddr : Evm.Address) (_base : Nat) (c 
     Agree (env2Of k evm newAddr) { hbOf c (HState.ofEnv evm.env) with gas := g, out := o, rdata := rd } := by
   unfold env2Of hbOf
   by_cases h10 : k ≥ 10
-  · rw [if_pos h10, warm_eq]
+  · rw [ite_eq_left h10, warm_eq]
     have : c.fork ≥ 10 := hk ▸ h10
-    simp only [this, if_true]
+    simp only [this, ite_true]
     exact ⟨by simp [HState.ofEnv, hn, hs], rfl, rfl, by simp [HState.ofEnv, hn], rfl, rfl, rfl, rfl⟩
-  · rw [if_neg h10]
+  · rw [ite_eq_right h10]
     have : ¬ c.fork ≥ 10 := hk ▸ h10
-    simp only [this, if_false]
+    simp only [this, ite_false]
     exact ⟨by simp [HState.ofEnv, hs], rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 end Evm.CL.EffectCreate
@@ -484,47 +484,47 @@ theorem finish_refines (k : Nat) (evm : Evm) (_value : Evm.U256) (_initCode : Ev
   | error e =>
     simp only [toRes, afterChild, failSt, hsnap, hF, hb, hcg, hcr]
     have hl : ¬ evm.stack.length ≥ Evm.Frontier.Vm.stackLimit := Nat.not_le.mpr hlen
-    simp only [push_ite, e2Of, hl, if_false]
+    simp only [push_ite, e2Of, hl, ite_false]
     refine refines_ok _ _ _ (agree_hb k evm newAddr base C hCk hCn hCs _ _ _) ?_ (by simp [e2Of]) (by simp [e2Of])
     exact arith_err _ _ _ hG hfwd
   | ok sub =>
     have hm := hmonoR sub rfl
     cases hrv : sub.reverted
     · have hl : ¬ evm.stack.length ≥ Evm.Frontier.Vm.stackLimit := Nat.not_le.mpr hlen
-      simp only [toRes, hrv, Bool.false_eq_true, if_false, afterChild, hsnap, hF, hb, hcg, hcr, hco]
+      simp only [toRes, hrv, Bool.false_eq_true, ite_false, afterChild, hsnap, hF, hb, hcg, hcr, hco]
       by_cases hef : k ≥ 11 ∧ 0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8)
       · have hef' : (Rules.ofOrd k).eip3541 = true ∧ 0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8) := by
           simpa [Rules.ofOrd] using hef
-        simp only [hk, hef, hef', if_true, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl, if_false]
+        simp only [hk, hef, hef', ite_true, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl, ite_false]
         refine refines_ok _ _ _ (agree_hb k evm newAddr base C hCk hCn hCs _ _ _) ?_ (by simp) (by simp)
         exact arith_err _ _ _ hG hfwd
       · have hef' : ¬ ((Rules.ofOrd k).eip3541 = true ∧ 0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8)) := by
           simpa [Rules.ofOrd] using hef
-        simp only [hk, hef, hef', if_false]
+        simp only [hk, hef, hef', ite_false]
         by_cases hd : sub.gasLeft < Evm.Frontier.Vm.Gas.codeDeposit * sub.output.size
         · by_cases h1 : k ≥ 1
           · have h1' : (Rules.ofOrd k).homestead = true := by simp [Rules.ofOrd, h1]
-            simp only [hd, h1, h1', if_true, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl, if_false]
+            simp only [hd, h1, h1', ite_true, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl, ite_false]
             refine refines_ok _ _ _ (agree_hb k evm newAddr base C hCk hCn hCs _ _ _) ?_ (by simp) (by simp)
             exact arith_err _ _ _ hG hfwd
           · have h1' : (Rules.ofOrd k).homestead = false := by simp [Rules.ofOrd]; omega
-            simp only [hd, h1, h1', if_true, if_false, Bool.false_eq_true, push_ite, e2Of, hl, hb, hF, hcg, hco, hn]
+            simp only [hd, h1, h1', ite_true, ite_false, Bool.false_eq_true, push_ite, e2Of, hl, hb, hF, hcg, hco, hn]
             refine refines_ok _ _ _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ ?_ rfl (by simp [hcr])
             simpa using arith_rev _ _ _ _ hG hfwd hm
         · by_cases hs : k ≥ 4 ∧ Evm.SpuriousDragon.Vm.Gas.maxCodeSize < sub.output.size
           · have hs' : (Rules.ofOrd k).eip161 = true ∧ sub.output.size > Evm.SpuriousDragon.Vm.Gas.maxCodeSize := by
               simpa [Rules.ofOrd] using hs
-            simp only [hd, hs, hs', if_true, if_false, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl]
+            simp only [hd, hs, hs', ite_true, ite_false, failSt, hsnap, hF, hb, hcg, hcr, push_ite, e2Of, hl]
             refine refines_ok _ _ _ (agree_hb k evm newAddr base C hCk hCn hCs _ _ _) ?_ (by simp) (by simp)
             exact arith_err _ _ _ hG hfwd
           · have hs' : ¬ ((Rules.ofOrd k).eip161 = true ∧ sub.output.size > Evm.SpuriousDragon.Vm.Gas.maxCodeSize) := by
               simpa [Rules.ofOrd] using hs
-            simp only [hd, hs, hs', if_false, push_ite, e2Of, hl, hb, hF, hcg, hco, hn]
+            simp only [hd, hs, hs', ite_false, push_ite, e2Of, hl, hb, hF, hcg, hco, hn]
             refine refines_ok _ _ _ ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ ?_ rfl (by simp [hcr])
             simpa using arith_ok _ _ _ _ _ hG hfwd hm (Nat.le_of_not_lt hd)
-    · simp only [toRes, hrv, if_true, afterChild, hsnap, hF, hb, hcg, hcr]
+    · simp only [toRes, hrv, ite_true, afterChild, hsnap, hF, hb, hcg, hcr]
       have hl : ¬ evm.stack.length ≥ Evm.Frontier.Vm.stackLimit := Nat.not_le.mpr hlen
-      simp only [push_ite, e2Of, hl, if_false]
+      simp only [push_ite, e2Of, hl, ite_false]
       refine refines_ok _ _ _ (agree_hb k evm newAddr base C hCk hCn hCs _ _ _) ?_ (by simp [e2Of]) (by simp [e2Of])
       exact arith_rev _ _ _ _ hG hfwd hm
 
@@ -723,8 +723,8 @@ macro "create_bind" a:term:max b:term:max : tactic => `(tactic| (
     | unfold Evm.Berlin.Vm.Effect.doCreate2
     | unfold Evm.Shanghai.Vm.Effect.doCreate
     | unfold Evm.Shanghai.Vm.Effect.doCreate2
-  dsimp only [Option.map]
-  simp +decide only [Bool.false_eq_true, if_false, if_true, decide_false, decide_true, opcode, fullCreate, Evm.Frontier.Vm.Create.run,
+  try dsimp only [Option.map]
+  simp +decide only [Bool.false_eq_true, ite_false, ite_true, decide_false, decide_true, opcode, fullCreate, Evm.Frontier.Vm.Create.run,
     Evm.Fork.ord, Option.map_some]
   -- v4.29: simp can leave the bound handler folded again (seen at Berlin);
   -- a no-op dsimp would fail, hence the `try`.
@@ -749,6 +749,7 @@ macro "create_bind" a:term:max b:term:max : tactic => `(tactic| (
       rfl))
 
 set_option maxHeartbeats 16000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **Every fork's CREATE and CREATE2, as the IR binds them, are `fullCreate` at the fork's
     rules**: the native part, then `Create.run` (`create_refines`). CREATE2 is no opcode
     before Constantinople. -/
@@ -841,7 +842,7 @@ theorem create_spec_refines (f : Evm.Fork) (c : Evm.IR.CreateKind) (evm : Evm) (
       Refines n.frame (Evm.Frontier.Vm.Create.run (Rules.ofOrd f.ord) n.frame n.value n.initCode n.newAddr n.base runSub)
         (term.run (ctxOf f.ord n.frame n.value n.initCode n.newAddr n.base runSub) (HState.ofEnv n.frame.env)) := by
   refine ⟨?_, create_refines _ _ _ _ _ _ _ hmono hlen⟩
-  rw [create_binding, if_neg hc]
+  rw [create_binding, ite_eq_right hc]
   simp only [fullCreate, hn]
 
 end Evm.CL.EffectCreate

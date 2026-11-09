@@ -19,10 +19,11 @@ theorem blockBaseReward_eq_rewardAt (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord
   simp only [blockBaseReward, fork, Expr.eval, hf, Evm.Paris.Spec.rewardAt, Evm.Fork.atLeast]
   cases f <;> simp [Evm.Fork.ord]
 
+set_option backward.isDefEq.respectTransparency false in
 /-- Corollary in the shape the driver relies on: from Paris on, nothing is paid. -/
 theorem blockBaseReward_zero_from_paris (ρ : Env) (h : 14 ≤ ρ "fork-ord") :
     blockBaseReward.eval ρ = 0 := by
   simp only [blockBaseReward, fork, Expr.eval]
-  rw [if_neg (by omega), if_neg (by omega), if_neg (by omega)]
+  rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega)]
 
 end Evm.CL.GasEmitParis

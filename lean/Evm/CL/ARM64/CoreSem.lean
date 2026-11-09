@@ -39,6 +39,7 @@ theorem subFlags_c (a b : BitVec 64) :
 
 def armRq : Reg × Reg × Reg × Reg := (.x10, .x11, .x12, .x13)
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `addCoreT armRq`: x6-x9 become the limbs of `lhs + rhs`; x10-x13 and
     everything but the flags survive. -/
 theorem addCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
@@ -78,6 +79,7 @@ macro_rules
                -- (it accepts `+`); unfolding the abbreviation makes them bitvector ops
                dsimp only [Evm.U256]))
 
+set_option backward.isDefEq.respectTransparency false in
 theorem subCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (subCoreT armRq ++ rest) s = run H rest s' ∧
       lhs s' = lhs s - rhs armRq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -87,6 +89,7 @@ theorem subCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem andCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT armRq .and3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s &&& rhs armRq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -96,6 +99,7 @@ theorem andCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem orCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT armRq .orr3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s ||| rhs armRq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -105,6 +109,7 @@ theorem orCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem xorCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT armRq .eor3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s ^^^ rhs armRq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -114,6 +119,7 @@ theorem xorCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem notCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (notCoreA ++ rest) s = run H rest s' ∧
       lhs s' = ~~~ lhs s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -123,6 +129,7 @@ theorem notCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `isZero`: x14, x15 are scratch. -/
 theorem isZeroCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (isZeroCoreA ++ rest) s = run H rest s' ∧
@@ -133,6 +140,7 @@ theorem isZeroCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9 h14 h15; simp [RS.set, h6, h7, h8, h9, h14, h15]
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `eq`: x14, x15 are scratch. -/
 theorem eqCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (eqCoreT armRq ++ rest) s = run H rest s' ∧
@@ -143,6 +151,7 @@ theorem eqCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9 h14 h15; simp [RS.set, h6, h7, h8, h9, h14, h15]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem ltCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT armRq false .lo ++ rest) s = run H rest s' ∧
       lhs s' = (if lhs s < rhs armRq s then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -152,6 +161,7 @@ theorem ltCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem gtCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT armRq true .lo ++ rest) s = run H rest s' ∧
       lhs s' = (if rhs armRq s < lhs s then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -161,6 +171,7 @@ theorem gtCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem sltCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT armRq false .lt ++ rest) s = run H rest s' ∧
       lhs s' = (if BitVec.slt (lhs s) (rhs armRq s) then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -170,6 +181,7 @@ theorem sltCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem sgtCore_run (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT armRq true .lt ++ rest) s = run H rest s' ∧
       lhs s' = (if BitVec.slt (rhs armRq s) (lhs s) then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧

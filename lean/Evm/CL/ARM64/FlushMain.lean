@@ -452,7 +452,7 @@ theorem body_run (H : Helpers) (hS : H.Spec) (hC : H.conv = armConv) (r : Region
   · intro i hi
     rw [hmemF]
     have := hstored i hi
-    simpa [Nat.zero_add] using this
+    simpa [newDepthOf, F, frameOf] using this
   · intro k hck hkd
     rw [hmemF]
     exact hXE.keepStack k hck hkd
@@ -485,7 +485,7 @@ theorem checks_run (H : Helpers) (r : Region) (d : Nat) (hd : d ≤ 1024) (rest 
       else []) ++ rest) s1 ∧ s1.regs = s.regs ∧ s1.sp = s.sp ∧ s1.mem = s.mem := by
     split
     · simp only [List.cons_append, List.nil_append]
-      rw [underflowCheck_run H r.need d (by omega) (by omega) _ s h23, if_pos hneed]
+      rw [underflowCheck_run H r.need d (by omega) (by omega) _ s h23, ite_eq_left hneed]
       exact ⟨_, rfl, rfl, rfl, rfl⟩
     · rw [List.nil_append]; exact ⟨s, rfl, rfl, rfl, rfl⟩
   obtain ⟨s1, h1, hr1, hs1, hm1⟩ := step1
@@ -495,7 +495,7 @@ theorem checks_run (H : Helpers) (r : Region) (d : Nat) (hd : d ≤ 1024) (rest 
   · rename_i hm
     have hlim : d < (1025 - r.maxNet).toNat := by have := hover hm; omega
     simp only [List.cons_append, List.nil_append]
-    rw [overflowCheck_run H _ d (by omega) (by omega) _ s1 h23', if_pos hlim]
+    rw [overflowCheck_run H _ d (by omega) (by omega) _ s1 h23', ite_eq_left hlim]
     exact ⟨_, rfl, by rw [AsmRun.withFlags_regs, hr1], by rw [AsmRun.withFlags_sp, hs1], by rw [AsmRun.withFlags_mem, hm1]⟩
   · rw [List.nil_append]; exact ⟨s1, rfl, hr1, hs1, hm1⟩
 

@@ -22,6 +22,7 @@ def mainnetForkOrd : Expr :=
     (geChain "ts" [(1767747671, 20), (1765290071, 19), (1764798551, 18), (1746612311, 17),
                    (1710338135, 16), (1681338455, 15)] 14)
 
+set_option backward.isDefEq.respectTransparency false in
 theorem mainnetForkOrd_eq_spec (ρ : Env) :
     mainnetForkOrd.eval ρ = (Fork.ofBlock (ρ "n") (ρ "ts")).ord := by
   simp only [mainnetForkOrd, geChain, Expr.eval, Fork.ofBlock, Fork.mergeTransitionBlock]

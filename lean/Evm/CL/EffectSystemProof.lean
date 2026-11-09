@@ -81,6 +81,7 @@ theorem warmSys_run (c : Ctx) (k : Nat) (benv : Environment) (st : State) (r : R
   simp [Stmt.run, h0, HState.ofEnv, env0, hs, ins_eq]
 
 set_option maxHeartbeats 4000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **The derived system call is every fork's system message, under any rule.** -/
 theorem system_refines (k : Nat) (benv : Environment) (st : State) (r : Rule) (tgt : Evm.Address)
     (data : Evm.Bytes)
@@ -104,7 +105,7 @@ theorem system_refines (k : Nat) (benv : Environment) (st : State) (r : Rule) (t
   have hR : R = (EffectTx.delegS term.message).run c (HState.ofEnv (env0 k benv st r)) := by
     have h1 : R = (EffectTx.delegS term.message).run c (Stmt.warmSys.run c (h0 st)) := by
       simp only [R, term, Stmt.run]
-      rw [if_neg (by rw [hce]; exact Bool.false_ne_true)]
+      rw [ite_eq_right (by rw [hce]; exact Bool.false_ne_true)]
     rw [h1, warmSys_run c k benv st r rfl]
   obtain ⟨dc, hdel⟩ := delegS_run c term.message (env0 k benv st r) tgt (decide (k ≥ 17))
     (by simp [c, ctxSys]) (by simp [c, ctxSys])
@@ -169,18 +170,18 @@ theorem checked_refines (k : Nat) (benv : Environment) (st : State) (r : Rule) (
   intro R
   unfold Evm.Frontier.Vm.System.checked
   by_cases hc : (st.getAccount tgt).code.size = 0
-  · simp only [hc, if_true]
+  · simp only [hc, ite_true]
     left
     simp [R, system_reject k benv st r tgt data pre runSub hc]
-  · simp only [hc, if_false]
+  · simp only [hc, ite_false]
     obtain ⟨hrej, hst, -, -, -, -, hout⟩ :=
       system_refines k benv st r tgt data pre runSub true hmono hpmono (fun _ => hc)
     cases hs : (message k benv st r tgt data pre runSub).success
-    · simp only [Bool.false_eq_true, if_false]
+    · simp only [Bool.false_eq_true, ite_false]
       right
       have : R.out = 0 := by simp only [R] at hout ⊢; rw [hout, hs]; rfl
       rw [this]; decide
-    · simp only [if_true]
+    · simp only [ite_true]
       refine ⟨hrej, ?_, hst⟩
       simp only [R] at hout ⊢; rw [hout, hs]; rfl
 
@@ -204,7 +205,7 @@ theorem system_refines_eels (k : Nat) (benv : Environment) (st : State) (tgt : E
   rw [hout]
   simp only [unchecked]
   cases (message k benv st (eels benv) tgt data pre runSub).success
-  · simp only [Bool.false_eq_true, if_false, iff_false]; decide
+  · simp only [Bool.false_eq_true, ite_false, iff_false]; decide
   · simp
 
 open Evm.CL.EffectSettle (SAgree WF)

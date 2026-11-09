@@ -68,8 +68,8 @@ theorem rewards_run (k : Nat) (cb : Evm.Address) (number : Nat) (ommers ws : Lis
       (ommerStep k number) hstep
     have hf : (BExp.not (BExp.forkGe 14)).eval (ctxB k cb number ommers ws) h = true := by
       simp [BExp.eval, ctxB, hk]
-    rw [run_ite, hf, if_pos rfl, run_seq, run_forPairs,
-      show (ctxB k cb number ommers ws).pairs "uncles" = ommers by simp [ctxB], hl, run_pay, if_neg hk]
+    rw [run_ite, hf, ite_eq_left rfl, run_seq, run_forPairs,
+      show (ctxB k cb number ommers ws).pairs "uncles" = ommers by simp [ctxB], hl, run_pay, ite_eq_right hk]
     simp [AExp.eval, minerG, GExp.eval, ctxB, Evm.Frontier.Vm.Block.minerReward, env_k]
     rfl
 
@@ -77,7 +77,7 @@ theorem withdrawal_run (c : Ctx) (p : Evm.Address × Nat) (h : HState) :
     withdrawal.run (c.withPair p) h = { h with state := Evm.Frontier.Vm.Block.withdraw h.state p } := by
   unfold withdrawal Evm.Frontier.Vm.Block.withdraw
   rw [run_seq, run_pay, run_ite]
-  simp only [AExp.eval, BExp.eval, GExp.eval, Ctx.withPair, isDead, exists_addBalance, if_true,
+  simp only [AExp.eval, BExp.eval, GExp.eval, Ctx.withPair, isDead, exists_addBalance, ite_true,
     pAddr]
   split <;> rfl
 
@@ -89,8 +89,8 @@ theorem withdrawals_run (k : Nat) (cb : Evm.Address) (number : Nat) (ommers ws :
   by_cases hk : k ≥ 15
   · have hf : (BExp.forkGe 15).eval (ctxB k cb number ommers ws) h = true := by
       simp [BExp.eval, ctxB, hk]
-    rw [run_ite, hf, if_pos rfl, run_forPairs,
-      show (ctxB k cb number ommers ws).pairs "withdrawals" = ws by simp [ctxB], if_pos hk]
+    rw [run_ite, hf, ite_eq_left rfl, run_forPairs,
+      show (ctxB k cb number ommers ws).pairs "withdrawals" = ws by simp [ctxB], ite_eq_left hk]
     exact forPairs_state _ withdrawal Evm.Frontier.Vm.Block.withdraw (withdrawal_run _) ws h
   · simp [Stmt.run, BExp.eval, hk, ctxB]
 

@@ -79,14 +79,14 @@ theorem roundTrip_stack (junk : U256) (f : Frame) (i : Nat) :
   by_cases h2 : 2 ≤ f.sp
   · have h1 : 1 ≤ f.sp := by omega
     have hne : f.sp - 1 ≠ f.sp - 2 := by omega
-    simp only [h1, h2, if_true]
+    simp only [h1, h2, ite_true]
     by_cases hi2 : i = f.sp - 2
     · simp [hi2]
     · by_cases hi1 : i = f.sp - 1
       · simp [hi1, hne]
       · simp [hi1, hi2]
   · by_cases h1 : 1 ≤ f.sp
-    · simp only [h1, h2, if_true, if_false]
+    · simp only [h1, h2, ite_true, ite_false]
       by_cases hi1 : i = f.sp - 1
       · simp [hi1]
       · simp [hi1]

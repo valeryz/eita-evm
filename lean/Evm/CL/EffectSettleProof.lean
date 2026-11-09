@@ -54,7 +54,7 @@ theorem getAccount_deleteAccount :
   · subst h
     have : (s.accounts.filter (fun p : Evm.Address × Account => p.1 ≠ x)).find? (fun p => p.1 = x) = none := by
       rw [List.find?_eq_none]; intro p hp; simp at hp; simp [hp.2]
-    simp only [this, if_true]
+    simp only [this, ite_true]
   · have hp : (fun p : Evm.Address × Account => !decide (p.1 = a) && decide (p.1 = x))
         = fun p => decide (p.1 = x) := by
       funext p; by_cases hx : p.1 = x
@@ -72,7 +72,7 @@ theorem getStorage_deleteAccount (k : Evm.U256) :
       rw [List.find?_eq_none]; intro p hp
       simp only [List.mem_filter] at hp
       simp only [decide_eq_true_eq]; intro he; rw [he] at hp; simp at hp
-    simp only [this, if_true]
+    simp only [this, ite_true]
   · have hp : (fun p : (Evm.Address × Evm.U256) × Evm.U256 => !decide (p.1.1 = a) && decide (p.1 = (x, k)))
         = fun p => decide (p.1 = (x, k)) := by
       funext p; by_cases hx : p.1 = (x, k)
@@ -208,13 +208,14 @@ theorem run_settle (k : Nat) (h : HState) (sender coinbase : Evm.Address) (gl gu
                           (BitVec.ofNat 256 gu * (BitVec.ofNat 256 egp - BitVec.ofNat 256 bf)) } := by
   cases h
   simp only [settle, refundTerm, coinbaseTerm, Stmt.run, WExp.eval, AExp.eval, BExp.eval, ctxOf,
-    String.reduceEq, if_true, if_false, refundState, coinbaseState]
+    String.reduceEq, ite_true, ite_false, refundState, coinbaseState]
   by_cases hr : (BitVec.ofNat 256 gl - BitVec.ofNat 256 gu) * BitVec.ofNat 256 egp = 0 <;>
   by_cases hf : BitVec.ofNat 256 gu * (BitVec.ofNat 256 egp - BitVec.ofNat 256 bf) = 0 <;>
   by_cases hk : 4 ≤ k <;> simp [hr, hf, hk] <;>
     (repeat' split) <;> first | rfl | simp_all
 
 set_option maxHeartbeats 4000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **The derived settlement is every fork's.** -/
 theorem settle_refines (k : Nat) (h : HState) (sender coinbase : Evm.Address) (gl gu egp bf : Nat)
     (hgu : gu ≤ gl) (hbf : bf ≤ egp)
@@ -261,7 +262,7 @@ theorem settle_refines (k : Nat) (h : HState) (sender coinbase : Evm.Address) (g
         else t1.touchAccount coinbase
       else t1.addBalance coinbase FW) := by
     simp only [isDead, h1.exists_ coinbase, h1.account coinbase]
-    by_cases hf : FW = 0 <;> by_cases hk : 4 ≤ k <;> simp only [hf, hk, if_true, if_false]
+    by_cases hf : FW = 0 <;> by_cases hk : 4 ≤ k <;> simp only [hf, hk, ite_true, ite_false]
     · exact SAgree.ite (h1.deleteAccount _) h1
     · exact h1.touchAccount _
     · exact h1.addBalance _ _
@@ -272,35 +273,35 @@ theorem settle_refines (k : Nat) (h : HState) (sender coinbase : Evm.Address) (g
   by_cases hf : FW = 0
   · subst hf
     by_cases hk : 4 ≤ k
-    · simp only [hk, if_true, u256_add0, isDead, ne_eq]
+    · simp only [hk, ite_true, u256_add0, isDead, ne_eq]
       by_cases hb : (s1.getAccount coinbase).balance = 0
-      · simp only [hb, not_true_eq_false, if_false]
+      · simp only [hb, not_true_eq_false, ite_false]
         by_cases hex : s1.accountExists coinbase = true
         · simp [hex]; exact SAgree.refl _
-        · simp only [hex, Bool.false_eq_true, false_and, if_false, if_true]
+        · simp only [hex, Bool.false_eq_true, false_and, ite_false, ite_true]
           exact (SAgree.delete_absent s1 coinbase hwf1 (by simpa using hex)).symm
       · have hex := exists_of_balance s1 coinbase hb
         have hne : (s1.getAccount coinbase).isEmpty = false := by
           simp only [Account.isEmpty, hb, false_and, and_false, decide_false]
-        simp only [hb, not_false_eq_true, if_true, hex, hne]
+        simp only [hb, not_false_eq_true, ite_true, hex, hne]
         exact SAgree.setAccount_self s1 coinbase hex
-    · simp only [hk, if_false, if_true, State.addBalance, State.touchAccount, acc_add0]
+    · simp only [hk, ite_false, ite_true, State.addBalance, State.touchAccount, acc_add0]
       by_cases hex : s1.accountExists coinbase = true
-      · simp only [hex, if_true]; exact SAgree.setAccount_self s1 coinbase hex
-      · simp only [hex, Bool.false_eq_true, if_false]
+      · simp only [hex, ite_true]; exact SAgree.setAccount_self s1 coinbase hex
+      · simp only [hex, Bool.false_eq_true, ite_false]
         rw [getAccount_absent s1 coinbase hex]; exact SAgree.refl _
   · have hnz : (s1.getAccount coinbase).balance + FW ≠ 0 := fun h0 => hf (hnowrap h0)
     by_cases hk : 4 ≤ k
-    · simp only [hk, if_true, hf, if_false, hnz, ne_eq, not_false_eq_true]
+    · simp only [hk, ite_true, hf, ite_false, hnz, ne_eq, not_false_eq_true]
       exact SAgree.refl _
-    · simp only [hk, if_false, hf]; exact SAgree.refl _
+    · simp only [hk, ite_false, hf]; exact SAgree.refl _
 
 /-! ## Deltas: the serial read-modify-write, folded like `Evm.Parallel.Reads` deltas -/
 
 /-- A non-zero delta IS the serial read-modify-write `balance := balance + w`. -/
 theorem delta_is_rmw (c : Ctx) (h : HState) (a : AExp) (w : WExp) (hw : w.eval c h ≠ 0) :
     (Stmt.delta a w).run c h = (Stmt.setBalance a (.add (.balance a) w)).run c h := by
-  simp only [Stmt.run, if_neg hw, WExp.eval, State.getBalance, State.addBalance]
+  simp only [Stmt.run, ite_eq_right hw, WExp.eval, State.getBalance, State.addBalance]
 
 /-- Settlement deltas of a block's txs, folded in index order with `Stmt.delta`'s meaning. -/
 def foldDeltas (s : State) (ds : List (Evm.Address × Evm.U256)) : State :=
@@ -326,15 +327,15 @@ theorem foldDeltas_balance (ds : List (Evm.Address × Evm.U256)) (s : State) (x 
       have hk : (BitVec.toNat a = BitVec.toNat x) ↔ a = x := BitVec.toNat_inj
       by_cases hax : a = x
       · subst hax
-        rw [if_pos rfl, ofNat_toNat']
+        rw [ite_eq_left rfl, ofNat_toNat']
         by_cases hw0 : w = 0
-        · subst hw0; rw [if_pos rfl, u256_add0]
-        · rw [if_neg hw0]; simp only [State.getBalance, State.addBalance, getAccount_setAccount, if_true]
-      · rw [if_neg (fun h => hax (hk.mp h)), show BitVec.ofNat 256 0 = (0 : Evm.U256) from rfl, u256_add0]
+        · subst hw0; rw [ite_eq_left rfl, u256_add0]
+        · rw [ite_eq_right hw0]; simp only [State.getBalance, State.addBalance, getAccount_setAccount, ite_true]
+      · rw [ite_eq_right (fun h => hax (hk.mp h)), show BitVec.ofNat 256 0 = (0 : Evm.U256) from rfl, u256_add0]
         by_cases hw0 : w = 0
-        · rw [if_pos hw0]
-        · rw [if_neg hw0]
-          simp only [State.getBalance, State.addBalance, getAccount_setAccount, if_neg (Ne.symm hax)]
+        · rw [ite_eq_left hw0]
+        · rw [ite_eq_right hw0]
+          simp only [State.getBalance, State.addBalance, getAccount_setAccount, ite_eq_right (Ne.symm hax)]
 
 /-- **The settlement deltas are `Reads` deltas.** If a Reads storage `σ` holds each balance
     (mod 2^256), folding the deltas with the term's meaning leaves each balance at

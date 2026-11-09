@@ -35,8 +35,8 @@ theorem skipTo_7X (r : List AInstr) :
     AsmRun.skipTo "7f" (costBlockX ++ .label "7" :: r) = .label "7" :: r := by
   simp only [costBlockX, List.cons_append, List.nil_append]
   rw [AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo,
-      AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, if_neg (by decide),
-      AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, if_pos (by decide)]
+      AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, ite_eq_right (by decide),
+      AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, AsmRun.skipTo, ite_eq_left (by decide)]
   all_goals (intro t h; cases h)
 
 theorem memExpandFlushT_eqX (maxEnd : Nat) :
@@ -83,11 +83,11 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
   refine ⟨?_, ?_, ?_⟩
   · -- past the capacity: the far branch
     intro hlt
-    rw [if_neg (by simp; omega), run_cons_bTramp]
+    rw [ite_eq_right (by simp; omega), run_cons_bTramp]
     exact ⟨_, rfl⟩
   · -- the charge is past the gas left
     intro hle hgas
-    rw [if_pos (by simp; omega), skipTo_5X, run_cons_label,
+    rw [ite_eq_left (by simp; omega), skipTo_5X, run_cons_label,
         run_cons_step H _ _ _ _ (ctrl_addImm ..) (step_addImm ..),
         run_cons_step H _ _ _ _ (ctrl_lsrImm ..) (step_lsrImm ..),
         run_cons_step H _ _ _ _ (ctrl_ldrOff ..) (step_ldrOff ..),
@@ -97,8 +97,8 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
     rs_simp
     rw [h20, ls_subFlags, words_bv maxEnd (by omega), oldWords_bv, ← hmsE]
     have hnot : ¬ wordsOf maxEnd ≤ (msAt s.mem st).toNat / 32 := by
-      intro hw; unfold ecost at hgas; rw [if_pos hw] at hgas; omega
-    rw [if_neg (by simpa using hnot)]
+      intro hw; unfold ecost at hgas; rw [ite_eq_left hw] at hgas; omega
+    rw [ite_eq_right (by simpa using hnot)]
     simp only [costBlockX, List.cons_append, List.nil_append]
     rw [run_cons_step H _ _ _ _ (ctrl_mulReg ..) (step_mulReg ..),
         run_cons_step H _ _ _ _ (ctrl_addLsr ..) (step_addLsr ..),
@@ -128,12 +128,12 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
         (msAt s.mem st >>> 5 + (msAt s.mem st >>> 5 * (msAt s.mem st >>> 5)) >>> 9 + msAt s.mem st >>> 5 <<< 1)).toNat =
         ecost ((msAt s.mem st).toNat / 32) (wordsOf maxEnd) := by
       rw [BitVec.toNat_sub_of_le hle', mcost_bv _ hnw, mcost_bv _ how, words_bv maxEnd (by omega), oldWords_bv]
-      unfold ecost; rw [if_neg hnot]
-    rw [hcostv, if_neg (by simp; omega), run_cons_bTramp]
+      unfold ecost; rw [ite_eq_right hnot]
+    rw [hcostv, ite_eq_right (by simp; omega), run_cons_bTramp]
     exact ⟨_, rfl⟩
   · -- success
     intro hle hgas
-    rw [if_pos (by simp; omega), skipTo_5X, run_cons_label,
+    rw [ite_eq_left (by simp; omega), skipTo_5X, run_cons_label,
         run_cons_step H _ _ _ _ (ctrl_addImm ..) (step_addImm ..),
         run_cons_step H _ _ _ _ (ctrl_lsrImm ..) (step_lsrImm ..),
         run_cons_step H _ _ _ _ (ctrl_ldrOff ..) (step_ldrOff ..),
@@ -144,14 +144,14 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
     rw [h20, ls_subFlags, words_bv maxEnd (by omega), oldWords_bv, ← hmsE]
     by_cases hw : wordsOf maxEnd ≤ (msAt s.mem st).toNat / 32
     · -- no expansion: skip the cost block
-      rw [if_pos (by simpa using hw), skipTo_7X, run_cons_label]
+      rw [ite_eq_left (by simpa using hw), skipTo_7X, run_cons_label]
       refine ⟨_, rfl, ?_, ?_, ?_, ?_, ?_⟩
       · rs_simp
-      · rs_simp; unfold ecost; rw [if_pos hw]; simp
+      · rs_simp; unfold ecost; rw [ite_eq_left hw]; simp
       · intro r h0 h14 h15 h16 h22; rs_simp; simp [h0, h14, h15]
-      · rs_simp; rw [if_pos hw]
+      · rs_simp; rw [ite_eq_left hw]
       · intro x _; rs_simp
-    · rw [if_neg (by simpa using hw)]
+    · rw [ite_eq_right (by simpa using hw)]
       simp only [costBlockX, List.cons_append, List.nil_append]
       rw [run_cons_step H _ _ _ _ (ctrl_mulReg ..) (step_mulReg ..),
           run_cons_step H _ _ _ _ (ctrl_addLsr ..) (step_addLsr ..),
@@ -180,8 +180,8 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
           (msAt s.mem st >>> 5 + (msAt s.mem st >>> 5 * (msAt s.mem st >>> 5)) >>> 9 + msAt s.mem st >>> 5 <<< 1)).toNat =
           ecost ((msAt s.mem st).toNat / 32) (wordsOf maxEnd) := by
         rw [BitVec.toNat_sub_of_le hle', mcost_bv _ hnw, mcost_bv _ how, words_bv maxEnd (by omega), oldWords_bv]
-        unfold ecost; rw [if_neg hw]
-      rw [hcostv, if_pos (by simp; omega), skipTo_6X, run_cons_label,
+        unfold ecost; rw [ite_eq_right hw]
+      rw [hcostv, ite_eq_left (by simp; omega), skipTo_6X, run_cons_label,
           run_cons_step H _ _ _ _ (ctrl_addImm ..) (step_addImm ..),
           run_cons_step H _ _ _ _ (ctrl_lsrImm ..) (step_lsrImm ..),
           run_cons_step H _ _ _ _ (ctrl_lslImm ..) (step_lslImm ..),
@@ -197,7 +197,7 @@ theorem memExpand_runX (H : Helpers) (st : BitVec 64) (maxEnd : Nat) (rest : Lis
         rw [BitVec.toNat_sub_of_le (by rw [BitVec.le_def, hcostv]; exact hgas), hcostv]
       · intro r h0 h14 h15 h16 h22; rs_simp; simp [h0, h14, h15, h16, h22]
       · rs_simp
-        rw [h20, if_neg hw]
+        rw [h20, ite_eq_right hw]
         show (ld64 (st64 _ (off st 48) _) (off st 48)).toNat = _
         rw [ld64_st64_same, aligned_bv maxEnd (by omega) (by unfold wordsOf; omega)]
       · intro x hx; rs_simp; rw [h20]; exact st64_out _ _ _ _ hx
@@ -365,7 +365,7 @@ theorem memCommitT_eqX (idx : Expr → Nat) (ws : List MemWrite) (hne : ws ≠ [
       memExpandFlushT Evm.CL.X86JIT.x86Flush (maxEndOf ws) ++ mpUpdateFlushT Evm.CL.X86JIT.x86Flush (maxEndOf ws) ++
         ws.flatMap (emitMemWriteT Evm.CL.X86JIT.x86Flush idx) := by
   unfold memCommitT
-  rw [if_neg (by simpa using hne)]
+  rw [ite_eq_right (by simpa using hne)]
   rfl
 
 /-- `memCommitT` on a non-empty write list. -/

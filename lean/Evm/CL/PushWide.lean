@@ -62,11 +62,11 @@ macro_rules
       simp only [pushWideInstrs, tosLimb, Nat.reduceDiv, Nat.reduceMod, Nat.reduceSub, Nat.reduceMul,
         List.range, List.range.loop, List.flatMap, List.map, List.flatten, List.cons_append, List.nil_append,
         List.append_assoc, List.singleton_append, List.append_eq, List.append_nil, reduceIte, Nat.reduceEqDiff,
-        if_false, if_true, run_cons_data, ctrl_addReg, ctrl_addImm, ctrl_ldrOff, ctrl_ldrBase, ctrl_rev,
+        ite_false, ite_true, run_cons_data, ctrl_addReg, ctrl_addImm, ctrl_ldrOff, ctrl_ldrBase, ctrl_rev,
         ctrl_lsrImm, step_addReg, step_addImm, step_ldrOff, step_rev, step_lsrImm, step_ldrBase]
       refine ⟨_, rfl, ?_, ?_, rfl, rfl, rfl, ?_⟩
-      · simp only [lhs, AsmRun.set_regs, AsmRun.set_mem, reduceCtorEq, if_true, if_false, $hA:term]
-        simp only [AsmRun.set_regs, AsmRun.set_mem, reduceCtorEq, if_true, if_false, $h6:term, $h7:term, $h8:term, $h9:term, beBytes,
+      · simp only [lhs, AsmRun.set_regs, AsmRun.set_mem, reduceCtorEq, ite_true, ite_false, $hA:term]
+        simp only [AsmRun.set_regs, AsmRun.set_mem, reduceCtorEq, ite_true, ite_false, $h6:term, $h7:term, $h8:term, $h9:term, beBytes,
           ofLimbs, ld64, rev64, off, BitVec.add_assoc, BitVec.reduceAdd, BitVec.ofNat_eq_ofNat]
         dsimp only [Evm.U256] at *
         bv_decide
@@ -75,6 +75,7 @@ macro_rules
         simp [AsmRun.set_regs, h6', h7', h8', h9', h15, h21]))
 
 set_option maxHeartbeats 16000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **The wide loads read the n bytes at `x26 + x21`, big-endian.** For every
     n in 1..32; TOS zeroed on entry (`loadZeroTos`), so the limbs above the
     immediate stay 0. x21 advances by n; only x6..x9, x15 and x21 change. -/

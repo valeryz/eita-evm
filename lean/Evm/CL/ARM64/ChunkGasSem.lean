@@ -149,7 +149,7 @@ theorem charge_run (H : Helpers) (n : Nat) (hn : n < 2 ^ 64) (lbl : String) (res
     (¬ n ≤ gasOf s → ∃ s', run H ((GInstr.charge n lbl).instrs ++ rest) s = .fault "_eita_oog" s') := by
   simp only [GInstr.instrs]
   by_cases hsmall : n ≤ 4095
-  · rw [if_pos hsmall, List.append_assoc, List.singleton_append,
+  · rw [ite_eq_left hsmall, List.append_assoc, List.singleton_append,
         run_cons_step H _ _ s _ (ctrl_subsImm ..) (step_subsImm ..), oog_tail_run]
     simp only [AsmRun.withFlags_flags, hs_subFlags _ _ hn]
     constructor
@@ -157,7 +157,7 @@ theorem charge_run (H : Helpers) (n : Nat) (hn : n < 2 ^ 64) (lbl : String) (res
       have hle' : n ≤ (s.regs .x22).toNat := hle
       refine ⟨(s.set .x22 (s.regs .x22 - BitVec.ofNat 64 n)).withFlags
                 (subFlags (s.regs .x22) (BitVec.ofNat 64 n)), ?_, ?_, rfl, rfl, ?_⟩
-      · rw [decide_eq_true hle', if_pos rfl]
+      · rw [decide_eq_true hle', ite_eq_left rfl]
       · simp only [gasOf, AsmRun.withFlags_regs, AsmRun.set_regs, ite_true]
         exact toNat_sub_ofNat _ _ hn hle'
       · intro r h22 _; simp [RS.set, h22]
@@ -165,26 +165,26 @@ theorem charge_run (H : Helpers) (n : Nat) (hn : n < 2 ^ 64) (lbl : String) (res
       have hnle' : ¬ n ≤ (s.regs .x22).toNat := hnle
       refine ⟨(s.set .x22 (s.regs .x22 - BitVec.ofNat 64 n)).withFlags
                 (subFlags (s.regs .x22) (BitVec.ofNat 64 n)), ?_⟩
-      rw [decide_eq_false hnle', if_neg (by simp)]
-  · rw [if_neg hsmall, List.append_assoc, List.append_assoc, movImmInstrs_run H _ _ hn,
+      rw [decide_eq_false hnle', ite_eq_right (by simp)]
+  · rw [ite_eq_right hsmall, List.append_assoc, List.append_assoc, movImmInstrs_run H _ _ hn,
         List.singleton_append, run_cons_step H _ _ _ _ (ctrl_subsReg ..) (step_subsReg ..), oog_tail_run]
-    simp only [AsmRun.withFlags_flags, AsmRun.set_regs, ite_true, if_neg (show Reg.x22 ≠ Reg.x14 by decide),
+    simp only [AsmRun.withFlags_flags, AsmRun.set_regs, ite_true, ite_eq_right (show Reg.x22 ≠ Reg.x14 by decide),
                hs_subFlags _ _ hn]
     constructor
     · intro hle
       have hle' : n ≤ (s.regs .x22).toNat := hle
       refine ⟨((s.set .x14 (BitVec.ofNat 64 n)).set .x22 (s.regs .x22 - BitVec.ofNat 64 n)).withFlags
                 (subFlags (s.regs .x22) (BitVec.ofNat 64 n)), ?_, ?_, rfl, rfl, ?_⟩
-      · rw [decide_eq_true hle', if_pos rfl]
+      · rw [decide_eq_true hle', ite_eq_left rfl]
       · simp only [gasOf, AsmRun.withFlags_regs, AsmRun.set_regs, ite_true,
-                   if_neg (show Reg.x22 ≠ Reg.x14 by decide)]
+                   ite_eq_right (show Reg.x22 ≠ Reg.x14 by decide)]
         exact toNat_sub_ofNat _ _ hn hle'
       · intro r h22 h14; simp [RS.set, h22, h14]
     · intro hnle
       have hnle' : ¬ n ≤ (s.regs .x22).toNat := hnle
       refine ⟨((s.set .x14 (BitVec.ofNat 64 n)).set .x22 (s.regs .x22 - BitVec.ofNat 64 n)).withFlags
                 (subFlags (s.regs .x22) (BitVec.ofNat 64 n)), ?_⟩
-      rw [decide_eq_false hnle', if_neg (by simp)]
+      rw [decide_eq_false hnle', ite_eq_right (by simp)]
 
 /-- `handBack rem`: gas up by `rem` (no wrap: gas is bounded by the block limit). x15 is scratch. -/
 theorem handBack_run (H : Helpers) (rem : Nat) (rest : List AInstr) (s : RS)
@@ -197,7 +197,7 @@ theorem handBack_run (H : Helpers) (rem : Nat) (rest : List AInstr) (s : RS)
       run_cons_step H _ _ _ _ (ctrl_addReg ..) (step_addReg ..)]
   have hw' : (s.regs .x22).toNat + rem < 2 ^ 64 := hw
   refine ⟨_, rfl, ?_, rfl, rfl, rfl, ?_⟩
-  · simp only [gasOf, AsmRun.set_regs, ite_true, if_neg (show Reg.x22 ≠ Reg.x15 by decide)]
+  · simp only [gasOf, AsmRun.set_regs, ite_true, ite_eq_right (show Reg.x22 ≠ Reg.x15 by decide)]
     rw [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : rem < 2 ^ 64),
         Nat.mod_eq_of_lt hw']
   · intro r h22 h15; simp [RS.set, h22, h15]
@@ -212,23 +212,23 @@ theorem retake_run (H : Helpers) (rem : Nat) (hn : rem < 2 ^ 64) (lbl : String) 
   simp only [GInstr.instrs]
   rw [List.append_assoc, movImmInstrs_run H _ _ hn, List.cons_append,
       run_cons_step H _ _ _ _ (ctrl_subsReg ..) (step_subsReg ..), oog_tail_run]
-  simp only [AsmRun.withFlags_flags, AsmRun.set_regs, ite_true, if_neg (show Reg.x22 ≠ Reg.x15 by decide),
+  simp only [AsmRun.withFlags_flags, AsmRun.set_regs, ite_true, ite_eq_right (show Reg.x22 ≠ Reg.x15 by decide),
              hs_subFlags _ _ hn]
   constructor
   · intro hle
     have hle' : rem ≤ (s.regs .x22).toNat := hle
     refine ⟨((s.set .x15 (BitVec.ofNat 64 rem)).set .x22 (s.regs .x22 - BitVec.ofNat 64 rem)).withFlags
               (subFlags (s.regs .x22) (BitVec.ofNat 64 rem)), ?_, ?_, rfl, rfl, ?_⟩
-    · rw [decide_eq_true hle', if_pos rfl]
+    · rw [decide_eq_true hle', ite_eq_left rfl]
     · simp only [gasOf, AsmRun.withFlags_regs, AsmRun.set_regs, ite_true,
-                 if_neg (show Reg.x22 ≠ Reg.x15 by decide)]
+                 ite_eq_right (show Reg.x22 ≠ Reg.x15 by decide)]
       exact toNat_sub_ofNat _ _ hn hle'
     · intro r h22 h15; simp [RS.set, h22, h15]
   · intro hnle
     have hnle' : ¬ rem ≤ (s.regs .x22).toNat := hnle
     refine ⟨((s.set .x15 (BitVec.ofNat 64 rem)).set .x22 (s.regs .x22 - BitVec.ofNat 64 rem)).withFlags
               (subFlags (s.regs .x22) (BitVec.ofNat 64 rem)), ?_⟩
-    rw [decide_eq_false hnle', if_neg (by simp)]
+    rw [decide_eq_false hnle', ite_eq_right (by simp)]
 
 /-! ## The joint: every gadget's program is its denotation -/
 

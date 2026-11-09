@@ -20,9 +20,9 @@ theorem createInitcodeOversize_eq_cap (ρ : Env) (f : Evm.Fork) (len : Nat)
     (createInitcodeOversize.eval ρ = 1)
       ↔ Evm.Shanghai.Spec.initcodeWithinCapAt f len = false := by
   simp only [createInitcodeOversize, fork, Expr.eval, hf, hl,
-             Evm.Shanghai.Spec.initcodeWithinCapAt, Evm.Fork.atLeast,
-             Evm.Shanghai.Spec.maxInitCodeSize, Evm.SpuriousDragon.Vm.Gas.maxCodeSize]
-  cases f <;> simp [Evm.Fork.ord] <;> omega
+             Evm.Shanghai.Spec.initcodeWithinCapAt, Evm.Fork.atLeast]
+  cases f <;> simp [Evm.Fork.ord, Evm.Shanghai.Spec.maxInitCodeSize,
+    Evm.SpuriousDragon.Vm.Gas.maxCodeSize] <;> grind
 
 /-- Corollary in the shape cb-create uses: before Shanghai the decision is never 1. -/
 theorem createInitcodeOversize_pre_shanghai (ρ : Env) (h : ρ "fork-ord" < 15) :

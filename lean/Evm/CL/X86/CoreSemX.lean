@@ -28,6 +28,7 @@ macro_rules
                  step_adds, step_adcs, step_adc, step_subsReg, step_sbcs, step_sbc, step_subsZr, step_sbcsZr,
                  step_cset, step_and3, step_orr3, step_eor3, step_mvn, step_movImm, step_cmpImm]))
 
+set_option backward.isDefEq.respectTransparency false in
 theorem addCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (addCoreT x86Rq ++ rest) s = run H rest s' ∧
       lhs s' = lhs s + rhs x86Rq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -37,6 +38,7 @@ theorem addCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem subCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (subCoreT x86Rq ++ rest) s = run H rest s' ∧
       lhs s' = lhs s - rhs x86Rq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -46,6 +48,7 @@ theorem subCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem andCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT x86Rq .and3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s &&& rhs x86Rq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -55,6 +58,7 @@ theorem andCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem orCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT x86Rq .orr3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s ||| rhs x86Rq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -64,6 +68,7 @@ theorem orCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem xorCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (bitCoreT x86Rq .eor3 ++ rest) s = run H rest s' ∧
       lhs s' = lhs s ^^^ rhs x86Rq s ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧ s'.flags = s.flags ∧
@@ -73,6 +78,7 @@ theorem xorCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `eq`: x14, x15 are scratch (x15 is read as the first right limb first). -/
 theorem eqCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (eqCoreT x86Rq ++ rest) s = run H rest s' ∧
@@ -83,6 +89,7 @@ theorem eqCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9 h14 h15; simp [RS.set, h6, h7, h8, h9, h14, h15]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem ltCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT x86Rq false .lo ++ rest) s = run H rest s' ∧
       lhs s' = (if lhs s < rhs x86Rq s then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -92,6 +99,7 @@ theorem ltCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem gtCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT x86Rq true .lo ++ rest) s = run H rest s' ∧
       lhs s' = (if rhs x86Rq s < lhs s then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -101,6 +109,7 @@ theorem gtCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem sltCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT x86Rq false .lt ++ rest) s = run H rest s' ∧
       lhs s' = (if BitVec.slt (lhs s) (rhs x86Rq s) then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧
@@ -110,6 +119,7 @@ theorem sltCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
   · core_limbs; bv_decide
   · intro r h6 h7 h8 h9; simp [RS.set, h6, h7, h8, h9]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem sgtCore_runX (H : Helpers) (rest : List AInstr) (s : RS) :
     ∃ s', run H (cmpCoreT x86Rq true .lt ++ rest) s = run H rest s' ∧
       lhs s' = (if BitVec.slt (rhs x86Rq s) (lhs s) then 1 else 0) ∧ s'.sp = s.sp ∧ s'.mem = s.mem ∧

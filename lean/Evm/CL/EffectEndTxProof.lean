@@ -72,12 +72,12 @@ theorem fold_obs (P : State → Evm.Address → Bool)
       · subst hxa
         by_cases hp : P s x = true
         · have hg : obs (stepP P s x) x = gone := by simp [stepP, hp, obs_delete]
-          simp only [hg, hp, List.mem_cons, true_or, and_self, if_true, ite_self]
+          simp only [hg, hp, List.mem_cons, true_or, and_self, ite_true, ite_self]
         · have hs : stepP P s x = s := by simp [stepP, hp]
           simp [hs, hp]
       · have hob : obs (stepP P s a) x = obs s x := by
           unfold stepP; split
-          · rw [obs_delete, if_neg hxa]
+          · rw [obs_delete, ite_eq_right hxa]
           · rfl
         have hpx : P (stepP P s a) x = P s x := by
           unfold stepP; split
@@ -143,6 +143,7 @@ theorem run_destroy (c : Ctx) (h : HState) :
   exact run_forEach_delete pDestroy c (.deleteAccount acct)
     (fun c' h' => by simp [Stmt.run, AExp.eval, stepP, pDestroy]) h.destroyed h
 
+set_option backward.isDefEq.respectTransparency false in
 theorem run_sweep (c : Ctx) (h : HState) :
     sweepTerm.run c h =
       if 4 ≤ c.fork then { h with state := h.touched.foldl (stepP pDead) h.state } else h := by
@@ -221,10 +222,10 @@ theorem obs_finishTx (X : State) (D L : List Evm.Address) (x : Evm.Address) :
   rw [← destroy_eq] at hd
   simp only [pDestroy, and_true] at hd
   by_cases hxD : x ∈ D
-  · simp only [hxD, if_true] at hd ⊢
+  · simp only [hxD, ite_true] at hd ⊢
     have hex : (Evm.Frontier.destroyAccounts X D).accountExists x = false := congrArg Prod.fst hd
-    simp only [pSweep, hex, Bool.false_and, Bool.false_eq_true, and_false, if_false]; exact hd
-  · simp only [hxD, if_false] at hd ⊢
+    simp only [pSweep, hex, Bool.false_and, Bool.false_eq_true, and_false, ite_false]; exact hd
+  · simp only [hxD, ite_false] at hd ⊢
     have hex : (Evm.Frontier.destroyAccounts X D).accountExists x = X.accountExists x := congrArg Prod.fst hd
     have hac : (Evm.Frontier.destroyAccounts X D).getAccount x = X.getAccount x := congrArg (fun p => p.2.1) hd
     simp only [pSweep, hex, hac, Bool.and_eq_true]; rw [hd]
@@ -249,7 +250,7 @@ theorem sd_form_closes (s : State) (hwf : WF s) (b : Evm.Address) (v : Evm.U256)
   rw [obs_finishTx, obs_finishTx]
   by_cases hxD : x ∈ D
   · simp [hxD]
-  simp only [hxD, if_false]
+  simp only [hxD, ite_false]
   by_cases hxb : x = b
   · subst hxb
     by_cases hv : v = 0
@@ -271,21 +272,21 @@ theorem sd_form_closes (s : State) (hwf : WF s) (b : Evm.Address) (v : Evm.U256)
           rw [getAccount_absent s x hsx]; rfl
         simp [eelsT, he, ha, hem, hsx', obs_absent s x hwf hsx']
     · have hsd : sd = eels := by
-        show (if v = 0 then s else s.addBalance x v) = s.addBalance x v; rw [if_neg hv]
+        show (if v = 0 then s else s.addBalance x v) = s.addBalance x v; rw [ite_eq_right hv]
       rw [hsd]
       by_cases hc : (eels.accountExists x && (eels.getAccount x).isEmpty) = true
-      · simp only [eelsT, hc, if_true]
-      · simp only [eelsT, hc, Bool.false_eq_true, if_false]
+      · simp only [eelsT, hc, ite_true]
+      · simp only [eelsT, hc, Bool.false_eq_true, ite_false]
         simp only [Bool.and_eq_true] at hc
         simp only [List.mem_append, List.mem_singleton, or_true, true_and]
-        rw [if_neg hc]
+        rw [ite_eq_right hc]
         split
         · rename_i hh; exact absurd hh.2 hc
         · rfl
   · have ho : obs eels x = obs sd x := by
       simp only [sd]; split
       · simp only [obs, eels, State.addBalance, accountExists_setAccount, getAccount_setAccount,
-          getStorage_setAccount, hxb, decide_false, Bool.false_or, if_false]
+          getStorage_setAccount, hxb, decide_false, Bool.false_or, ite_false]
       · rfl
     have hm : (x ∈ eelsT) ↔ (x ∈ T ++ [b]) := by
       simp only [eelsT]; split <;> simp [hxb]

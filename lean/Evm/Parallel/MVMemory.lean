@@ -46,8 +46,8 @@ theorem applyWrites_lastVal (ws : List (Key × Val)) (s : Storage) (k : Key) :
       | none =>
           by_cases hk : k' = k
           · subst hk; simp [store]
-          · simp only [if_neg hk, Option.getD, store]
-            rw [if_neg (fun h' : k = k' => hk h'.symm)]
+          · simp only [ite_eq_right hk, Option.getD, store]
+            rw [ite_eq_right (fun h' : k = k' => hk h'.symm)]
 
 /-! ## The concrete multi-version memory and its read
 

@@ -178,8 +178,8 @@ omega receives it as the fact `clearRef = 15000`. -/
 
 theorem addz (n : Nat) : n + 0 = n := Nat.add_zero n
 theorem subz (n : Nat) : n - 0 = n := Nat.sub_zero n
-theorem iteT {α : Sort _} (a b : α) : (if True then a else b) = a := if_pos trivial
-theorem iteF {α : Sort _} (a b : α) : (if False then a else b) = b := if_neg id
+theorem iteT {α : Sort _} (a b : α) : (if True then a else b) = a := ite_eq_left trivial
+theorem iteF {α : Sort _} (a b : α) : (if False then a else b) = b := ite_eq_right id
 theorem bnt : (!true) = false := Bool.not_true
 theorem bnf : (!false) = true := Bool.not_false
 theorem bat (b : Bool) : (b && true) = b := Bool.and_true b

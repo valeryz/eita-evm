@@ -184,7 +184,7 @@ theorem resume_quarantine_other {as : List Anchor} {ds : List Dump} {r n : Nat}
     · rintro ⟨d, hd, e⟩
       by_cases hdn : d = (n, .sealed)
       · simp [hdn] at e
-      · simp only [hdn, if_false] at e; subst e
+      · simp only [hdn, ite_false] at e; subst e
         exact ⟨hd, fun hb => hdn (by simp [hb])⟩
     · rintro ⟨hb, hbn⟩
       exact ⟨_, hb, by simp [hbn]⟩
@@ -207,7 +207,7 @@ theorem resume_of_candidate {as : List Anchor} {ds : List Dump} {b : Nat}
 theorem descSort_pairwise (l : List Nat) : (descSort l).Pairwise (fun a b => b ≤ a) := by
   have := List.pairwise_mergeSort (le := fun a b => decide (b ≤ a))
     (by intro a b c h1 h2; simp at *; omega) (by intro a b; simp; omega) l
-  simpa using this
+  simpa [descSort] using this
 
 theorem mem_descSort {l : List Nat} {b : Nat} : b ∈ descSort l ↔ b ∈ l := List.mem_mergeSort
 
@@ -603,7 +603,7 @@ theorem lines_no_nl {y : Bytes} (h : nl ∉ y) : lines y = [y] := by
   | nil => simp [lines]
   | cons b y ih =>
     simp only [List.mem_cons, not_or] at h
-    simp only [lines, Ne.symm h.1, if_false, ih h.2, consHead]
+    simp only [lines, Ne.symm h.1, ite_false, ih h.2, consHead]
 
 /-- A file of complete lines `Ls` followed by a partial last line `T`. -/
 def render (Ls : List Bytes) (T : Bytes) : Bytes := (Ls.map (· ++ [nl])).flatten ++ T
@@ -674,7 +674,7 @@ theorem render_sep {Ls : List Bytes} {T : Bytes} (hT : nl ∉ T) :
     render Ls T ++ sep (render Ls T) = render (close Ls T) [] := by
   by_cases h0 : T = []
   · subst h0
-    simp only [close, if_true]
+    simp only [close, ite_true]
     rcases List.eq_nil_or_concat Ls with rfl | ⟨L, l, rfl⟩
     · simp [render, sep]
     · simp [render, sep, nl]
@@ -687,8 +687,8 @@ theorem parse_close (hc : Codec enc dec) {Ls : List Bytes} {T : Bytes}
     parse dec (render Ls T) = (close Ls T).filterMap dec ∧ ∀ l ∈ close Ls T, nl ∉ l := by
   rw [parse_render hL hT]
   by_cases h0 : T = []
-  · subst h0; simp only [close, if_true]; exact ⟨by simp [dec_nil hc], hL⟩
-  · simp only [close, h0, if_false, List.filterMap_append, List.filterMap_cons,
+  · subst h0; simp only [close, ite_true]; exact ⟨by simp [dec_nil hc], hL⟩
+  · simp only [close, h0, ite_false, List.filterMap_append, List.filterMap_cons,
       List.filterMap_nil, List.mem_append, List.mem_singleton]
     refine ⟨by cases dec T <;> simp, ?_⟩
     rintro l (hl | rfl)

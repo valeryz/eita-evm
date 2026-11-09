@@ -182,11 +182,11 @@ theorem gas_is_base_plus_words (v : PqView)
     gasOf (run v) = some (verifyBaseGas + msgWordGas v.msgLen) := by
   unfold run
   simp only [hs, hd, Bool.not_true]
-  rw [if_neg (show ¬ v.inputLen < 4 by omega)]
+  rw [ite_eq_right (show ¬ v.inputLen < 4 by omega)]
   have hb : verifyBaseGas ≤ v.gas := by omega
   have hw : msgWordGas v.msgLen ≤ v.gas - verifyBaseGas := by omega
   unfold step
-  simp only [hb, hw, if_true, Nat.zero_add]
+  simp only [hb, hw, ite_true, Nat.zero_add]
   -- Every remaining branch carries the SAME gas, so take them one by one.
   by_cases h1 : v.vkLenObs = vkLen
   · by_cases h2 : v.sigLenObs = sigLen

@@ -52,7 +52,7 @@ theorem find_filter_ne {α β : Type} [BEq α] [LawfulBEq α] [DecidableEq α] (
 theorem rv_setR (s : CS) (r r' : Reg) (v : Option CV) (h : r' ≠ .x23) :
     (s.setR r v).rv r' = if r' = r then v else s.rv r' := by
   have h' : (r' == .x23) = false := by simp [h]
-  simp only [CS.rv, CS.setR, h', Bool.false_eq_true, if_false]
+  simp only [CS.rv, CS.setR, h', Bool.false_eq_true, ite_false]
   cases v with
   | none => simp only [List.nil_append, find_filter_ne]; split <;> simp
   | some v =>
@@ -60,7 +60,7 @@ theorem rv_setR (s : CS) (r r' : Reg) (v : Option CV) (h : r' ≠ .x23) :
     by_cases e : r' = r
     · subst e; simp
     · have : (r == r') = false := by simp; exact fun x => e x.symm
-      simp only [this, if_false, find_filter_ne, e]
+      simp only [this, ite_false, find_filter_ne, e]
 
 @[simp] theorem setR_off (s : CS) (r : Reg) (v : Option CV) : (s.setR r v).off = s.off := rfl
 @[simp] theorem setR_lt (s : CS) (r : Reg) (v : Option CV) : (s.setR r v).lt = s.lt := rfl
@@ -85,7 +85,7 @@ theorem mv_setM (s : CS) (c c' : Int) (l l' : Nat) (v : CV) :
   · have : ((c, l) == (c', l')) = true := by simp [e]
     simp [e]
   · have : ((c, l) == (c', l')) = false := by simp; intro a b; exact e (by rw [a, b])
-    simp only [this, e, if_false]
+    simp only [this, e, ite_false]
     rw [find_filter_ne]; simp [e]
 
 theorem rv_s0 (s : CS) (r : Reg) : ({ s with fl := none } : CS).rv r = s.rv r := rfl
@@ -245,9 +245,9 @@ structure Inv (m₀ : RS) (ρ : CV → BitVec 64) (d : Nat) (s : CS) (m : RS) : 
 
 theorem val_ext (m₀ : RS) (ρ : CV → BitVec 64) (d g : Nat) (m' : RS) (hg : g ≤ d) :
     ∀ v, Fr d g v → val m₀ (ext m₀ ρ d m') v = val m₀ ρ v
-  | .cell g' c l, h => by simp only [val, ext, Fr] at h ⊢; rw [if_neg (by omega)]
+  | .cell g' c l, h => by simp only [val, ext, Fr] at h ⊢; rw [ite_eq_right (by omega)]
   | .idx _, _ | .addr _, _ => rfl
-  | .fresh k r, h => by simp only [val, ext, Fr] at h ⊢; rw [if_neg (by omega)]
+  | .fresh k r, h => by simp only [val, ext, Fr] at h ⊢; rw [ite_eq_right (by omega)]
   | .when _ v, h => by simp only [val, Fr] at h ⊢; exact val_ext m₀ ρ d g m' hg v h
 
 theorem holds_ext (m₀ : RS) (ρ : CV → BitVec 64) (d g : Nat) (m' : RS) (hg : g ≤ d) :
@@ -346,8 +346,8 @@ theorem exec_win (m₀ : RS) (i : AInstr) (m m' : RS) (h : Exec i m m') (hs : ma
     WinKept m₀ m m' := by
   unfold Exec at h
   by_cases hc : isCtl i = true
-  · rw [if_pos hc] at h; subst h; intro _ _ _ _; rfl
-  · rw [if_neg hc] at h
+  · rw [ite_eq_left hc] at h; subst h; intro _ _ _ _; rfl
+  · rw [ite_eq_right hc] at h
     split at h
     · rename_i m2 e
       by_cases hst : storeForm i = true
@@ -391,7 +391,7 @@ theorem inv_writeAll {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m
       simp only [Holds, val]; rw [hregs _ h23, h.x23]
     · rw [rvw r e] at hv
       split at hv
-      · cases hv; simp only [Holds, val, ext, if_true]
+      · cases hv; simp only [Holds, val, ext, ite_true]
       · rw [hregs r (by assumption)]; exact hs.regs r v hv
   · intro c l hc hl
     simp only [writeAll, emv, mv_s0]; rw [hwin c l hc hl]; exact hs.mem c l hc hl
@@ -436,8 +436,8 @@ theorem inv_setR {m₀ : RS} {ρ : CV → BitVec 64} {D : Nat} {t : CS} {mm : RS
     · rw [rv_setR _ _ _ _ e] at hw
       simp only [set_regs]
       split at hw
-      · rename_i e'; subst e'; simp only [if_true]; exact (hv w hw).1
-      · rename_i e'; simp only [if_neg e']; exact h.regs r' w hw
+      · rename_i e'; subst e'; simp only [ite_true]; exact (hv w hw).1
+      · rename_i e'; simp only [ite_eq_right e']; exact h.regs r' w hw
   · intro r' w hw
     by_cases e : r' = .x23
     · subst e; simp only [rv_x23, setR_off] at hw; exact h.frR _ _ (by rw [rv_x23, hw])
@@ -511,7 +511,7 @@ theorem inv_call_aux {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m
         · cases hv
         · rename_i hk; rw [hx r (not_kill_callee r hk)]; exact hs.regs r v hv
     · intro c l hc hl; simp only [CS.mv, List.find?_nil, Option.map_none, Option.getD_none, Holds, val, ext,
-        if_true]
+        ite_true]
     · exact Nat.le_refl _
     · intro r v hv
       change K.rv r = some v at hv
@@ -537,7 +537,7 @@ theorem inv_call {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m' : 
 
 theorem exec_some {i : AInstr} {m m' m2 : RS} (hc : isCtl i = false) (hs : AsmRun.step m i = some m2)
     (h : Exec i m m') : m' = m2 := by
-  unfold Exec at h; rw [if_neg (by simp [hc]), hs] at h; exact h
+  unfold Exec at h; rw [ite_eq_right (by simp [hc]), hs] at h; exact h
 
 theorem ofInt_sub' (x y : Int) : BitVec.ofInt 64 (x - y) = BitVec.ofInt 64 x - BitVec.ofInt 64 y := by
   rw [Int.sub_eq_add_neg, BitVec.ofInt_add, BitVec.ofInt_neg, BitVec.sub_eq_add_neg]
@@ -551,11 +551,11 @@ theorem fall_generic {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS} {m m
 theorem rv_regs_eq' (t s : CS) (h : t.regs = s.regs) (r : Reg) (hr : r ≠ .x23) {v : CV}
     (hv : t.rv r = some v) : s.rv r = some v := by
   have : (r == .x23) = false := by simp [hr]
-  simp only [CS.rv, this, h, Bool.false_eq_true, if_false] at hv ⊢; exact hv
+  simp only [CS.rv, this, h, Bool.false_eq_true, ite_false] at hv ⊢; exact hv
 
 theorem rv_regs_eq (s t : CS) (h : t.regs = s.regs) (r : Reg) (hr : r ≠ .x23) : t.rv r = s.rv r := by
   have : (r == .x23) = false := by simp [hr]
-  simp only [CS.rv, this, h, Bool.false_eq_true, if_false]
+  simp only [CS.rv, this, h, Bool.false_eq_true, ite_false]
 
 /-- `sub|add x23, x23, #k`: sp moves by δ. -/
 theorem inv_spadj {m₀ : RS} {ρ : CV → BitVec 64} {D : Nat} {s : CS} {m : RS} (h : Inv m₀ ρ D s m)
@@ -570,7 +570,7 @@ theorem inv_spadj {m₀ : RS} {ρ : CV → BitVec 64} {D : Nat} {s : CS} {m : RS
     by_cases e : r = .x23
     · subst e; simp only [rv_x23, Option.some.injEq] at hv; subst hv; simp [Holds, val, hx]
     · have hv' : s.rv r = some v := by refine rv_regs_eq' _ s ?_ r e hv; rfl
-      simp only [set_regs, if_neg e]; exact h.regs r v hv'
+      simp only [set_regs, ite_eq_right e]; exact h.regs r v hv'
   · intro c l hc hl; exact h.mem c l hc hl
   · intro r v hv
     by_cases e : r = .x23
@@ -1031,8 +1031,8 @@ theorem coherent_of_exitOk {m₀ : RS} {ρ : CV → BitVec 64} {d : Nat} {s : CS
   have hz : ∀ (rs : List Reg), rs = tosRegs ∨ rs = nosRegs → ∀ r l, (r, l) ∈ rs.zipIdx → l < 4 := by
     intro rs hrs r l hm
     rcases hrs with rfl | rfl <;> simp [tosRegs, nosRegs, List.zipIdx] at hm <;> omega
-  exact ⟨caches_of_ok hsp h 1 (Or.inl rfl) tosRegs (hz _ (Or.inl rfl)) (by simpa using hok.1),
-         caches_of_ok hsp h 2 (Or.inr rfl) nosRegs (hz _ (Or.inr rfl)) (by simpa using hok.2)⟩
+  exact ⟨caches_of_ok hsp h 1 (Or.inl rfl) tosRegs (hz _ (Or.inl rfl)) hok.1,
+         caches_of_ok hsp h 2 (Or.inr rfl) nosRegs (hz _ (Or.inr rfl)) hok.2⟩
 
 /-- The names at entry: each limb of the stack as it is. -/
 def ρ₀ (m₀ : RS) : CV → BitVec 64

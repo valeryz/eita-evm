@@ -1,6 +1,6 @@
 /* csu_shim.c — supply __libc_csu_init / __libc_csu_fini on Linux/glibc >= 2.34.
  *
- * The Lean v4.29.1 Linux toolchains (aarch64 AND x86_64) are internally
+ * The Lean v4.29.1 and v4.35.0 Linux toolchains (aarch64 AND x86_64) are internally
  * inconsistent, as v4.28.0's were: the bundled `lib/Scrt1.o` is the
  * pre-2.34 crt that calls __libc_csu_init / __libc_csu_fini (passed to
  * __libc_start_main as the `init`/`fini` args), but the linked glibc is

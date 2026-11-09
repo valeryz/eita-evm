@@ -40,12 +40,12 @@ theorem get_put_same (m : M) (id : Nat) (k v : Word) : get (put m id k v) id k =
   simp [get, put]
 theorem get_put_other (m : M) (id i : Nat) (k j v : Word) (h : ¬(i = id ∧ j = k)) :
     get (put m id k v) i j = get m i j := by
-  simp only [get, put]; rw [if_neg h]
+  simp only [get, put]; rw [ite_eq_right h]
 theorem get_remove_same (m : M) (id : Nat) (k : Word) : get (remove m id k) id k = none := by
   simp [get, remove]
 theorem get_remove_other (m : M) (id i : Nat) (k j : Word) (h : ¬(i = id ∧ j = k)) :
     get (remove m id k) i j = get m i j := by
-  simp only [get, remove]; rw [if_neg h]
+  simp only [get, remove]; rw [ite_eq_right h]
 theorem get_drop_same (m : M) (id : Nat) (j : Word) : get (drop m id) id j = none := by
   simp [get, drop]
 theorem get_drop_other (m : M) (id i : Nat) (j : Word) (h : i ≠ id) : get (drop m id) i j = get m i j := by
@@ -62,7 +62,7 @@ theorem get_restore (m : M) (id : Nat) (k v old : Word) (h : get m id k = some o
     get (put (put m id k v) id k old) i j = get m i j := by
   simp only [get, put] at *
   by_cases e : i = id ∧ j = k
-  · rw [if_pos e, ← h, e.1, e.2]
-  · rw [if_neg e, if_neg e]
+  · rw [ite_eq_left e, ← h, e.1, e.2]
+  · rw [ite_eq_right e, ite_eq_right e]
 
 end Evm.CL.WorldSlotsModel

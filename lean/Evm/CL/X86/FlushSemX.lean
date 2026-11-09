@@ -582,7 +582,7 @@ theorem exit_oneX_run (H : Helpers) (F : Fr) (hL : LayX F) (idx : Expr → Nat) 
       obtain ⟨_, _, _, _, h6, h7, h8, h9, _, _, _, _, h14, _, _, _⟩ := keep_ne r hr
       rw [set_regs_ne _ _ _ _ h14, set_regs_ne _ _ _ _ h14, hregs1 r h6 h7 h8 h9 h14]
   by_cases hk : ((len : Int) - c) - 1 - m ≥ 0
-  · rw [if_pos hk, List.singleton_append, run_cons_step H _ _ _ _ (ctrl_addImm ..) (step_addImm ..),
+  · rw [ite_eq_left hk, List.singleton_append, run_cons_step H _ _ _ _ (ctrl_addImm ..) (step_addImm ..),
         List.cons_append, run_cons_step H _ _ _ _ (ctrl_addReg ..) (step_addReg ..)]
     obtain ⟨a1, a2, a3, a4, a5⟩ := after _ _ rfl
     apply tail _ _ a2 a3 a4 a5
@@ -590,7 +590,7 @@ theorem exit_oneX_run (H : Helpers) (F : Fr) (hL : LayX F) (idx : Expr → Nat) 
     simp only [stackAddr]
     congr 2
     simp only [newDepth]; omega
-  · rw [if_neg hk, List.singleton_append, run_cons_step H _ _ _ _ (ctrl_subImm ..) (step_subImm ..),
+  · rw [ite_eq_right hk, List.singleton_append, run_cons_step H _ _ _ _ (ctrl_subImm ..) (step_subImm ..),
         List.cons_append, run_cons_step H _ _ _ _ (ctrl_addReg ..) (step_addReg ..)]
     obtain ⟨a1, a2, a3, a4, a5⟩ := after _ _ rfl
     apply tail _ _ a2 a3 a4 a5
@@ -743,11 +743,11 @@ theorem cacheReloadX_run (H : Helpers) (base : BitVec 64) (d : Nat) (hd : d ≤ 
   rw [run_cons_step H _ _ _ _ (ctrl_cmpImm ..) (step_cmpImm ..), run_cons_bcLbl]
   simp only [AsmRun.withFlags_flags, h23, Evm.CL.ARM64.FlushSem.lt_small (32 * d) 32 (by omega) (by decide)]
   by_cases h : d < 1
-  · rw [decide_eq_true (by omega), if_pos rfl]
+  · rw [decide_eq_true (by omega), ite_eq_left rfl]
     simp only [AsmRun.skipTo]
-    rw [if_pos (by decide), run_cons_label]
+    rw [ite_eq_left (by decide), run_cons_label]
     exact ⟨_, rfl, rfl, rfl, fun hkd => absurd hkd (by omega), fun r _ _ _ _ _ => rfl⟩
-  · rw [decide_eq_false (by omega), if_neg (by simp)]
+  · rw [decide_eq_false (by omega), ite_eq_right (by simp)]
     rw [run_cons_step H _ _ _ _ (ctrl_subImm ..) (step_subImm ..),
         run_cons_step H _ _ _ _ (ctrl_addReg ..) (step_addReg ..),
         run_cons_step H _ _ _ _ (ctrl_ldpOff ..) (step_ldpOff ..),
@@ -777,10 +777,10 @@ theorem underflowCheckX_run (H : Helpers) (need d : Nat) (hd : d < 2 ^ 32) (hnee
   simp only [AsmRun.withFlags_flags, h23, hs_subFlags _ _ (by omega : 32 * need < 2 ^ 64), BitVec.toNat_ofNat,
              Nat.mod_eq_of_lt (by omega : 32 * d < 2 ^ 64)]
   by_cases h : need ≤ d
-  · rw [decide_eq_true (by omega), if_pos rfl, if_pos h]
+  · rw [decide_eq_true (by omega), ite_eq_left rfl, ite_eq_left h]
     simp only [AsmRun.skipTo]
-    rw [if_pos (by decide), run_cons_label]
-  · rw [decide_eq_false (by omega), if_neg (by simp), if_neg h, run_cons_bTramp]
+    rw [ite_eq_left (by decide), run_cons_label]
+  · rw [decide_eq_false (by omega), ite_eq_right (by simp), ite_eq_right h, run_cons_bTramp]
 
 theorem overflowCheckX_run (H : Helpers) (lim d : Nat) (hd : d < 2 ^ 32) (hlim : lim < 2 ^ 32)
     (rest : List AInstr) (s : RS) (h23 : s.regs .x23 = BitVec.ofNat 64 (32 * d)) :
@@ -796,9 +796,9 @@ theorem overflowCheckX_run (H : Helpers) (lim d : Nat) (hd : d < 2 ^ 32) (hlim :
     | inr h => simp [Nat.not_lt.mpr h, (by omega : 32 * lim ≤ 32 * d)]
   simp only [AsmRun.withFlags_flags, h23, hlo]
   by_cases h : d < lim
-  · rw [decide_eq_true h, if_pos rfl, if_pos h]
+  · rw [decide_eq_true h, ite_eq_left rfl, ite_eq_left h]
     simp only [AsmRun.skipTo]
-    rw [if_pos (by decide), run_cons_label]
-  · rw [decide_eq_false h, if_neg (by simp), if_neg h, run_cons_bTramp]
+    rw [ite_eq_left (by decide), run_cons_label]
+  · rw [decide_eq_false h, ite_eq_right (by simp), ite_eq_right h, run_cons_bTramp]
 
 end Evm.CL.X86.FlushSemX

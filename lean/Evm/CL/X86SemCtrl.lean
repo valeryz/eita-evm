@@ -281,10 +281,10 @@ theorem skipTo_found (l : String) : ∀ (rest : List AInstr), AsmRun.skipTo l re
     all_goals first
       | exact skipTo_found l rest h
       | (split at h
-         · rename_i hc; exact ⟨_, _, by rw [if_pos hc], hc⟩
+         · rename_i hc; exact ⟨_, _, by rw [ite_eq_left hc], hc⟩
          · rename_i hc
            obtain ⟨t, r', h1, h2⟩ := skipTo_found l rest h
-           exact ⟨t, r', by rw [if_neg hc]; exact h1, h2⟩)
+           exact ⟨t, r', by rw [ite_eq_right hc]; exact h1, h2⟩)
 
 /-! ### `run` on the control forms -/
 
@@ -419,9 +419,9 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
           have hcond := cond_of_condOkP c p s.flags x.flags hR.flags hc
           rw [arun_bcTramp, progItems_cons, x86Items, List.singleton_append]
           by_cases hb : bcHolds c s.flags = true
-          · rw [if_pos hb, xrun_cons_Jcc_exit _ _ _ _ _ (by rw [hcond, hb]) ((skipTo_progItems _ rest).1 hLab.1)]
+          · rw [ite_eq_left hb, xrun_cons_Jcc_exit _ _ _ _ _ (by rw [hcond, hb]) ((skipTo_progItems _ rest).1 hLab.1)]
             exact ⟨s, x, Or.inr ⟨sym, L, p, rfl, rfl, hR⟩⟩
-          · rw [if_neg hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
+          · rw [ite_eq_right hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
             exact ih rest hlenr L p s x hOkr hLab.2 hR
         | label t =>
           rw [AsmRun.run_cons_label, progItems_cons, x86Items, List.singleton_append, xrun_cons_L]
@@ -436,9 +436,9 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
           rw [AsmRun.run_cons_bcLbl, progItems_cons, x86Items, List.singleton_append]
           by_cases hb : bcHolds c s.flags = true
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L p L p s x hlenr hLab.1 hT hOkr hLab.2 hR
-            rw [if_pos hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond, hb]) hskip, hr']
+            rw [ite_eq_left hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond, hb]) hskip, hr']
             exact hout
-          · rw [if_neg hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
+          · rw [ite_eq_right hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
             exact ih rest hlenr L p s x hOkr hLab.2 hR
         | blsLbl l =>
           obtain ⟨hp, hT, hOkr⟩ := hOk
@@ -447,9 +447,9 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
           rw [arun_blsLbl, progItems_cons, x86Items, List.singleton_append]
           by_cases hb : bcHolds .ls s.flags = true
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L .sub L .sub s x hlenr hLab.1 hT hOkr hLab.2 hR
-            rw [if_pos hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond, hb]) hskip, hr']
+            rw [ite_eq_left hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond, hb]) hskip, hr']
             exact hout
-          · rw [if_neg hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
+          · rw [ite_eq_right hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; simpa using hb)]
             exact ih rest hlenr L .sub s x hOkr hLab.2 hR
         | cbzLbl r l =>
           obtain ⟨hrL, hread, hT, hOkr⟩ := hOk
@@ -477,9 +477,9 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
           rw [hx1]
           by_cases hb : s.regs r = 0
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L .unknown L .unknown s x1 hlenr hLab.1 hT hOkr hLab.2 hR1
-            rw [if_pos hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
+            rw [ite_eq_left hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
             exact hout
-          · rw [if_neg hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false hb)]
+          · rw [ite_eq_right hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false hb)]
             exact ih rest hlenr L .unknown s x1 hOkr hLab.2 hR1
         | cbnzLbl r l =>
           obtain ⟨hrL, hh, hT, hOkr⟩ := hOk
@@ -495,10 +495,10 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
               decide (s.regs r ≠ 0) := by
             simp [xcHolds, subXF, hv]
           by_cases hb : s.regs r = 0
-          · rw [if_pos hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false (fun h => h hb))]
+          · rw [ite_eq_left hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false (fun h => h hb))]
             exact ih rest hlenr L .unknown s _ hOkr hLab.2 hR1
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L .unknown L .unknown s _ hlenr hLab.1 hT hOkr hLab.2 hR1
-            rw [if_neg hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
+            rw [ite_eq_right hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
             exact hout
         | cbzWLbl r l =>
           obtain ⟨hrL, hh, hT, hOkr⟩ := hOk
@@ -515,9 +515,9 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
             simp only [xcHolds, XS.withFlags_flags, hv, cmpRI32_zero]
           by_cases hb : s.regs r &&& 0xffffffff = 0
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L .unknown L .unknown s _ hlenr hLab.1 hT hOkr hLab.2 hR1
-            rw [if_pos hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
+            rw [ite_eq_left hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
             exact hout
-          · rw [if_neg hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false hb)]
+          · rw [ite_eq_right hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false hb)]
             exact ih rest hlenr L .unknown s _ hOkr hLab.2 hR1
         | cbnzWLbl r l =>
           obtain ⟨hrL, hh, hT, hOkr⟩ := hOk
@@ -533,10 +533,10 @@ theorem sim_run (H : Helpers) (HX : XHelpers) (ann : String → List Reg × Prov
               (BitVec.ofInt 64 0))).flags = decide (s.regs r &&& 0xffffffff ≠ 0) := by
             simp only [xcHolds, XS.withFlags_flags, hv, cmpRI32_zero, decide_not]
           by_cases hb : s.regs r &&& 0xffffffff = 0
-          · rw [if_pos hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false (fun h => h hb))]
+          · rw [ite_eq_left hb, xrun_cons_Jcc_not _ _ _ _ _ (by rw [hcond]; exact decide_eq_false (fun h => h hb))]
             exact ih rest hlenr L .unknown s _ hOkr hLab.2 hR1
           · obtain ⟨r', hr', hskip, hout⟩ := jump l rest L .unknown L .unknown s _ hlenr hLab.1 hT hOkr hLab.2 hR1
-            rw [if_neg hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
+            rw [ite_eq_right hb, xrun_cons_Jcc_skip _ _ _ _ _ _ (by rw [hcond]; exact decide_eq_true hb) hskip, hr']
             exact hout
 
 

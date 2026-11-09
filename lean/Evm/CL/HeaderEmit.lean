@@ -134,9 +134,9 @@ theorem adjusted_int (pdiff c q : Nat) :
   have hD : pdiff / 2048 * 2048 ≤ pdiff := Nat.div_mul_le_self pdiff 2048
   generalize pdiff / 2048 = D at *
   by_cases h : q < c
-  · rw [if_pos h, Int.max_eq_left (by omega)]
+  · rw [ite_eq_left h, Int.max_eq_left (by omega)]
     rw [Int.natCast_add, Int.natCast_mul, Int.natCast_sub (Nat.le_of_lt h)]
-  · rw [if_neg h]
+  · rw [ite_eq_right h]
     have hm : min (q - c) 99 ≤ 99 := Nat.min_le_right _ _
     have hle : D * min (q - c) 99 ≤ pdiff :=
       Nat.le_trans (Nat.mul_le_mul_left _ hm) (by omega)
@@ -158,13 +158,14 @@ theorem bomb_floor (X n D : Nat) (d : Int) (hd : d = (X : Int)) :
              ((131072 : Nat) : Int)).toNat := by
   subst hd
   by_cases h : (n - D) / 100000 < 2
-  · rw [if_pos h, if_neg (by omega)]; omega
-  · rw [if_neg h, if_pos (by omega)]
+  · rw [ite_eq_left h, ite_eq_right (by omega)]; omega
+  · rw [ite_eq_right h, ite_eq_left (by omega)]
     have : (((n : Int) - (D : Int)) / 100000 - 2).toNat = (n - D) / 100000 - 2 := by omega
     have h2 : (2 : Int) ^ ((n - D) / 100000 - 2) = ((2 ^ ((n - D) / 100000 - 2) : Nat) : Int) := by
       rw [Int.natCast_pow]; rfl
     rw [this, h2]; omega
 
+set_option backward.isDefEq.respectTransparency false in
 theorem blockDifficulty_eq_spec (ρ : Env) (f : Evm.Fork) (hp : f.ord < 14) (pho : Bool)
     (hf : ρ "fork-ord" = f.ord) (hpo : ρ "parent-has-ommers" = if pho then 1 else 0) :
     blockDifficulty.eval ρ
@@ -177,20 +178,20 @@ theorem blockDifficulty_eq_spec (ρ : Env) (f : Evm.Fork) (hp : f.ord < 14) (pho
   rcases Nat.lt_or_ge f.ord 1 with h0 | h0
   · have hfr : f = .frontier := by cases f <;> simp_all [Evm.Fork.ord]
     subst hfr
-    simp only [Evm.Fork.ord, if_true, Nat.zero_lt_one]
+    simp only [Evm.Fork.ord, ite_true, Nat.zero_lt_one]
     by_cases h : ρ "timestamp" < ρ "parent-timestamp" + 13 <;> simp [h]
   · have hfr : f ≠ .frontier := by intro e; subst e; simp [Evm.Fork.ord] at h0
-    rw [if_neg hfr, if_neg (show ¬ f.ord < 1 by omega)]
+    rw [ite_eq_right hfr, ite_eq_right (show ¬ f.ord < 1 by omega)]
     by_cases hb5 : f.ord < 5
     · have : f.atLeast .byzantium = false := by
         have : Evm.Fork.byzantium.ord = 5 := rfl
         simp only [Evm.Fork.atLeast, this, decide_eq_false_iff_not]; omega
-      rw [if_pos hb5]; simp only [this, Bool.false_eq_true, if_false]
+      rw [ite_eq_left hb5]; simp only [this, Bool.false_eq_true, ite_false]
       exact (adjusted_int _ 1 _).symm
     · have : f.atLeast .byzantium = true := by
         have : Evm.Fork.byzantium.ord = 5 := rfl
         simp only [Evm.Fork.atLeast, this, decide_eq_true_eq]; omega
-      rw [if_neg hb5]; simp only [this, if_true]
+      rw [ite_eq_right hb5]; simp only [this, ite_true]
       cases pho
       · simpa using (adjusted_int (ρ "parent-difficulty") 1 ((ρ "timestamp" - ρ "parent-timestamp") / 9)).symm
       · simpa using (adjusted_int (ρ "parent-difficulty") 2 ((ρ "timestamp" - ρ "parent-timestamp") / 9)).symm
@@ -217,6 +218,7 @@ theorem ifSet_eval (ρ : Env) (x : String) (b : Bool) (hx : ρ x = if b then 1 e
     (ifSet x t e).eval ρ = if b then t.eval ρ else e.eval ρ := by
   cases b <;> simp [ifSet, v, Expr.eval, hx]
 
+set_option backward.isDefEq.respectTransparency false in
 theorem forkBelow_eval (ρ : Env) (k : Nat) (t e : Expr) :
     (forkBelow k t e).eval ρ = if ρ "fork-ord" < k then t.eval ρ else e.eval ρ := by
   simp [forkBelow, fork, Expr.eval]

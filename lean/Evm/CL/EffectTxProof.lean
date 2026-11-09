@@ -50,7 +50,7 @@ theorem validateFrom_run (c : Ctx) (h : HState) (hck : c.bool "checked" = true) 
     intro n s
     simp only [validateFrom, Stmt.run, BExp.eval, hck, Bool.true_and, List.findIdx?_cons]
     cases hp : p.eval c h
-    · simp only [Bool.false_eq_true, if_false, ih]
+    · simp only [Bool.false_eq_true, ite_false, ih]
       cases ps.findIdx? (fun p => p.eval c h) <;> simp [Nat.add_assoc, Nat.add_comm 1]
     · simp
 
@@ -257,29 +257,29 @@ theorem authBody_run (c : Ctx) (e : Environment) (a : Evm.Prague.Authorization)
     omega
   unfold authBody authorize
   simp only [Stmt.run, BExp.eval, WExp.eval, GExp.eval, AExp.eval, hcid]
-  simp only [Ctx.withAuth, if_true, show ("a-yp" = "a-chain") = False by decide,
+  simp only [Ctx.withAuth, ite_true, show ("a-yp" = "a-chain") = False by decide,
     show ("a-r" = "a-chain") = False by decide, show ("a-r" = "a-yp") = False by decide,
     show ("a-s" = "a-chain") = False by decide, show ("a-s" = "a-yp") = False by decide,
     show ("a-s" = "a-r") = False by decide, show ("authority" = "a-addr") = False by decide,
-    if_false, h2, secpN, hN, hN2]
+    ite_false, h2, secpN, hN, hN2]
   by_cases hch : a.chainId = e.chainId ∨ a.chainId = 0
   · have hch' : (!(decide (a.chainId = e.chainId) || decide (a.chainId = 0))) = false := by
       rcases hch with h | h <;> simp [h]
-    simp only [hch', hch, Bool.false_eq_true, if_false, not_true_eq_false]
+    simp only [hch', hch, Bool.false_eq_true, ite_false, not_true_eq_false]
     by_cases hno : BitVec.toNat a.nonce < 2 ^ 64 - 1
     · have hno' : ¬ (a.nonce.toNat ≥ 2 ^ 64 - 1) := by
         simp only [Evm.U256.toNat] at *; omega
-      simp only [hno, if_true, hno', if_false]
+      simp only [hno, ite_true, hno', ite_false]
       by_cases hs : a.yParity.toNat ≤ 1 ∧ 0 < a.r.toNat ∧ a.r.toNat < secp256k1n ∧ 0 < a.s.toNat ∧
           a.s.toNat ≤ secp256k1n / 2
-      · rw [if_pos (hsc.mpr hs), if_neg (fun h => h hs)]
+      · rw [ite_eq_left (hsc.mpr hs), ite_eq_right (fun h => h hs)]
         cases hr : c.recover a with
         | none => rfl
         | some au =>
           simp only [HState.ofEnv, cwarm_eq]
           -- v4.29: simp's HState.ofEnv/cwarm_eq unfolding normalizes the
           -- condition to this form; state the case split in exactly it, or
-          -- if_pos/if_neg can't match the ite.
+          -- ite_eq_left/ite_eq_right can't match the ite.
           by_cases hcode : ¬(e.state.getAccount au).code = ByteArray.empty ∧
               Evm.Prague.State.parseDelegation (e.state.getAccount au).code = none
           · have hb : (!decide ((e.state.getAccount au).code.size = 0) &&
@@ -293,7 +293,7 @@ theorem authBody_run (c : Ctx) (e : Environment) (a : Evm.Prague.Authorization)
               · cases hpd : (Evm.Prague.State.parseDelegation (e.state.getAccount au).code).isSome
                 · simp_all
                 · simp_all
-            -- v4.29: neither rw nor simp only [if_pos ...] matches these
+            -- v4.29: neither rw nor simp only [ite_eq_left ...] matches these
             -- ites; rewriting the condition propositions themselves works.
             simp [hb, hcode]
           · have hb : ¬ (!decide ((e.state.getAccount au).code.size = 0) &&
@@ -304,7 +304,7 @@ theorem authBody_run (c : Ctx) (e : Environment) (a : Evm.Prague.Authorization)
             simp [hb, hcode]
             by_cases hnon : (e.state.getAccount au).nonce = a.nonce.toNat
             · -- v4.29: discharge the nonce if by rewriting its (bare Prop)
-              -- condition; rw/if_pos can't match the ite here.
+              -- condition; rw/ite_eq_left can't match the ite here.
               simp [hnon]
               by_cases hex : e.state.accountExists au = true
               · simp [hex, hnon]
@@ -312,15 +312,15 @@ theorem authBody_run (c : Ctx) (e : Environment) (a : Evm.Prague.Authorization)
             · have hnb : ¬ decide ((e.state.getAccount au).nonce = BitVec.toNat a.nonce) = true := by
                 simpa using hnon
               simp [hnb, hnon]
-      · simp only [if_neg (fun h => hs (hsc.mp h)), if_pos hs]
+      · simp only [ite_eq_right (fun h => hs (hsc.mp h)), ite_eq_left hs]
     · have hno' : a.nonce.toNat ≥ 2 ^ 64 - 1 := by simp only [Evm.U256.toNat] at *; omega
-      simp only [hno, if_false, hno', if_true]
+      simp only [hno, ite_false, hno', ite_true]
   · have hch' : (!(decide (a.chainId = e.chainId) || decide (a.chainId = 0))) = true := by
       have h1 : decide (a.chainId = e.chainId) = false := decide_eq_false (fun h => hch (Or.inl h))
       have h0 : decide (a.chainId = 0) = false := decide_eq_false (fun h => hch (Or.inr h))
       rw [h1, h0]; rfl
-    simp only [hch', if_true]
-    simp only [if_pos hch]
+    simp only [hch', ite_true]
+    simp only [ite_eq_left hch]
 
 theorem authorize_chainId (cid : Evm.U256) (r : Evm.Prague.Authorization → Option Evm.Address)
     (e : Environment) (a : Evm.Prague.Authorization) : (authorize cid r e a).chainId = e.chainId := by
@@ -358,7 +358,7 @@ theorem authsS_run (c : Ctx) (k : Nat) (e : Environment) (tx : Tx)
   simp only [Stmt.run, BExp.eval, hk, hcr, hau]
   cases hto : tx.to.isNone
   · by_cases h17 : k ≥ 17
-    · simp only [h17, decide_true, Bool.not_false, Bool.and_self, if_true, Bool.false_eq_true, if_false]
+    · simp only [h17, decide_true, Bool.not_false, Bool.and_self, ite_true, Bool.false_eq_true, ite_false]
       exact forAuths_fold c e.chainId hc tx.auths e rfl
     · simp [h17]
   · simp
@@ -403,7 +403,7 @@ theorem callEnd_run (c : Ctx) (h : HState) (G : Nat) (tgt : Evm.Address)
   | ok h' g o rv =>
     cases rv
     · simp only [Stmt.run, BExp.eval, GExp.eval, WExp.eval, AExp.eval, hr, ChildRes.isErr, ChildRes.isRev,
-        Bool.false_eq_true, if_false, gas_eval, hG, ht, ChildRes.gas]
+        Bool.false_eq_true, ite_false, gas_eval, hG, ht, ChildRes.gas]
       cases (h.state.accountExists tgt && EffectIR.isDead h.state tgt) <;> by_cases h4 : c.fork ≥ 4 <;>
         simp [h4]
     · simp [Stmt.run, BExp.eval, GExp.eval, WExp.eval, hr, ChildRes.isErr, ChildRes.isRev, gas_eval, hG,
@@ -457,7 +457,7 @@ theorem callEnd_res (c : Ctx) (k : Nat) (e2 : Environment) (to : Evm.Address) (G
     have hs : (sub.gasLeft : Nat) ≤ G := hm sub rfl
     have hsub : ∀ g : Nat, g ≤ G → G - g + g = G := fun g hg => by omega
     cases hrv : sub.reverted
-    · simp only [R, o, callEndC, toRes, afterRes, callResO, hrv, Bool.false_eq_true, if_false, HState.ofEnv, hg,
+    · simp only [R, o, callEndC, toRes, afterRes, callResO, hrv, Bool.false_eq_true, ite_false, HState.ofEnv, hg,
         Nat.zero_add, existsDead, hk]
       by_cases h4 : k ≥ 4 <;> by_cases hex : (sub.env.state.accountExists to && (sub.env.state.getAccount to).isEmpty) = true
       · have hex' : sub.env.state.accountExists to = true ∧ (sub.env.state.getAccount to).isEmpty = true := by
@@ -517,10 +517,10 @@ theorem callPath_run (c : Ctx) (k : Nat) (e2 : Environment) (sdr to : Evm.Addres
     intro code; rfl
   cases d with
   | some a =>
-    simp only [Option.isSome_some, Bool.not_true, Bool.false_and, Bool.false_eq_true, if_false]
+    simp only [Option.isSome_some, Bool.not_true, Bool.false_and, Bool.false_eq_true, ite_false]
     rw [hchild]
     simp only [callOracle, hworld]
-    simp only [o, callTail, Option.isSome_some, if_true, Option.bind_none, Evm.Frontier.Vm.Call.runChild, hfr]
+    simp only [o, callTail, Option.isSome_some, ite_true, Option.bind_none, Evm.Frontier.Vm.Call.runChild, hfr]
     have key := callEnd_res c k e2 to G h2 (runSub (Evm.fresh (callMsg sdr to tx (codeOfD e2 to (some a)) G)
       { e2 with state := callWorld k e2 sdr to tx.value })) hB.fork rfl hmono rfl
     simp only [afterRes, callResO, codeOfD] at key ⊢
@@ -529,18 +529,18 @@ theorem callPath_run (c : Ctx) (k : Nat) (e2 : Environment) (sdr to : Evm.Addres
     cases hp : pre e2 to with
     | none =>
       simp only [Option.isSome_none, Bool.not_false, Bool.true_and, hp, Option.isSome_none, Bool.false_eq_true,
-        if_false]
+        ite_false]
       rw [hchild]
       simp only [callOracle, hworld]
-      simp only [o, callTail, Option.isSome_none, Bool.false_eq_true, if_false, Option.bind_some, hp,
+      simp only [o, callTail, Option.isSome_none, Bool.false_eq_true, ite_false, Option.bind_some, hp,
         Evm.Frontier.Vm.Call.runChild, hfr]
       have key := callEnd_res c k e2 to G h2 (runSub (Evm.fresh (callMsg sdr to tx (codeOfD e2 to none) G)
         { e2 with state := callWorld k e2 sdr to tx.value })) hB.fork rfl hmono rfl
       simp only [afterRes, callResO, codeOfD] at key ⊢
       exact key
     | some p =>
-      simp only [Option.isSome_none, Bool.not_false, Bool.true_and, hp, Option.isSome_some, if_true]
-      simp only [o, callTail, Option.isSome_none, Bool.false_eq_true, if_false, Option.bind_some, hp,
+      simp only [Option.isSome_none, Bool.not_false, Bool.true_and, hp, Option.isSome_some, ite_true]
+      simp only [o, callTail, Option.isSome_none, Bool.false_eq_true, ite_false, Option.bind_some, hp,
         Evm.Frontier.Vm.Call.runChild, callMsg, hB.input]
       cases hpr : p tx.data G with
       | error e =>
@@ -598,7 +598,7 @@ theorem createEnd_res (c : Ctx) (k : Nat) (e : Environment) (new : Evm.Address) 
       have hEF : ∀ (b : Bool), b = decide (0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8)) → True :=
         fun _ _ => trivial
       simp only [R, o, createEnd, Stmt.run, BExp.eval, GExp.eval, hres, toRes, afterRes, ChildRes.isErr,
-        ChildRes.isRev, hrv, Bool.false_eq_true, if_false, Evm.Frontier.Vm.Tx.createEnd, ChildRes.out,
+        ChildRes.isRev, hrv, Bool.false_eq_true, ite_false, Evm.Frontier.Vm.Tx.createEnd, ChildRes.out,
         ChildRes.gas, deposit_eval', hk, gas_eval, hG]
       by_cases hef : k ≥ 11 ∧ 0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8)
       · have hb : (decide (k ≥ 11) && decide (0 < sub.output.size ∧ sub.output.get! 0 = (0xEF : UInt8))) = true := by
@@ -610,22 +610,22 @@ theorem createEnd_res (c : Ctx) (k : Nat) (e : Environment) (new : Evm.Address) 
           by_cases h11 : k ≥ 11
           · exact Or.inr (fun h' => hef ⟨h11, h'⟩)
           · exact Or.inl h11
-        simp only [hb, hef, Bool.false_eq_true, if_false]
+        simp only [hb, hef, Bool.false_eq_true, ite_false]
         by_cases hd : sub.gasLeft < Evm.Frontier.Vm.Gas.codeDeposit * sub.output.size
-        · simp only [hd, if_true]
+        · simp only [hd, ite_true]
           by_cases h1 : k ≥ 1
           · simp [h1, fail0, Stmt.run, BExp.eval, hsnap, HState.ofEnv, hg, gas_eval, hG, GExp.eval, WExp.eval, hk]
           · simp [h1, Stmt.run, BExp.eval, HState.ofEnv, hg, used, gas_eval, hG, GExp.eval, WExp.eval, hk, hres,
               toRes, ChildRes.gas]
             exact ⟨hsub _ hs, hr0⟩
-        · simp only [hd, if_false]
+        · simp only [hd, ite_false]
           have hdl : Evm.Frontier.Vm.Gas.codeDeposit * sub.output.size ≤ sub.gasLeft := Nat.le_of_not_lt hd
           by_cases hsz : k ≥ 4 ∧ sub.output.size > Evm.SpuriousDragon.Vm.Gas.maxCodeSize
-          · simp only [hsz, and_self, if_true]
+          · simp only [hsz, and_self, ite_true]
             have : 24576 < sub.output.size := hsz.2
             simp [hsz.1, this, Evm.SpuriousDragon.Vm.Gas.maxCodeSize, GExp.eval, hres, toRes, ChildRes.out,
               fail0, Stmt.run, BExp.eval, hsnap, HState.ofEnv, hg, gas_eval, hG, WExp.eval]
-          · simp only [if_neg hsz]
+          · simp only [ite_eq_right hsz]
             have hnf : ¬ (k ≥ 4 ∧ Evm.SpuriousDragon.Vm.Gas.maxCodeSize < sub.output.size) := hsz
             have hsel : ∀ (X S : HState), (if decide (k ≥ 4) = true then
                 if Evm.SpuriousDragon.Vm.Gas.maxCodeSize < sub.output.size then X else S else S) = S := by
@@ -679,7 +679,7 @@ theorem createPath_run (c : Ctx) (k : Nat) (e : Environment) (sdr new : Evm.Addr
   · have hpref : R = (Stmt.runTx gas "r" createEnd).run c (createH k e sdr new tx) := by
       have hcol' : Evm.Frontier.Vm.Create.collides (HState.ofEnv e).state new = false := by
         simpa [HState.ofEnv] using hcol
-      simp only [R, createPath, Stmt.run, BExp.eval, AExp.eval, hB.tgt, hcol', Bool.false_eq_true, if_false,
+      simp only [R, createPath, Stmt.run, BExp.eval, AExp.eval, hB.tgt, hcol', Bool.false_eq_true, ite_false,
         transfer, WExp.eval, hB.snd, hB.value, hB.fork]
       unfold createH Evm.Frontier.Vm.Create.childState Evm.Frontier.Vm.Create.Rules.ofOrd
       by_cases h4 : k ≥ 4 <;> by_cases hv : tx.value = 0#256 <;>
@@ -722,13 +722,13 @@ theorem delegS_run (c : Ctx) (s : Stmt) (e1 : Environment) (tgt : Evm.Address) (
     refine ⟨false, ?_⟩
     have : (if g = true then Evm.Prague.State.parseDelegation ((HState.ofEnv e1).state.getAccount tgt).code
             else none) = none := by simpa [HState.ofEnv, d] using hd
-    simp only [this, Option.isSome_none, Bool.false_eq_true, if_false, if_true, e2, hd]
+    simp only [this, Option.isSome_none, Bool.false_eq_true, ite_false, ite_true, e2, hd]
     rfl
   | some a =>
     refine ⟨!e1.accessedAddresses.contains a, ?_⟩
     have : (if g = true then Evm.Prague.State.parseDelegation ((HState.ofEnv e1).state.getAccount tgt).code
             else none) = some a := by simpa [HState.ofEnv, d] using hd
-    simp only [this, Option.isSome_some, if_true, Option.getD_some, e2, hd, cwarm_eq]
+    simp only [this, Option.isSome_some, ite_true, Option.getD_some, e2, hd, cwarm_eq]
     rfl
 
 /-- The snapshot, then the creation or the call. -/
@@ -811,7 +811,7 @@ theorem tx_refines (k : Nat) (benv : Environment) (st : State) (sdr : Evm.Addres
     have hcr : tx.to.isNone = true := by simp [hto]
     obtain ⟨dc, hdel⟩ := delegS_run c' messageS (env0 k benv st sdr tx) (tgtS st sdr tx) false
       (by simp [c', cmpCtx, lb, ctxTx, ctxOf, hcr]) (by simp [c', cmpCtx, lb, ctxTx, ctxOf, tgtS])
-    simp only [hcr, if_true, Bool.false_eq_true, if_false] at hR hdel
+    simp only [hcr, ite_true, Bool.false_eq_true, ite_false] at hR hdel
     rw [hdel, messageS_run] at hR
     let c4 := { cDel c' none dc with snaps := fun y => if y = "snap" then HState.ofEnv (env0 k benv st sdr tx)
                                                        else (cDel c' none dc).snaps y }
@@ -839,7 +839,7 @@ theorem tx_refines (k : Nat) (benv : Environment) (st : State) (sdr : Evm.Addres
     have htg : tgtS st sdr tx = to := htg'
     obtain ⟨dc, hdel⟩ := delegS_run c' messageS (e1S k (env0 k benv st sdr tx) tx recover) to (decide (k ≥ 17))
       (by simp [c', cmpCtx, lb, ctxTx, ctxOf, hcr]) (by simp [c', cmpCtx, lb, ctxTx, ctxOf, htg'])
-    simp only [hcr, Bool.false_eq_true, if_false] at hR
+    simp only [hcr, Bool.false_eq_true, ite_false] at hR
     rw [hdel, messageS_run] at hR
     have hdS : (if decide (k ≥ 17) = true then Evm.Prague.State.parseDelegation
         ((e1S k (env0 k benv st sdr tx) tx recover).state.getAccount to).code else none)
@@ -949,7 +949,7 @@ theorem valid_facts (k : Nat) (benv : Environment) (st : State) (sdr : Evm.Addre
   unfold egp
   split
   · rename_i ht
-    simp only [Evm.CL.GasEmit.effectiveGasPrice, Evm.CL.GasEmit.Expr.eval, if_true]
+    simp only [Evm.CL.GasEmit.effectiveGasPrice, Evm.CL.GasEmit.Expr.eval, ite_true]
     simp
     have : ¬ tx.maxFee < benv.baseFeePerGas := fun h => r7 ⟨ht, h⟩
     omega
@@ -969,7 +969,7 @@ theorem gasUsed_le (k : Nat) (tx : Tx) (o : Out) (hf : floor k tx ≤ tx.gas) :
   rw [floor_eval]
   apply Nat.max_le.mpr
   refine ⟨?_, hf⟩
-  simp only [if_true]
+  simp only [ite_true]
   exact Nat.le_trans (Nat.sub_le _ _) (Nat.sub_le _ _)
 
 set_option maxHeartbeats 4000000 in
@@ -1037,7 +1037,7 @@ theorem apply_tx_refines (k : Nat) (benv : Environment) (st : State) (sdr : Evm.
     show o.success = true ↔ R.out = Evm.U256.ofNat 1
     rw [hout']
     cases o.success
-    · simp only [Bool.false_eq_true, if_false, false_iff]; decide
+    · simp only [Bool.false_eq_true, ite_false, false_iff]; decide
     · simp
 
 end Evm.CL.EffectTx

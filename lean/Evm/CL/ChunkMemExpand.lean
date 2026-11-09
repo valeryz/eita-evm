@@ -56,7 +56,7 @@ theorem expand_trans {a b c : Nat} (hab : a ≤ b) (hbc : b ≤ c) :
       subst hbc'
       simp [h1]
     · have h3 : ¬ (c ≤ a) := by omega
-      simp only [h1, h2, h3, if_false]
+      simp only [h1, h2, h3, ite_false]
       omega
 
 /-- Charging up to `e` is charging up to the new high-water mark: below the

@@ -110,9 +110,9 @@ structure Inv (x₀ : XS) (ρ : XV → BitVec 64) (d : Nat) (s : XCS) (x : XS) :
 
 theorem val_ext (x₀ : XS) (ρ : XV → BitVec 64) (d g : Nat) (v : BitVec 64) (mem' : AsmRun.Mem) (hg : g ≤ d) :
     ∀ w, Fr d g w → val x₀ (ext x₀ ρ d v mem') w = val x₀ ρ w
-  | .cell g' c l, h => by simp only [val, ext, Fr] at h ⊢; rw [if_neg (by omega)]
+  | .cell g' c l, h => by simp only [val, ext, Fr] at h ⊢; rw [ite_eq_right (by omega)]
   | .idx _, _ | .addr _, _ | .base, _ => rfl
-  | .fresh k, h => by simp only [val, ext, Fr] at h ⊢; rw [if_neg (by omega)]
+  | .fresh k, h => by simp only [val, ext, Fr] at h ⊢; rw [ite_eq_right (by omega)]
   | .when _ w, h => by simp only [val, Fr] at h ⊢; exact val_ext x₀ ρ d g v mem' hg w h
 
 theorem holds_ext (x₀ : XS) (ρ : XV → BitVec 64) (d g : Nat) (v : BitVec 64) (mem' : AsmRun.Mem) (hg : g ≤ d) :
@@ -143,7 +143,7 @@ theorem holds_strip (x₀ : XS) (ρ : XV → BitVec 64) (t : Int) (ht : t ≤ sp
 
 theorem rv_setR (s : XCS) (r r' : XReg) (v : Option XV) (h13 : r' ≠ .r13) (h12 : r' ≠ .r12) :
     (s.setR r v).rv r' = if r' = r then v else s.rv r' := by
-  simp only [XCS.rv, XCS.setR, h13, h12, if_false]
+  simp only [XCS.rv, XCS.setR, h13, h12, ite_false]
   cases v with
   | none => simp only [List.nil_append, Evm.CL.CacheSound.find_filter_ne]; split <;> simp
   | some v =>
@@ -151,7 +151,7 @@ theorem rv_setR (s : XCS) (r r' : XReg) (v : Option XV) (h13 : r' ≠ .r13) (h12
     by_cases e : r' = r
     · subst e; simp
     · have : (r == r') = false := by simp; exact fun x => e x.symm
-      simp only [this, if_false, Evm.CL.CacheSound.find_filter_ne, e]
+      simp only [this, ite_false, Evm.CL.CacheSound.find_filter_ne, e]
 
 @[simp] theorem setR_off (s : XCS) (r : XReg) (v : Option XV) : (s.setR r v).off = s.off := rfl
 @[simp] theorem setR_lt (s : XCS) (r : XReg) (v : Option XV) : (s.setR r v).lt = s.lt := rfl
@@ -176,7 +176,7 @@ theorem mv_setM (s : XCS) (c c' : Int) (l l' : Nat) (v : XV) :
   · have : ((c, l) == (c', l')) = true := by simp [e]
     simp [e]
   · have : ((c, l) == (c', l')) = false := by simp; intro a b; exact e (by rw [a, b])
-    simp only [this, e, if_false]
+    simp only [this, e, ite_false]
     rw [Evm.CL.CacheSound.find_filter_ne]; simp [e]
 
 theorem rv_kill (ks : List XReg) (s : XCS) (r : XReg) (h13 : r ≠ .r13) (h12 : r ≠ .r12) :
@@ -299,8 +299,8 @@ theorem inv_setR {x₀ : XS} {ρ : XV → BitVec 64} {D : Nat} {t : XCS} {xx : X
     rw [rv_setR _ _ _ _ a b] at hw
     simp only [Evm.CL.X86Sem.XS.set_regs]
     split at hw
-    · rename_i e; subst e; simp only [if_true]; exact (hv w hw).1
-    · rename_i e; simp only [if_neg e]; exact h.regs r' w hw
+    · rename_i e; subst e; simp only [ite_true]; exact (hv w hw).1
+    · rename_i e; simp only [ite_eq_right e]; exact h.regs r' w hw
   · intro r' w hw
     by_cases a : r' = .r13
     · subst a; simp only [rv_r13, setR_off] at hw; exact h.frR _ _ (by rw [rv_r13, hw])
@@ -326,12 +326,12 @@ theorem rv_writeSt (d : Nat) (dst : Option XReg) (ks : List XReg) (s : XCS) (r :
   have k := rv_kill ks { s with fl := none } r h13 h12
   unfold writeSt
   cases dst with
-  | none => simp only [k, reduceCtorEq, if_false]; rfl
+  | none => simp only [k, reduceCtorEq, ite_false]; rfl
   | some r' =>
     simp only [rv_setR _ _ _ _ h13 h12, k, Option.some.injEq]
     by_cases e : r = r'
     · subst e; simp
-    · simp only [e, if_false, Ne.symm e]; rfl
+    · simp only [e, ite_false, Ne.symm e]; rfl
 
 theorem writeSt_fields (d : Nat) (dst : Option XReg) (ks : List XReg) (s : XCS) :
     let t := writeSt d dst ks s
@@ -435,7 +435,7 @@ theorem ea_wbase {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s : XCS} {x : XS
     simp only at hw ⊢
     by_cases hs : sc = 1
     · subst hs
-      simp only [if_true] at hw
+      simp only [ite_true] at hw
       cases hb : s.rv b with
       | none => rw [hb] at hw; cases hw
       | some vb =>
@@ -450,7 +450,7 @@ theorem ea_wbase {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s : XCS} {x : XS
           cases vb <;> cases vi <;> simp only [reduceCtorEq, Option.some.injEq] at hw <;> subst hw <;>
             simp only [Holds, val, Fr] at eb ei fb fi <;> refine ⟨?_, by assumption⟩ <;>
             rw [eb, ei, BitVec.ofInt_add] <;> simp only [BitVec.mul_one] <;> ac_rfl
-    · simp only [hs, if_false] at hw; cases hw
+    · simp only [hs, ite_false] at hw; cases hw
 
 theorem toNat_limb (dp : Int) : (((dp % 32 / 8).toNat : Nat) : Int) = dp % 32 / 8 :=
   Int.toNat_of_nonneg (Int.ediv_nonneg (Int.emod_nonneg _ (by decide)) (by decide))
@@ -532,7 +532,7 @@ theorem inv_spAdj {x₀ : XS} {ρ : XV → BitVec 64} {D : Nat} {s : XCS} {x : X
     by_cases e : r = .r13
     · subst e; simp only [rv_r13, Option.some.injEq] at hv; subst hv; simp [Holds, val, hy]
     · rw [rv_moved _ _ _ _ _ e] at hv
-      simp only [Evm.CL.X86Sem.XS.withFlags_regs, Evm.CL.X86Sem.XS.set_regs, if_neg e]; exact h.regs r v hv
+      simp only [Evm.CL.X86Sem.XS.withFlags_regs, Evm.CL.X86Sem.XS.set_regs, ite_eq_right e]; exact h.regs r v hv
   · intro c l hc hl; exact h.mem c l hc hl
   · intro r v hv
     by_cases e : r = .r13
@@ -547,7 +547,7 @@ theorem ofInt_sub' (a b : Int) : BitVec.ofInt 64 (a - b) = BitVec.ofInt 64 a - B
 theorem ins_base {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x x' : XS} {i : XInsn}
     (h : Inv x₀ ρ d s x) (hb : (wr i).any isBase = true) (hc : xcstep d i s = some t) (hex : XExec i x x') :
     Inv x₀ ρ d t x' := by
-  simp only [xcstep, hb, if_true] at hc
+  simp only [xcstep, hb, ite_true] at hc
   cases i <;> simp only [reduceCtorEq] at hc
   rename_i o dd k
   split at hc
@@ -645,13 +645,13 @@ theorem ins_inv_nb {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x 
     ∃ v, Inv x₀ (ext x₀ ρ d v x'.mem) (d + 1) t x' := by
   cases i
   case aluRI o dd k =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false] at hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false] at hc
     split at hc
     · rename_i hk; obtain ⟨rfl, rfl⟩ := hk; cases hc
       exact ⟨0, inv_succ 0 x'.mem (ins_cmp k h hex)⟩
     · exact ins_other h hb' hc hex hsep rfl
   case lea dd m =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false, Option.some.injEq] at hc; subst hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false, Option.some.injEq] at hc; subst hc
     have hd := notBase_of (dd := dd) hb' (by simp [wr, wdst])
     rw [exec_some rfl hex]
     have hs := inv_succ ((x.set dd (ea x m)).regs dd) (x.set dd (ea x m)).mem h
@@ -661,13 +661,13 @@ theorem ins_inv_nb {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x 
     | some w => exact leaV_holds h m e _ _ _
     | none => simp [Holds, val, ext, Fr]
   case movRR dd a =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false, Option.some.injEq] at hc; subst hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false, Option.some.injEq] at hc; subst hc
     have hd := notBase_of (dd := dd) hb' (by simp [wr, wdst])
     rw [exec_some rfl hex]
     have hs := inv_succ 0 (x.set dd (x.regs a)).mem h
     exact ⟨_, inv_setR (inv_s0 hs) dd _ _ hd (fun w hw => ⟨hs.regs a w hw, hs.frR a w hw⟩)⟩
   case aluRR o dd a =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false] at hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false] at hc
     split at hc
     · rename_i ho; subst ho; cases hc
       have hd := notBase_of (dd := dd) hb' (by simp [wr, wdst])
@@ -678,7 +678,7 @@ theorem ins_inv_nb {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x 
       exact addV_holds h dd a _ (by simp [ext])
     · exact ins_other h hb' hc hex hsep rfl
   case movRM dd m =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false, Option.some.injEq] at hc; subst hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false, Option.some.injEq] at hc; subst hc
     have hd := notBase_of (dd := dd) hb' (by simp [wr, wdst])
     rw [exec_some rfl hex]
     have hs := inv_succ ((x.set dd (ld64 x.mem (ea x m))).regs dd) x.mem h
@@ -691,7 +691,7 @@ theorem ins_inv_nb {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x 
       rw [← he] at key; exact ⟨key, hs.frM c l hcw⟩
     · simp [Holds, val, ext, Fr]
   case movMR m r =>
-    simp only [xcstep, hb', Bool.false_eq_true, if_false] at hc
+    simp only [xcstep, hb', Bool.false_eq_true, ite_false] at hc
     obtain rfl : x' = x.store64 (ea x m) (x.regs r) := exec_some rfl hex
     split at hc
     · rename_i cb c l hw hcl; cases hc
@@ -705,9 +705,9 @@ theorem ins_inv_nb {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s t : XCS} {x 
       have hwin := hsep (Or.inl rfl) (by simp [placed, hw])
       exact ⟨_, inv_write none [] h (by simp) (fun r' _ => rfl) hwin⟩
   all_goals first
-    | (simp only [xcstep, hb', Bool.false_eq_true, if_false] at hc
+    | (simp only [xcstep, hb', Bool.false_eq_true, ite_false] at hc
        exact ins_other h hb' hc hex hsep rfl)
-    | (simp only [xcstep, hb', Bool.false_eq_true, if_false] at hc
+    | (simp only [xcstep, hb', Bool.false_eq_true, ite_false] at hc
        split at hc
        · cases hc
        · exact ins_other h hb' hc hex hsep rfl)
@@ -756,7 +756,7 @@ theorem inv_call {x₀ : XS} {ρ : XV → BitVec 64} {d : Nat} {s : XCS} {x x' :
       · cases hv
       · rename_i hk; rw [hx r (callee_saved_of r hk)]; exact hs.regs r v hv
     · intro c l hc hl; simp only [XCS.mv, List.find?_nil, Option.map_none, Option.getD_none, Holds, val, ext,
-        if_true]
+        ite_true]
     · exact Nat.le_refl _
     · intro r v hv
       change K.rv r = some v at hv
@@ -929,7 +929,7 @@ theorem clean_of {its : List XItem} {F d : Nat} {q : List XItem} {t : XCS} (h : 
 theorem clean_exit {its : List XItem} {d : Nat} {i : XInsn} {rest : List XItem} {s : XCS}
     (hcl : Clean its d (.I i :: rest) s) (h : isExit i = true) : exitOk s = true := by
   obtain ⟨F, hF⟩ := hcl
-  simp only [xcwalk, h, if_true] at hF
+  simp only [xcwalk, h, ite_true] at hF
   split at hF
   · assumption
   · cases hF
@@ -938,7 +938,7 @@ theorem clean_ins {its : List XItem} {d : Nat} {i : XInsn} {rest : List XItem} {
     (hcl : Clean its d (.I i :: rest) s) (he : isExit i = false) (hc : isCallI i = false) :
     ∃ t, xcstep d i s = some t ∧ Clean its (d + 1) rest t := by
   obtain ⟨F, hF⟩ := hcl
-  simp only [xcwalk, he, hc, Bool.false_eq_true, if_false] at hF
+  simp only [xcwalk, he, hc, Bool.false_eq_true, ite_false] at hF
   cases ht : xcstep d i s with
   | none => rw [ht] at hF; cases hF
   | some t => rw [ht] at hF; exact ⟨t, rfl, clean_of hF⟩
@@ -949,7 +949,7 @@ theorem clean_call {its : List XItem} {d : Nat} {it : XItem} {rest : List XItem}
   cases it <;> (try simp only [isCallItem, reduceCtorEq] at h)
   case I i =>
     cases i <;> simp only [reduceCtorEq] at h
-    simp only [xcwalk, isExit, isCallI, Bool.false_eq_true, if_false, if_true] at hF; exact clean_of hF
+    simp only [xcwalk, isExit, isCallI, Bool.false_eq_true, ite_false, ite_true] at hF; exact clean_of hF
   case CallRip => simp only [xcwalk] at hF; exact clean_of hF
   case Call => simp only [xcwalk] at hF; exact clean_of hF
 

@@ -62,7 +62,7 @@ def closed (k : Nat) (e : Environment) (self : Evm.Address) (key : Evm.U256) : H
 theorem run_term (k : Nat) (e : Environment) (self : Evm.Address) (key : Evm.U256) :
     term.run (ctxOf k self key) (HState.ofEnv e) = closed k e self key := by
   simp only [term, gas, Stmt.run, BExp.eval, WExp.eval, AExp.eval, GExp.eval, ctxOf, HState.ofEnv,
-    String.reduceEq, if_true, if_false, coldOf, closed, priceOf]
+    String.reduceEq, ite_true, ite_false, coldOf, closed, priceOf]
   by_cases hk : k ≥ 10 <;> by_cases hc : e.accessedStorageKeys.contains (self, key) = true <;>
     simp [hk, hc]
 

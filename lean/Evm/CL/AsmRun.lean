@@ -516,7 +516,7 @@ theorem skipTo_append_of_found (l : String) (xs ys : List AInstr) (h : skipTo l 
       simp only [List.cons_append, skipTo]
       split
       · simp
-      · simp only [skipTo] at h; rw [if_neg (by assumption)] at h; exact ih h
+      · simp only [skipTo] at h; rw [ite_eq_right (by assumption)] at h; exact ih h
     | _ => simp only [List.cons_append, skipTo] at h ⊢; exact ih h
 
 /-- `skipTo` returns a suffix. -/
@@ -555,14 +555,14 @@ theorem run_append (H : Helpers) (p q : List AInstr) (s : RS) (hc : closed p) :
     rw [skipTo_append_of_found l rest q (hc.1 l (by simp [refLabel, hi]))]
     exact ih (closed_suffix hc.2 (skipTo_suffix l rest))
   | case5 i rest s c l hi ht ih =>
-    simp only [List.cons_append, run, hi, if_pos ht]
+    simp only [List.cons_append, run, hi, ite_eq_left ht]
     rw [skipTo_append_of_found l rest q (hc.1 l (by simp [refLabel, hi]))]
     exact ih (closed_suffix hc.2 (skipTo_suffix l rest))
   | case6 i rest s c l hi ht ih =>
-    simp only [List.cons_append, run, hi, if_neg ht]; exact ih hc.2
+    simp only [List.cons_append, run, hi, ite_eq_right ht]; exact ih hc.2
   | case7 i rest s sym hi => simp [run, hi]
   | case8 i rest s c sym hi ht => simp [run, hi, ht]
-  | case9 i rest s c sym hi ht ih => simp only [List.cons_append, run, hi, if_neg ht]; exact ih hc.2
+  | case9 i rest s c sym hi ht ih => simp only [List.cons_append, run, hi, ite_eq_right ht]; exact ih hc.2
   | case10 i rest s h hi ih => simp only [List.cons_append, run, hi]; exact ih hc.2
   | case11 i rest s hi s' hs ih => simp only [List.cons_append, run, hi, hs]; exact ih hc.2
   | case12 i rest s hi hs => simp [hi, hs]

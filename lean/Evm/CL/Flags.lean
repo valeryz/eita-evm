@@ -111,6 +111,7 @@ def x86Charge (gas : BitVec 64) (n : BitVec 64) : Option (BitVec 64) :=
   let (r, borrow) := subBorrow gas n false
   if x86B (x86CF_sub borrow) then none else some r
 
+set_option backward.isDefEq.respectTransparency false in
 /-- Both charge exactly the spec's "OOG iff n > gas, else gas - n". -/
 theorem charges_agree (gas n : BitVec 64) : armCharge gas n = x86Charge gas n := by
   simp [armCharge, x86Charge, armLo, armC_sub, x86B, x86CF_sub]

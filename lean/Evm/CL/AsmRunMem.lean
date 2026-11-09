@@ -75,7 +75,7 @@ theorem ld64_st64_same (m : Mem) (a v : BitVec 64) : ld64 (st64 m a v) a = v := 
     fun i j hi hj h => off_ne_off a i j (by omega) (by omega) h
   have nb : ∀ i : Nat, 0 < i → i < 8 → off a i ≠ a := fun i h h' => off_ne_base a i h (by omega)
   have nb' : ∀ i : Nat, 0 < i → i < 8 → a ≠ off a i := fun i h h' => (nb i h h').symm
-  simp only [ld64, st64, st8, if_true]
+  simp only [ld64, st64, st8, ite_true]
   simp
   bv_decide
 

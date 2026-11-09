@@ -63,6 +63,7 @@ theorem fraction_change_is_observable :
     Evm.Osaka.Spec.calculateBlobGasPriceAt .bpo2   11684671 = 2 := by
   refine ⟨?_, ?_, ?_, ?_, ?_⟩ <;> native_decide
 
+set_option backward.isDefEq.respectTransparency false in
 /-- **The emitted excess-blob-gas update is the fork-typed spec's** (EELS
     `calculate_excess_blob_gas` with the fork's schedule entry and, from Osaka, EIP-7918's
     reserve-price clause): for every fork and parent header. -/

@@ -36,20 +36,20 @@ theorem getStorage_setStorage (s : State) (a x : Evm.Address) (k j v : Evm.U256)
     · simp [hx, hq]
     · simp [hx]
   by_cases hv : v = 0
-  · rw [if_pos hv]
+  · rw [ite_eq_left hv]
     by_cases h : (x, j) = (a, k)
-    · rw [if_pos h, hv]
+    · rw [ite_eq_left h, hv]
       have : (s.storage.filter (fun p : (Evm.Address × Evm.U256) × Evm.U256 => decide (p.1 ≠ (a, k)))).find?
           (fun p => decide (p.1 = (x, j))) = none := by
         rw [List.find?_eq_none]; intro p hp'
         simp only [List.mem_filter] at hp'
         simp only [decide_eq_true_eq]; intro he; rw [he, h] at hp'; simp at hp'
       simp only [this]
-    · rw [if_neg h]; simp [List.find?_filter, hp (x, j) h]
-  · rw [if_neg hv]
+    · rw [ite_eq_right h]; simp [List.find?_filter, hp (x, j) h]
+  · rw [ite_eq_right hv]
     by_cases h : (x, j) = (a, k)
-    · rw [if_pos h]; simp [h]
-    · rw [if_neg h]; simp [List.find?_filter, hp (x, j) h, Ne.symm h]
+    · rw [ite_eq_left h]; simp [h]
+    · rw [ite_eq_right h]; simp [List.find?_filter, hp (x, j) h, Ne.symm h]
 
 theorem setStorage_sagree_self (s : State) (a : Evm.Address) (k : Evm.U256) :
     SAgree (s.setStorage a k (s.getStorage a k)) s :=
@@ -93,7 +93,7 @@ def closed (k : Nat) (e : Environment) (self : Evm.Address) (key new : Evm.U256)
 theorem run_term (k : Nat) (e : Environment) (self : Evm.Address) (key new : Evm.U256) :
     term.run (ctxOf k self key new) (HState.ofEnv e) = closed k e self key new := by
   simp only [term, Stmt.run, BExp.eval, WExp.eval, AExp.eval, ctxOf, HState.ofEnv, String.reduceEq,
-    if_true, if_false, coldOf, closed, planOf]
+    ite_true, ite_false, coldOf, closed, planOf]
   by_cases hk : k ≥ 10 <;> by_cases hc : e.accessedStorageKeys.contains (self, key) = true <;>
     by_cases hn : new = e.state.getStorage self key <;>
     simp [hk, hc, hn]
@@ -168,7 +168,7 @@ set_option hygiene false in
 /-- Unfold a handler down to its charge, and split on the charge. -/
 macro "ss_open" : tactic => `(tactic| (
   simp only [hstack, hstatic, Stack.pop2, Stack.pop, bind, Except.bind, pure, Except.pure,
-    Bool.false_eq_true, if_false, ite_false]))
+    Bool.false_eq_true, ite_false, ite_false]))
 
 set_option maxHeartbeats 4000000 in
 theorem refines_frontier (k : Nat) (hk : k < 8) (h6 : k ≠ 6) (evm : Evm) (key new : Evm.U256)
@@ -238,7 +238,7 @@ theorem refines_constantinople (evm : Evm) (key new : Evm.U256)
       Evm.Constantinople.Vm.Instructions.sstoreGas evm.env.refundCounter
         (evm.env.originalState.getStorage evm.message.currentTarget key)
         (evm.env.state.getStorage evm.message.currentTarget key) new := by
-    simp only [planOf, sstorePlan, SstoreSched.ofFork, SstoreSched.plan, if_true]; rw [horig]
+    simp only [planOf, sstorePlan, SstoreSched.ofFork, SstoreSched.plan, ite_true]; rw [horig]
   unfold Evm.Constantinople.Vm.Instructions.sstore
   ss_open
   rcases charge_cases evm.gasLeft (Evm.Constantinople.Vm.Instructions.sstoreGas evm.env.refundCounter
@@ -278,18 +278,18 @@ theorem refines_istanbul (k : Nat) (hk : k = 8 ∨ k = 9) (evm : Evm) (key new :
     have h1 : k ≠ 6 := by omega
     have h2 : ¬ k < 8 := by omega
     have h3 : k < 10 := by omega
-    simp only [planOf, sstorePlan, SstoreSched.ofFork, SstoreSched.plan, h1, h2, h3, if_true, if_false]; rw [horig]
+    simp only [planOf, sstorePlan, SstoreSched.ofFork, SstoreSched.plan, h1, h2, h3, ite_true, ite_false]; rw [horig]
   have hs : ¬ evm.gasLeft ≤ Evm.Istanbul.Vm.Gas.sstoreSentryGas := by
     simp [Evm.Istanbul.Vm.Gas.sstoreSentryGas]; omega
   unfold Evm.Istanbul.Vm.Instructions.sstore
   ss_open
-  simp only [hs, if_false]
+  simp only [hs, ite_false]
   rcases charge_cases evm.gasLeft (Evm.Istanbul.Vm.Instructions.sstoreGas evm.env.refundCounter
       (evm.env.originalState.getStorage evm.message.currentTarget key)
       (evm.env.state.getStorage evm.message.currentTarget key) new).1 with ⟨hle, hc⟩ | ⟨hlt, hc⟩
   · rw [hc]
     refine ⟨fun evm' h => ?_, fun e h => ?_⟩
-    · simp only [hstatic, Bool.false_eq_true, if_false, Except.ok.injEq] at h; subst h
+    · simp only [hstatic, Bool.false_eq_true, ite_false, Except.ok.injEq] at h; subst h
       refine ⟨⟨?_, ?_, ?_, ?_, ?_⟩, ?_⟩
       · exact state_agree _ _ _ _
       · simp [closed, hp]
@@ -345,7 +345,7 @@ theorem refines_berlin (k : Nat) (hk : k = 10) (evm : Evm) (key new : Evm.U256)
   have hk10 : k ≥ 10 := by omega
   unfold Evm.Berlin.Vm.Effect.doSstorePure
   ss_open
-  simp only [hs, if_false, ws_refund, co_refund, Evm.Berlin.Vm.Effect.isSlotWarm, co_slots, ← getOrig_eq,
+  simp only [hs, ite_false, ws_refund, co_refund, Evm.Berlin.Vm.Effect.isSlotWarm, co_slots, ← getOrig_eq,
     decide_not, Bool.decide_eq_true]
   rw [← hp]
   rcases charge_cases evm.gasLeft (planOf k evm.env evm.message.currentTarget key new).1
@@ -390,7 +390,7 @@ theorem refines_london (k : Nat) (hk : 11 ≤ k) (evm : Evm) (key new : Evm.U256
   have hk10 : k ≥ 10 := by omega
   unfold Evm.London.Vm.Effect.doSstoreLondon
   ss_open
-  simp only [hs, if_false, ws_refund, co_refund, Evm.Berlin.Vm.Effect.isSlotWarm, co_slots, ← getOrig_eq,
+  simp only [hs, ite_false, ws_refund, co_refund, Evm.Berlin.Vm.Effect.isSlotWarm, co_slots, ← getOrig_eq,
     decide_not, Bool.decide_eq_true]
   rw [← hp]
   rcases charge_cases evm.gasLeft (planOf k evm.env evm.message.currentTarget key new).1

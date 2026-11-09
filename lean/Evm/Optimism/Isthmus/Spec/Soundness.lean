@@ -27,6 +27,7 @@ open Evm.Frontier.Vm (Message Environment Evm Exception)
     the scratch maps (`transientStorage`, `createdAccounts`,
     `accessedAddresses`, `accessedKeys`) never reach the result. -/
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `applyMessage`'s result depends on the Prague state only through
     `inner`. -/
 theorem pragueApplyMessage_depends_only_on_inner

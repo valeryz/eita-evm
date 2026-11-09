@@ -130,7 +130,7 @@ theorem commitFrom_eq_seq
       -- the recursive validated schedule from the stepped state matches
       have hrest' : ScheduleValidFrom view (applyWrites s (t.effect s)) (i+1) ts := by
         simpa [heff] using hrest
-      simpa using ih (applyWrites s (t.effect s)) (i+1) wfts hrest'
+      simpa [Tx.run] using ih (applyWrites s (t.effect s)) (i+1) wfts hrest'
 
 /-- **Block-STM refines sequential execution (SAFETY).** Any validated schedule — i.e. every
     committed tx read, on its footprint, exactly the sequential-prefix values, which is what
@@ -233,7 +233,7 @@ theorem applyWrites_notMem (ws : List (Key × Val)) (s : Storage) (k : Key)
       simp only [applyWrites]
       rw [ih (store s k' v') hnin]
       simp only [store]
-      rw [if_neg hne]
+      rw [ite_eq_right hne]
 
 /-- The value at a WRITTEN key depends only on the write-list, not the base storage. -/
 theorem applyWrites_memIndep (ws : List (Key × Val)) (s s' : Storage) (k : Key)

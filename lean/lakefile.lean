@@ -47,7 +47,7 @@ package evm where
   precompileModules := false
   moreLinkArgs := evmLinkArgs
 
-require "leanprover-community" / "mathlib" @ git "v4.29.1"
+require "leanprover-community" / "mathlib" @ git "v4.35.0"
 
 /-- Every module under `Evm/` is part of the default build, not only those reachable from
     `Evm.lean`: an orphaned module (nothing imports it) is still compiled, so it cannot rot
@@ -196,7 +196,7 @@ target uds.o pkg : FilePath := do
   buildO oFile srcJob (← cFlags) #[] "cc"
 
 /-- Build c/csu_shim.c → csu_shim.o. Supplies __libc_csu_init/__libc_csu_fini
-    for the inconsistent Lean v4.29.1 Linux toolchains (aarch64 and x86_64):
+    for the inconsistent Lean v4.29.1/v4.35.0 Linux toolchains (aarch64 and x86_64):
     old-style bundled Scrt1.o references those symbols, glibc >= 2.34 dropped
     them, so every `lean_exe` fails to link without the shim. Empty TU on
     macOS. See csu_shim.c. -/

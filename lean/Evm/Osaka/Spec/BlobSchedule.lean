@@ -142,7 +142,7 @@ theorem calculateExcessBlobGasAt_eq_prague (f : Evm.Fork) (h : ¬ f.atLeast .osa
   have hb : f.atLeast .osaka = false := by simpa using h
   have ht := targetBlobGasPerBlockAt_eq_prague f h1
   simp only [calculateExcessBlobGasAt, Evm.Prague.Spec.calculateExcessBlobGasAt, hb,
-             Bool.false_eq_true, false_and, if_false]
+             Bool.false_eq_true, false_and, ite_false]
   -- the schedule's target is Prague's below BPO1 (no numerals are compared here: the
   -- `targetBlobGasPerBlockAt` fold is definitional)
   rw [show (blobParamsAt f).target * gasPerBlob = targetBlobGasPerBlockAt f from rfl, ht]

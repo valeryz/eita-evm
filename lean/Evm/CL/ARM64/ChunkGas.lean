@@ -172,7 +172,7 @@ theorem chargeEach_of_le (cs : List Nat) (m : GMach) (h : cs.sum ≤ m.gas) :
       have : c ≤ cs.sum + c := Nat.le_add_left _ _
       simp [List.sum_cons] at h; omega
     rw [chargeEach_cons]
-    simp only [GInstr.denote, hc, if_true]
+    simp only [GInstr.denote, hc, ite_true]
     have h' : cs.sum ≤ m.gas - c := by simp [List.sum_cons] at h; omega
     rw [ih _ h']
     simp [List.sum_cons]
@@ -186,10 +186,10 @@ theorem chargeEach_of_gt (cs : List Nat) (m : GMach) (h : m.gas < cs.sum) :
   | cons c cs ih =>
     rw [chargeEach_cons]
     by_cases hc : c ≤ m.gas
-    · simp only [GInstr.denote, hc, if_true]
+    · simp only [GInstr.denote, hc, ite_true]
       simp only [List.sum_cons] at h
       exact ih _ (show m.gas - c < cs.sum by omega)
-    · simp only [GInstr.denote, hc, if_false]
+    · simp only [GInstr.denote, hc, ite_false]
       exact chargeEach_oog cs
 
 /-- **The chunk head is exactly per-op charging.** One `subs` of the block's

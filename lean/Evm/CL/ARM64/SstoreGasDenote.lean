@@ -88,19 +88,19 @@ private theorem toNat_cast_sub (r k : Nat) : ((r : Int) - (k : Int)).toNat = r -
 private theorem clamp_nonneg (r : Nat) (c : Int) (h : 0 ≤ c) :
     (if ((r : Int) + c) < 0 then 0 else ((r : Int) + c).toNat) = r + c.toNat := by
   have hn : ¬ ((r : Int) + c < 0) := by omega
-  simp only [hn, if_false]; omega
+  simp only [hn, ite_false]; omega
 
 /-- The δ = 0 shape, which `simp only` leaves as `↑r + 0`. -/
 private theorem clamp_zero (r : Nat) :
     (if ((r : Int) + 0) < 0 then 0 else ((r : Int) + 0).toNat) = r := by
   have hn : ¬ ((r : Int) + 0 < 0) := by omega
-  simp only [hn, if_false]; omega
+  simp only [hn, ite_false]; omega
 
 private theorem clamp_negative (r : Nat) (c : Int) (h : c < 0) :
     (if ((r : Int) + c) < 0 then 0 else ((r : Int) + c).toNat) = r - (-c).toNat := by
   by_cases hb : (r : Int) + c < 0
-  · simp only [hb, if_true]; omega
-  · simp only [hb, if_false]; omega
+  · simp only [hb, ite_true]; omega
+  · simp only [hb, ite_false]; omega
 
 /-! ### Legacy (Frontier..Byzantium, Petersburg) -/
 
@@ -209,12 +209,12 @@ theorem clampBridge (r a b : Nat) :
      else ((r : Int) + ((a : Int) - (b : Int))).toNat)
       = (if r + a < b then 0 else r + a - b) := by
   by_cases h : (r : Int) + ((a : Int) - (b : Int)) < 0
-  · simp only [h, if_true]
+  · simp only [h, ite_true]
     have : r + a < b := by omega
-    simp only [this, if_true]
-  · simp only [h, if_false]
+    simp only [this, ite_true]
+  · simp only [h, ite_false]
     have : ¬ (r + a < b) := by omega
-    simp only [this, if_false]
+    simp only [this, ite_false]
     omega
 
 /-- The signed delta IS `add − sub`: 64 closed cases, no refund counter, no

@@ -112,7 +112,7 @@ theorem frag_commit_exit (idx : Expr → Nat) (ws : List MemWrite) (net : Int) (
       exact (frag_exitOne idx net e 0).append (flatMap_hi _ (fun (p : Expr × Nat) => frag_exitOne idx net p.1 p.2) _)
   | cons w ws =>
     unfold memCommitT
-    rw [if_neg (by simp)]
+    rw [ite_eq_right (by simp)]
     dsimp only
     rw [List.append_assoc, List.append_assoc]
     refine (frag_memExpand _).append ((frag_mpUpdate _).append ?_)

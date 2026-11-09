@@ -2277,8 +2277,8 @@ theorem jump_extract_correct
   | dest :: rest =>
     simp [Form.interp, h, Env.set]
     by_cases hc : Evm.Frontier.Vm.Runtime.isJumpDest s.code dest.toNat = true
-    · rw [if_pos hc, if_pos hc]
-    · rw [if_neg hc, if_neg hc]
+    · rw [ite_eq_left hc, ite_eq_left hc]
+    · rw [ite_eq_right hc, ite_eq_right hc]
 
 theorem jumpi_extract_correct
     {Addr : Type} [DecidableEq Addr] (s : CLState Addr Evm.U256) :
@@ -2290,11 +2290,11 @@ theorem jumpi_extract_correct
   | dest :: cnd :: rest =>
     simp [Form.interp, h, Env.set]
     by_cases hz : cnd = (0#256 : Evm.U256)
-    · rw [if_pos hz, if_pos hz]
-    · rw [if_neg hz, if_neg hz]
+    · rw [ite_eq_left hz, ite_eq_left hz]
+    · rw [ite_eq_right hz, ite_eq_right hz]
       by_cases hc : Evm.Frontier.Vm.Runtime.isJumpDest s.code dest.toNat = true
-      · rw [if_pos hc, if_pos hc]
-      · rw [if_neg hc, if_neg hc]
+      · rw [ite_eq_left hc, ite_eq_left hc]
+      · rw [ite_eq_right hc, ite_eq_right hc]
 
 theorem calldataload_extract_correct
     {Addr : Type} [DecidableEq Addr] (s : CLState Addr Evm.U256) :

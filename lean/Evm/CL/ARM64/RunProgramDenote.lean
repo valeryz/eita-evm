@@ -192,7 +192,7 @@ theorem runAsm_eq_runSpec {σ : Type} (L : Loop σ) (m : List (Nat × Nat))
     simp [runAsm, runSpec, hs]
   | succ f ih =>
     intro s hs
-    simp only [runAsm, runSpec, hs, if_false, Bool.false_eq_true, tableLookup_build m hfn]
+    simp only [runAsm, runSpec, hs, ite_false, Bool.false_eq_true, tableLookup_build m hfn]
     cases manifestLookup m (L.pc s) with
     | none => rfl
     | some fn =>

@@ -67,7 +67,7 @@ a design note (issue #6 of the original tracker)).
 ```
 lean/
 ├── lakefile.toml
-├── lean-toolchain                  # leanprover/lean4:v4.29.1
+├── lean-toolchain                  # leanprover/lean4:v4.35.0
 ├── Evm.lean                        # root re-exports
 └── Evm/
     ├── BaseTypes.lean              # U8/U64/U256, Address, Hash32, Bytes
@@ -114,7 +114,7 @@ lake exe replay external/ethereum-tests/LegacyTests/Constantinople/BlockchainTes
 lake exe replay external/ethereum-tests/LegacyTests/Constantinople/BlockchainTests/GeneralStateTests
 ```
 
-Requires Lean 4.29.1 via elan; libsecp256k1 for ECDSA recovery; the
+Requires Lean 4.35.0 via elan; libsecp256k1 for ECDSA recovery; the
 `ethereum/tests` submodule initialized under `external/`.
 
 ## Build-out order

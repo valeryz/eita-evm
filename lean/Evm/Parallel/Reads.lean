@@ -75,7 +75,7 @@ theorem addDelta_get (s : Storage) (k' : Key) (d : Nat) (k : Key) :
   simp only [addDelta, store]
   by_cases h : k = k'
   · subst h; simp
-  · rw [if_neg h, if_neg (fun h' => h h'.symm)]; simp
+  · rw [ite_eq_right h, ite_eq_right (fun h' => h h'.symm)]; simp
 
 /-- Applying deltas adds their per-key sum: the value is base + Σδ, whatever the order. -/
 theorem applyDeltas_get (ds : List (Key × Nat)) (s : Storage) (k : Key) :

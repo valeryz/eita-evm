@@ -232,7 +232,7 @@ open Lean Elab Command AxiomAudit.ExternRule in
     unless ours env n do continue
     let start? : Option (Name × Array Name) := match ci with
       | .axiomInfo a => if isNativeAux n then some (n.getPrefix.getPrefix.getPrefix, a.type.getUsedConstants) else none
-      | .thmInfo t => if t.value.getUsedConstants.contains ``Lean.ofReduceBool then some (n, t.value.getUsedConstants) else none
+      -- Lean ≥ v4.3x: `Lean.ofReduceBool` is gone; native_decide only produces the aux axiom above
       | _ => none
     let some (thm, start) := start? | continue
     checked := checked + 1

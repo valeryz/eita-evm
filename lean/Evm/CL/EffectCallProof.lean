@@ -98,21 +98,22 @@ theorem rule2_eval (c : Ctx) (h : HState) : rule2.eval c h = rule2v (c.addr "ct"
 theorem touch_run (c : Ctx) (h : HState) (a : AExp) : (Stmt.touch a).run c h = touchH c h (a.eval c) := rfl
 
 set_option maxHeartbeats 4000000 in
+set_option backward.isDefEq.respectTransparency false in
 theorem finish_run (c : Ctx) (h : HState) : finish.run c h = finishClosed c h := by
   unfold finish finishClosed
   cases hr : c.res "r" with
   | err =>
-    simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, if_true, rule2_eval, touch_run, AExp.eval,
+    simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, ite_true, rule2_eval, touch_run, AExp.eval,
       GExp.eval, WExp.eval]
     cases rule2v (c.addr "ct") (c.snaps "snap").state <;> by_cases h4 : c.fork ≥ 4 <;> simp [h4, touchH, ripA]
   | ok h' g o rv =>
     cases rv
-    · simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, ChildRes.isRev, Bool.false_eq_true, if_false,
+    · simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, ChildRes.isRev, Bool.false_eq_true, ite_false,
         GExp.eval, WExp.eval, AExp.eval, touch_run, used, fwdAll, ChildRes.gas, ChildRes.out, usedv]
       cases (h.state.accountExists (c.addr "ct") && EffectIR.isDead h.state (c.addr "ct")) <;>
         by_cases h4 : c.fork ≥ 4 <;> simp [h4, touchH]
-    · simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, ChildRes.isRev, Bool.false_eq_true, if_false,
-        if_true, GExp.eval, WExp.eval, AExp.eval, touch_run, used, fwdAll, ChildRes.gas, ChildRes.out,
+    · simp only [Stmt.run, BExp.eval, hr, ChildRes.strip, ChildRes.isErr, ChildRes.isRev, Bool.false_eq_true, ite_false,
+        ite_true, GExp.eval, WExp.eval, AExp.eval, touch_run, used, fwdAll, ChildRes.gas, ChildRes.out,
         usedv, rule2_eval]
       cases rule2v (c.addr "ct") (c.snaps "snap").state <;> by_cases ht : Evm.Address.ofNat 3 ∈ h.touched <;>
         by_cases h4 : c.fork ≥ 4 <;> simp [h4, ht, touchH, ripA]
@@ -132,6 +133,7 @@ def preRes (c : Ctx) (h : HState) (a : Evm.Address) (g : Nat) : ChildRes :=
 
 def fwdv (c : Ctx) : Nat := c.nat "fwd" + c.nat "stip"
 
+set_option backward.isDefEq.respectTransparency false in
 theorem dispatch_run (c : Ctx) (h : HState) :
     dispatch.run c h =
       if (!c.bool "hasdeleg" && (c.pre (c.addr "to")).isSome) then
@@ -341,6 +343,7 @@ theorem existsDead (s : State) (a : Evm.Address) :
     (s.accountExists a && EffectIR.isDead s a) = (s.accountExists a && (s.getAccount a).isEmpty) := by
   unfold EffectIR.isDead; cases s.accountExists a <;> simp
 
+set_option backward.isDefEq.respectTransparency false in
 /-- `incorporate_child_on_error`'s exemption, as the term computes it. -/
 theorem ripemd_agree (k : Nat) (c : Ctx) (hk : c.fork = k) (e : Environment) (ct : Evm.Address)
     (T : List Evm.Address) :
@@ -393,6 +396,7 @@ theorem arith_rev (G c f s g : Nat) (h1 : ¬ G < c + f) (h2 : s ≤ c) (h3 : g �
 theorem arith_err (G c f : Nat) (h1 : ¬ G < c + f) : G = G - c - f + (c + f) := by omega
 
 set_option maxHeartbeats 64000000 in
+set_option backward.isDefEq.respectTransparency false in
 theorem finish_refines (k : Nat) (n : Native) (c3 : Ctx) (R : Except Exception Evm)
     (hk : c3.fork = k) (hch : c3.nat "charge" = (planS k n).charge)
     (hfw : c3.nat "fwd" = (planS k n).forward) (hsp : c3.nat "stip" = (planS k n).stipend)
@@ -409,7 +413,7 @@ theorem finish_refines (k : Nat) (n : Native) (c3 : Ctx) (R : Except Exception E
   rw [hres]
   cases R with
   | error e =>
-    simp only [toRes, ChildRes.strip, afterChild, hsnap, hct, hch, hfw, push_ite, e0S, hl, if_false]
+    simp only [toRes, ChildRes.strip, afterChild, hsnap, hct, hch, hfw, push_ite, e0S, hl, ite_false]
     refine ⟨fun e' h => ?_, fun e h => (by cases h)⟩
     cases h
     refine ⟨?_, ?_, rfl, rfl, ?_⟩
@@ -421,7 +425,7 @@ theorem finish_refines (k : Nat) (n : Native) (c3 : Ctx) (R : Except Exception E
   | ok sub =>
     have hm := hmonoR sub rfl
     cases hrv : sub.reverted
-    · simp only [toRes, ChildRes.strip, hrv, afterChild, hct, hch, hfw, hsp, Bool.false_eq_true, if_false, push_ite, e0S, hl,
+    · simp only [toRes, ChildRes.strip, hrv, afterChild, hct, hch, hfw, hsp, Bool.false_eq_true, ite_false, push_ite, e0S, hl,
         usedv]
       refine ⟨fun e' h => ?_, fun e h => (by cases h)⟩
       cases h
@@ -432,7 +436,7 @@ theorem finish_refines (k : Nat) (n : Native) (c3 : Ctx) (R : Except Exception E
       · simp only [h4S, HState.ofEnv]; exact arith_rev _ _ _ _ _ hG hst hm
       · rfl
       · rfl
-    · simp only [toRes, ChildRes.strip, hrv, afterChild, hct, hch, hfw, hsp, hsnap, if_true, push_ite, e0S, hl, if_false,
+    · simp only [toRes, ChildRes.strip, hrv, afterChild, hct, hch, hfw, hsp, hsnap, ite_true, push_ite, e0S, hl, ite_false,
         usedv]
       refine ⟨fun e' h => ?_, fun e h => (by cases h)⟩
       cases h
@@ -455,11 +459,11 @@ theorem afterPlan_refines (k : Nat) (n : Native) pre runSub (c : Ctx) (h : HStat
   rw [start_eq, afterPlan_run]
   simp only [hB.avail, hB.charge, hB.fwd, hB.stip]
   by_cases hG : n.frame.gasLeft < (planS k n).charge + (planS k n).forward
-  · simp only [hG, if_true]
+  · simp only [hG, ite_true]
     refine ⟨fun e h => (by cases h), fun e h => ?_⟩
     simp only [Except.error.injEq] at h; subst h
     exact ⟨rfl, by simp [HState.ofEnv]; omega⟩
-  · simp only [hG, if_false]
+  · simp only [hG, ite_false]
     have hcond : ((c.bool "vf" && decide (((HState.ofEnv (env2S k n)).state.getBalance (c.addr "self")).toNat
         < (c.word "value").toNat)) || c.bool "deep") = decide (ffS n) := by
       simp only [hB.vf, hB.deep, hB.self, hB.value, HState.ofEnv, env2S_state, ffS,
@@ -467,15 +471,15 @@ theorem afterPlan_refines (k : Nat) (n : Native) pre runSub (c : Ctx) (h : HStat
       cases valueFee n.kind n.value <;> simp
     rw [hcond]
     by_cases hff : ffS n
-    · simp only [hff, decide_true, if_true]
+    · simp only [hff, decide_true, ite_true]
       rw [push_ite]
-      simp only [e0S, hl, if_false]
+      simp only [e0S, hl, ite_false]
       refine ⟨fun e' h => ?_, fun e h => (by cases h)⟩
       cases h
       refine ⟨⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, ?_, rfl, rfl, ?_⟩
       · simp only [HState.ofEnv]; exact arith_ff _ _ _ _ hG hst
       · simp [HState.ofEnv, writeOut_empty]
-    · simp only [hff, decide_false, Bool.false_eq_true, if_false]
+    · simp only [hff, decide_false, Bool.false_eq_true, ite_false]
       rw [proceed_run, childH_bound k n pre runSub c hB, dispatch_run]
       have hct : ({ childMsg (Rules.ofOrd k) n with gas := (planS k n).forward + (planS k n).stipend }
           : Message).currentTarget = ctS n := rfl
@@ -490,14 +494,14 @@ theorem afterPlan_refines (k : Nat) (n : Native) pre runSub (c : Ctx) (h : HStat
       cases hd : dS n
       · cases hp : pre (env2S k n) n.to
         · simp only [hp, hd, Option.isSome_none, Bool.not_false, Bool.true_and, Option.isSome_none,
-            Bool.false_eq_true, if_false, Option.bind_some]
+            Bool.false_eq_true, ite_false, Option.bind_some]
           rw [oracle_child]
           exact finish_refines k n _ _ hB.fork hB.charge hB.fwd hB.stip hB.ct (by simp) (by simp [ChildRes.strip]) hG hst
             (fun sub hs => by have := hmono _ sub hs; simpa [child, Evm.fresh] using this) hlen
         · rename_i p
           have hdata : (childMsg (Rules.ofOrd k) n).data = n.input := rfl
           simp only [hp, hd, Option.isSome_none, Bool.not_false, Bool.true_and, Option.isSome_some,
-            if_true, Option.bind_some, hdata, preRes, hB.pre, hB.to, hB.input]
+            ite_true, Option.bind_some, hdata, preRes, hB.pre, hB.to, hB.input]
           cases hpr : p n.input ((planS k n).forward + (planS k n).stipend) with
           | error e =>
             simp only [hpr, hp, Bool.false_eq_true, ↓reduceIte, Option.bind_some]
@@ -511,8 +515,8 @@ theorem afterPlan_refines (k : Nat) (n : Native) pre runSub (c : Ctx) (h : HStat
               (.ok { child (e0S k n) { childMsg (Rules.ofOrd k) n with gas := (planS k n).forward + (planS k n).stipend } (stS k n) with gasLeft := g, output := o, halted := true })
               hB.fork hB.charge hB.fwd hB.stip hB.ct (by simp) (by simp [toRes, hpr, ChildRes.strip, child, Evm.fresh])
               hG hst (fun sub hs => by cases hs; exact hg) hlen
-      · simp only [hd, Option.isSome_some, Bool.not_true, Bool.false_and, Bool.false_eq_true, if_false,
-          if_true, Option.bind_none]
+      · simp only [hd, Option.isSome_some, Bool.not_true, Bool.false_and, Bool.false_eq_true, ite_false,
+          ite_true, Option.bind_none]
         rw [oracle_child]
         exact finish_refines k n _ _ hB.fork hB.charge hB.fwd hB.stip hB.ct (by simp) (by simp [ChildRes.strip]) hG hst
           (fun sub hs => by have := hmono _ sub hs; simpa [child, Evm.fresh] using this) hlen
@@ -539,6 +543,7 @@ theorem bitvec_zero_lit : (0#256 : Evm.U256) = 0 := rfl
 theorem four_le_iff_ge4 (k : Nat) : (4 ≤ k) = (k ≥ 4) := rfl
 
 set_option maxHeartbeats 64000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **The derived CALL-family callback is every fork's call.** -/
 theorem call_refines (k : Nat) (n : Native)
     (pre : Environment → Evm.Address → Option Evm.Frontier.Vm.PrecompiledContracts.Precompile)
@@ -550,16 +555,16 @@ theorem call_refines (k : Nat) (n : Native)
       (term.run (ctxOf k n pre runSub) (HState.ofEnv n.frame.env)) := by
   unfold term
   simp only [Stmt.run, BExp.eval, AExp.eval, GExp.eval, WExp.eval, ctxOf, String.reduceEq, ↓reduceIte,
-    Bool.false_eq_true, if_false, if_true]
+    Bool.false_eq_true, ite_false, ite_true]
   have hdS : delegate n.frame.env (n.frame.env.state.getAccount n.to).code = dS n := rfl
   rw [hdS]
   by_cases h10 : k ≥ 10 <;> cases hd : dS n <;>
     simp only [h10, decide_true, decide_false, Option.isSome_none, Option.isSome_some, Bool.false_eq_true,
-      if_true, if_false, Option.getD_some] <;>
+      ite_true, ite_false, Option.getD_some] <;>
     refine afterPlan_refines k n pre runSub _ _ ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ ?_
       hmono hpmono hlen
   all_goals (try dsimp only)
-  all_goals (try simp only [String.reduceEq, ↓reduceIte, Bool.false_eq_true, if_false, if_true])
+  all_goals (try simp only [String.reduceEq, ↓reduceIte, Bool.false_eq_true, ite_false, ite_true])
   all_goals try (first
     | rfl
     | (simp only [planS]; congr 1 <;>
@@ -652,8 +657,8 @@ macro "call_bind" a:term:max K:term:max b:term:max : tactic => `(tactic| (
     | unfold Evm.Berlin.Vm.Effect.doCallcode
     | unfold Evm.Berlin.Vm.Effect.doDelegatecall
     | unfold Evm.Berlin.Vm.Effect.doStaticcall
-  dsimp only [Option.map]
-  simp +decide only [Bool.false_eq_true, if_false, if_true, decide_false, decide_true, opcode, fullCall,
+  try dsimp only [Option.map]
+  simp +decide only [Bool.false_eq_true, ite_false, ite_true, decide_false, decide_true, opcode, fullCall,
     tableOf, kindOf, Option.map_some, Evm.Frontier.Vm.Call.run]
   -- v4.29: simp can leave the bound handler folded again; a no-op dsimp
   -- would fail, hence the `try`.
@@ -689,6 +694,7 @@ macro "call_bind" a:term:max K:term:max b:term:max : tactic => `(tactic| (
       rfl))
 
 set_option maxHeartbeats 64000000 in
+set_option backward.isDefEq.respectTransparency false in
 /-- **Every fork's CALL, CALLCODE, DELEGATECALL and STATICCALL, as the IR binds them, are
     `fullCall` at the fork's rules and precompile table**: the native part, then `Call.run`
     (`call_refines`). DELEGATECALL is no opcode before Homestead, STATICCALL before
@@ -802,7 +808,7 @@ theorem call_spec_refines (f : Evm.Fork) (c : Evm.IR.CallKind) (evm : Evm) (n : 
       Refines n.frame n.retOff n.retLen (Evm.Frontier.Vm.Call.run (Rules.ofOrd f.ord) (tableOf f) n runSub)
         (term.run (ctxOf f.ord n (tableOf f) runSub) (HState.ofEnv n.frame.env)) := by
   refine ⟨?_, call_refines _ _ _ _ hmono hpmono hlen⟩
-  rw [call_binding, if_neg hc]
+  rw [call_binding, ite_eq_right hc]
   simp only [fullCall, hn]
 
 end Evm.CL.EffectCall

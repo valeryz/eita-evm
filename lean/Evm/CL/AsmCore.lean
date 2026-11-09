@@ -1727,7 +1727,7 @@ theorem memExpand_charges_eels (m : Mach)
     (hgrow : ¬ (m.scratch + 31) / 32 ≤ m.memSize / 32) :
     (Op.denote .memExpand m).acc
       = m.acc + (memCost ((m.scratch + 31) / 32) - memCost (m.memSize / 32)) := by
-  simp only [Op.denote, memCost, hcap, hgrow, if_false]
+  simp only [Op.denote, memCost, hcap, hgrow, ite_false]
 
 -- Regression guard: createCore/create2Core MUST emit the init-range memexp.
 -- The `.Lcrin0_*` label is produced ONLY by createMemExpandEmit; removing the

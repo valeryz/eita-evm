@@ -212,6 +212,7 @@ theorem emaExpr_eval (ρ : Env) :
   · have h' : alphaMax < ρ "alpha" := by omega
     simp [Expr.eval, h, h']
 
+set_option backward.isDefEq.respectTransparency false in
 theorem nextFeeExpr_eval (ρ : Env) :
     nextFeeExpr.eval ρ = nextBaseFee (ρ "smoothed") (ρ "gas-limit") (ρ "base-fee") (ρ "k-rate") (ρ "inv-elasticity") := by
   unfold nextFeeExpr v n nextBaseFee

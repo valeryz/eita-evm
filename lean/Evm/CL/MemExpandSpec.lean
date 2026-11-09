@@ -75,17 +75,17 @@ theorem memRangeEnd_some_eq (off len : U256) (e : Nat)
     (len.toNat = 0 ∧ e = 0) ∨ (e = off.toNat + len.toNat ∧ e < 2^64) := by
   unfold memRangeEnd at h
   by_cases c1 : (len.l1 ≠ 0 ∨ len.l2 ≠ 0 ∨ len.l3 ≠ 0)
-  · rw [if_pos c1] at h; exact absurd h (by simp)
-  · rw [if_neg c1] at h
+  · rw [ite_eq_left c1] at h; exact absurd h (by simp)
+  · rw [ite_eq_right c1] at h
     by_cases c2 : len.l0 = 0
-    · rw [if_pos c2] at h
+    · rw [ite_eq_left c2] at h
       left
       push Not at c1; obtain ⟨e1, e2, e3⟩ := c1
       exact ⟨by rw [toNat_eq_l0 e1 e2 e3]; exact c2, by simpa using h.symm⟩
-    · rw [if_neg c2] at h
+    · rw [ite_eq_right c2] at h
       by_cases c3 : (off.l1 ≠ 0 ∨ off.l2 ≠ 0 ∨ off.l3 ≠ 0 ∨ 2^64 ≤ off.l0 + len.l0)
-      · rw [if_pos c3] at h; exact absurd h (by simp)
-      · rw [if_neg c3] at h
+      · rw [ite_eq_left c3] at h; exact absurd h (by simp)
+      · rw [ite_eq_right c3] at h
         right
         push Not at c1 c3
         obtain ⟨le1, le2, le3⟩ := c1
@@ -101,17 +101,17 @@ theorem memRangeEnd_none_huge (off len : U256)
   unfold memRangeEnd at h
   by_cases c1 : (len.l1 ≠ 0 ∨ len.l2 ≠ 0 ∨ len.l3 ≠ 0)
   · have := toNat_ge_of_hi c1; have := l0_le_toNat off; omega
-  · rw [if_neg c1] at h
+  · rw [ite_eq_right c1] at h
     by_cases c2 : len.l0 = 0
-    · rw [if_pos c2] at h; exact absurd h (by simp)
-    · rw [if_neg c2] at h
+    · rw [ite_eq_left c2] at h; exact absurd h (by simp)
+    · rw [ite_eq_right c2] at h
       by_cases c3 : (off.l1 ≠ 0 ∨ off.l2 ≠ 0 ∨ off.l3 ≠ 0 ∨ 2^64 ≤ off.l0 + len.l0)
       · rcases c3 with c | c | c | c
         · have := toNat_ge_of_hi (Or.inl c); have := l0_le_toNat len; omega
         · have := toNat_ge_of_hi (Or.inr (Or.inl c)); have := l0_le_toNat len; omega
         · have := toNat_ge_of_hi (Or.inr (Or.inr c)); have := l0_le_toNat len; omega
         · have := l0_le_toNat off; have := l0_le_toNat len; omega
-      · rw [if_neg c3] at h; exact absurd h (by simp)
+      · rw [ite_eq_right c3] at h; exact absurd h (by simp)
 
 /-- `memoryCost` of a ≥2^59-word memory exceeds 2^64. (`C_mem(a) ≥ a²/512 ≥
     2^118/512 = 2^109 ≥ 2^64`.) The quadratic term alone is unaffordable. -/
@@ -156,10 +156,10 @@ not by replay coincidence. -/
 theorem memExpand_acc_refines (m : Mach) (hcap : ¬ m.memCap < m.scratch) :
     (Op.denote .memExpand m).acc =
       m.acc + Gas.memoryExpansionCost (m.memSize / 32) ((m.scratch + 31) / 32) := by
-  simp only [Op.denote, if_neg hcap]
+  simp only [Op.denote, ite_eq_right hcap]
   by_cases hle : (m.scratch + 31) / 32 ≤ m.memSize / 32
   · simp [hle, Gas.memoryExpansionCost]
-  · simp only [hle, if_false]
-    simp only [Gas.memoryExpansionCost, hle, if_false, Gas.memoryCost]
+  · simp only [hle, ite_false]
+    simp only [Gas.memoryExpansionCost, hle, ite_false, Gas.memoryCost]
 
 end Evm.CL.AsmCore

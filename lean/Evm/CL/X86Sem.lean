@@ -463,7 +463,7 @@ theorem twoOp_run (x : XS) (o : AluOp) (d a b : Reg) (comm : Bool) (xd : XReg) (
     obtain ⟨i, hi, hstep⟩ := aluFrom_step x o (dst d) b hb
     refine ⟨aluR x o (dst d) (opVal x b), ?_, Or.inl ⟨rfl, by simp [dst, hd]⟩⟩
     simp only [beq_self_eq_true, ite_true, hi]; exact xsteps_single _ _ _ hstep
-  · rw [if_neg (by simp [hda])]
+  · rw [ite_eq_right (by simp [hda])]
     by_cases hdb : d = b
     · rcases hside with h | ⟨_, hc⟩ | ⟨h, _⟩
       · exact absurd h hda
@@ -472,7 +472,7 @@ theorem twoOp_run (x : XS) (o : AluOp) (d a b : Reg) (comm : Bool) (xd : XReg) (
         refine ⟨aluR x o (dst d) (opVal x a), ?_, Or.inr (Or.inl ⟨hda, rfl, hc, by simp [dst, hd]⟩)⟩
         simp only [beq_self_eq_true, hc, Bool.and_true, ite_true, hi]; exact xsteps_single _ _ _ hstep
       · exact absurd hdb h
-    · rw [if_neg (by simp [hdb]), if_neg (by simp [hdb])]
+    · rw [ite_eq_right (by simp [hdb]), ite_eq_right (by simp [hdb])]
       obtain ⟨i1, hi1, hstep1⟩ := movFrom_step x (dst d) a ha
       have hb' : (valOf (x.set (dst d) (opVal x a)) b).isSome := by
         rcases hside with h | ⟨h, _⟩ | ⟨_, hc⟩
@@ -894,7 +894,7 @@ theorem sim_mulReg (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s x
       have hx : xb = xd := by rw [hb'] at hd; exact Option.some.inj hd
       subst hx
       simp only [x86Items, dst, ha', hb', Option.getD_some]
-      rw [if_neg (by simpa using hda), if_pos (by simp)]
+      rw [ite_eq_right (by simpa using hda), ite_eq_left (by simp)]
       refine ⟨_, xsteps_single _ _ _ rfl, ?_⟩
       simp only [hva, hvb, BitVec.mul_comm (s.regs d)]
       exact (hR.setReg d xb hb' _ (home_ne_rsp _ _ hb')).forget _
@@ -905,9 +905,9 @@ theorem sim_mulReg (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s x
         · exact h
       have hxb : xb ≠ xd := home_ne_of_not_clobbers d b xd xb hd hb' hdb hc
       simp only [x86Items, dst, hd, ha', hb', Option.getD_some]
-      rw [if_neg (by simpa using hda), if_neg (by simpa using hdb)]
+      rw [ite_eq_right (by simpa using hda), ite_eq_right (by simpa using hdb)]
       refine ⟨_, by rw [xsteps_cons _ _ _ _ rfl]; exact xsteps_single _ _ _ rfl, ?_⟩
-      simp only [XS.set_regs, ite_true, if_neg hxb, hva, hvb]
+      simp only [XS.set_regs, ite_true, ite_eq_right hxb, hva, hvb]
       have h1 := hR.setReg d xd hd (s.regs a) (home_ne_rsp d xd hd)
       have h2 := h1.setReg d xd hd (s.regs a * s.regs b) (home_ne_rsp d xd hd)
       rw [AsmRun.set_set_same] at h2
@@ -1007,7 +1007,7 @@ theorem sim_cmovsel (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s 
     · subst hda
       have hx : xa = xd := by rw [ha'] at hd; exact Option.some.inj hd
       subst hx
-      rw [if_neg (by simpa using hdb), if_pos (by simp)]
+      rw [ite_eq_right (by simpa using hdb), ite_eq_left (by simp)]
       refine ⟨_, xsteps_single _ _ _ rfl, ?_⟩
       simp only [hcn]
       cases cond with
@@ -1028,9 +1028,9 @@ theorem sim_cmovsel (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s 
         · exact absurd h hdb
         · exact h
       have hxa : xa ≠ xd := home_ne_of_not_clobbers d a xd xa hd ha' hda hc
-      rw [if_neg (by simpa using hdb), if_neg (by simpa using hda)]
+      rw [ite_eq_right (by simpa using hdb), ite_eq_right (by simpa using hda)]
       refine ⟨_, by rw [xsteps_cons _ _ _ _ rfl]; exact xsteps_single _ _ _ rfl, ?_⟩
-      simp only [XS.set_flags, hct, XS.set_regs, if_neg hxa, hvb, hva]
+      simp only [XS.set_flags, hct, XS.set_regs, ite_eq_right hxa, hvb, hva]
       have h1 := hR.setReg d xd hd (s.regs b) (home_ne_rsp d xd hd)
       cases cond with
       | true =>
@@ -1190,7 +1190,7 @@ theorem sim_ldpOff (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s x
   have hx1 : xb ≠ x1 := home_ne_of_not_clobbers r1 b x1 xb h1 hb' hne hc
   have hA := hR.setReg r1 x1 h1 (ld64 s.mem (s.regs b + BitVec.ofNat 64 o)) (home_ne_rsp _ _ h1)
   have hB := Rel.setReg hA r2 x2 h2 (ld64 s.mem (s.regs b + BitVec.ofNat 64 (o + 8))) (home_ne_rsp _ _ h2)
-  simp only [ea_disp, XS.set_regs, XS.set_mem, if_neg hx1, hvb, hR.mem]
+  simp only [ea_disp, XS.set_regs, XS.set_mem, ite_eq_right hx1, hvb, hR.mem]
   exact hB
 
 theorem sim_strOff (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p s x) (src b : Reg) (xs xb : XReg)
@@ -1383,11 +1383,11 @@ theorem xrun_cons_Jcc_not (HX : XHelpers) (c : XCond) (l : String) (rest : List 
 
 theorem xrun_cons_Jcc_exit (HX : XHelpers) (c : XCond) (l : String) (rest : List XItem) (x : XS)
     (hc : xcHolds c x.flags = true) (hs : xskipTo l rest = none) : xrun HX (.Jcc c l :: rest) x = .exit l x := by
-  simp only [xrun, hc, if_true]; split <;> simp_all
+  simp only [xrun, hc, ite_true]; split <;> simp_all
 
 theorem xrun_cons_Jcc_skip (HX : XHelpers) (c : XCond) (l : String) (rest r : List XItem) (x : XS)
     (hc : xcHolds c x.flags = true) (hs : xskipTo l rest = some r) : xrun HX (.Jcc c l :: rest) x = xrun HX r x := by
-  simp only [xrun, hc, if_true]; split <;> simp_all
+  simp only [xrun, hc, ite_true]; split <;> simp_all
 
 theorem xrun_cons_Jmp_exit (HX : XHelpers) (l : String) (rest : List XItem) (x : XS)
     (hs : xskipTo l rest = none) : xrun HX (.Jmp l :: rest) x = .exit l x := by
@@ -1438,7 +1438,7 @@ theorem sim_addImm_lea (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p
     ∃ x', xsteps x (x86Items (.addImm d a i)) = some x' ∧ Rel (upd L d) p (s.set d (s.regs a + BitVec.ofNat 64 i)) x' := by
   have hn : nosLimb a = none := by cases a <;> simp_all [nosLimb, xreg?]
   simp only [x86Items, hn, dst, hd, ha', Option.getD_some]
-  rw [if_neg (by simpa using hda)]
+  rw [ite_eq_right (by simpa using hda)]
   refine ⟨_, xsteps_single _ _ _ rfl, ?_⟩
   simp only [ea_disp, hR.val a ha xa ha']
   exact hR.setReg d xd hd _ (home_ne_rsp d xd hd)
@@ -1459,7 +1459,7 @@ theorem sim_addImm_nos (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p
   have hxa := nosLimb_some_xreg_none a la ha'
   have hda : d ≠ a := by intro e; subst e; rw [hd] at hxa; cases hxa
   simp only [x86Items, ha', dst, hd, Option.getD_some]
-  rw [if_neg (by simpa using hda)]
+  rw [ite_eq_right (by simpa using hda)]
   refine ⟨_, by rw [xsteps_cons _ _ _ _ rfl]; exact xsteps_single _ _ _ rfl, ?_⟩
   simp only [aluR, alu, XS.set_regs, ite_true, hR.valNos a ha la ha', ofInt_ofNat]
   have h1 := hR.setReg d xd hd (s.regs a) (home_ne_rsp d xd hd)
@@ -1474,7 +1474,7 @@ theorem sim_subImm_lea (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p
     (hd : xreg? d = some xd) (ha' : xreg? a = some xa) (ha : a ∈ L) (hda : d ≠ a) (i : Nat) :
     ∃ x', xsteps x (x86Items (.subImm d a i)) = some x' ∧ Rel (upd L d) p (s.set d (s.regs a - BitVec.ofNat 64 i)) x' := by
   simp only [x86Items, dst, hd, ha', Option.getD_some]
-  rw [if_neg (by simpa using hda)]
+  rw [ite_eq_right (by simpa using hda)]
   refine ⟨_, xsteps_single _ _ _ rfl, ?_⟩
   have hz : ∀ v : BitVec 64, v + 0 = v := fun v => by simp
   simp only [ea, hR.val a ha xa ha', ofInt_neg_ofNat, hz, ← BitVec.sub_eq_add_neg]
@@ -1526,7 +1526,7 @@ theorem sim_strOff_nos (L : List Reg) (p : Prov) (s : RS) (x : XS) (hR : Rel L p
     cases xb <;> decide
   have hA := hR.setTemp (nosStoreTempX b none) (ld64 x.mem (ea x (nosMemX ls))) htsp
   have hB := hA.store64 (s.regs b + BitVec.ofNat 64 o) (s.regs src)
-  simp only [ea_disp, XS.set_regs, ite_true, if_neg (Ne.symm ht), hR.val b hb xb hb', hv] at hB ⊢
+  simp only [ea_disp, XS.set_regs, ite_true, ite_eq_right (Ne.symm ht), hR.val b hb xb hb', hv] at hB ⊢
   exact hB
 
 /-! ### Helper calls: `blSym` under the x86-64 convention -/
@@ -1620,6 +1620,7 @@ theorem ret_ne_aluRR (o : AluOp) (d s : XReg) : XInsn.aluRR o d s ≠ .ret := by
 theorem ret_ne_movRI (d : XReg) (i : Int) : XInsn.movRI d i ≠ .ret := by intro h; cases h
 
 open Evm.CL.ARM64.ChunkGas Evm.CL.X86JIT in
+set_option backward.isDefEq.respectTransparency false in
 /-- `charge`: `sub r15, n ; jb Lx_oog`. With `Lx_oog` not a label of the
     continuation (the OOG trampoline lives in the chunk tail), the fragment
     exits to it exactly when `n > gas` — `GInstr.denote`'s halt. -/
@@ -1662,6 +1663,7 @@ theorem handBack_x86 (HX : XHelpers) (rem : Nat) (rest : List XItem) (x : XS) (h
   · intro r h15 hdx; simp [h15, hdx]
 
 open Evm.CL.ARM64.ChunkGas Evm.CL.X86JIT in
+set_option backward.isDefEq.respectTransparency false in
 /-- `retake`: `mov rdx, rem ; sub r15, rdx ; jb lbl` — checked, like `charge`. -/
 theorem retake_x86 (HX : XHelpers) (rem : Nat) (hn : rem < 2 ^ 64) (lbl : String) (rest : List XItem) (x : XS) :
     (rem ≤ xgas x → ∃ x', xrun HX (lowerX (gasX86 (.retake rem lbl)) ++ rest) x = xrun HX rest x' ∧

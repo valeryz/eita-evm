@@ -129,7 +129,7 @@ theorem inv_exec (st : Sched) (i : Nat) (hinv : Inv st) (hj : Justified st i) :
       by_cases hji : j = x
       · subst hji; simp
       · simp [hji]
-    · simp only [if_neg hx]
+    · simp only [ite_eq_right hx]
       by_cases hji : j = i
       · subst hji; simp; have := hinv.seen_le x j; omega
       · simp [hji]; exact hinv.seen_le x j
@@ -194,12 +194,12 @@ theorem sumBelow_exec (st : Sched) (i : Nat) : ∀ n, i < n →
       · subst hin
         have : sumBelow (exec st i).inc i = sumBelow st.inc i :=
           sumBelow_congr _ _ i (fun j hj => by
-            simp only [exec]; rw [if_neg (Nat.ne_of_lt hj)])
+            simp only [exec]; rw [ite_eq_right (Nat.ne_of_lt hj)])
         rw [this]; simp [exec]; omega
       · have hi' : i < n := Nat.lt_of_le_of_ne (Nat.le_of_lt_succ hi) hin
         rw [ih hi']
         simp only [exec]
-        rw [if_neg (fun h => hin h.symm)]
+        rw [ite_eq_right (fun h => hin h.symm)]
         omega
 
 /-- The step count IS the total incarnation count. -/

@@ -65,8 +65,8 @@ theorem charge_ok {g n g' : Nat} (h : Gas.charge g n = .ok g') :
     n ≤ g ∧ g' = g - n := by
   unfold Gas.charge at h
   by_cases hlt : g < n
-  · rw [if_pos hlt] at h; exact absurd h (by simp)
-  · rw [if_neg hlt] at h
+  · rw [ite_eq_left hlt] at h; exact absurd h (by simp)
+  · rw [ite_eq_right hlt] at h
     injection h with h
     exact ⟨Nat.not_lt.mp hlt, h.symm⟩
 
@@ -90,7 +90,7 @@ theorem chargeMemory_ok {g : Nat} {m : Memory} {off size : Nat}
   by_cases hsz : size = 0
   · subst hsz
     simp only [chargeMemory] at h
-    simp only [if_true, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at h
+    simp only [ite_true, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at h
     obtain ⟨h1, h2⟩ := h
     subst h1; subst h2
     simp [Gas.memoryExpansionCost]
@@ -199,7 +199,7 @@ theorem execOp_add_matches_effect (evm evm' : Evm) :
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hAdd := _root_.Evm.Frontier.Spec.Refinement.add_complete _ _ hIsAdd
   -- (5) Reduce Effect.step1: not halted, pc in bounds, opcode = 0x01.
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   -- (6) Drive liftPure with the add success.
@@ -247,7 +247,7 @@ theorem execOp_sub_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hSub := _root_.Evm.Frontier.Spec.Refinement.sub_complete _ _ hIsSub
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.sub evm = _
@@ -291,7 +291,7 @@ theorem execOp_mul_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hMul := _root_.Evm.Frontier.Spec.Refinement.mul_complete _ _ hIsMul
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.mul evm = _
@@ -335,7 +335,7 @@ theorem execOp_div_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hDiv := _root_.Evm.Frontier.Spec.Refinement.div_complete _ _ hIsDiv
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.div evm = _
@@ -376,7 +376,7 @@ theorem execOp_and_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hAnd := _root_.Evm.Frontier.Spec.Refinement.and_complete _ _ hIsAnd
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.and_ evm = _
@@ -417,7 +417,7 @@ theorem execOp_or_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hOr := _root_.Evm.Frontier.Spec.Refinement.or_complete _ _ hIsOr
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.or_ evm = _
@@ -458,7 +458,7 @@ theorem execOp_xor_matches_effect (evm evm' : Evm) :
                  pc := evm.pc + 1 } :=
     ⟨a, b, rest, hStack, hlt, hGas, rfl⟩
   have hXor := _root_.Evm.Frontier.Spec.Refinement.xor_complete _ _ hIsXor
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (evm.pc ≥ evm.message.code.size) from
                Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.xor_ evm = _
@@ -510,7 +510,7 @@ theorem chargeMemory_shifted {gl : Nat} {m : Memory} {off size : Nat}
     Instructions.chargeMemory (gl + d) m off size = .ok (gl' + d, m') := by
   by_cases hsz : size = 0
   · subst hsz
-    simp only [Instructions.chargeMemory, if_true, pure, Except.pure,
+    simp only [Instructions.chargeMemory, ite_true, pure, Except.pure,
                Except.ok.injEq, Prod.mk.injEq] at h ⊢
     exact ⟨by rw [h.1], h.2⟩
   · simp only [Instructions.chargeMemory, hsz, reduceIte, bind,
@@ -576,7 +576,7 @@ theorem step1_add_shifted (i i2 : Evm) (g pcv : Nat)
     refine ⟨a, b, rest, hStack, hlt, nat_le_add_mid _ _ _, ?_⟩
     simp [nat_add_sub_mid]
   have hAdd := _root_.Evm.Frontier.Spec.Refinement.add_complete _ _ hIsAdd
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.add
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -618,7 +618,7 @@ theorem step1_mul_shifted (i i2 : Evm) (g pcv : Nat)
     refine ⟨a, b, rest, hStack, hlt, nat_le_add_mid _ _ _, ?_⟩
     simp [nat_add_sub_mid]
   have hMul := _root_.Evm.Frontier.Spec.Refinement.mul_complete _ _ hIsMul
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.mul
       { i with gasLeft := i.gasLeft + (Gas.low + g), pc := pcv,
@@ -660,7 +660,7 @@ theorem step1_sub_shifted (i i2 : Evm) (g pcv : Nat)
     refine ⟨a, b, rest, hStack, hlt, nat_le_add_mid _ _ _, ?_⟩
     simp [nat_add_sub_mid]
   have hSub := _root_.Evm.Frontier.Spec.Refinement.sub_complete _ _ hIsSub
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.sub
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -685,7 +685,7 @@ theorem step1_pop_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.pop
       { i with gasLeft := i.gasLeft + (Gas.base + g), pc := pcv,
@@ -727,7 +727,7 @@ theorem step1_mload_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.mload
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -765,7 +765,7 @@ theorem step1_mstore_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.mstore
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -936,7 +936,7 @@ theorem step1_div_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.low
       (fun a b => if b = 0 then 0 else BitVec.udiv a b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -952,7 +952,7 @@ theorem step1_sdiv_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.low
       (fun a b => if b = 0 then 0 else BitVec.sdiv a b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -968,7 +968,7 @@ theorem step1_mod_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.low
       (fun a b => if b = 0 then 0 else BitVec.umod a b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -984,7 +984,7 @@ theorem step1_smod_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.low
       (fun a b => if b = 0 then 0 else BitVec.srem a b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1001,7 +1001,7 @@ theorem step1_addmod_shifted (i i2 : Evm) (g pcv : Nat)
       (fun a b n =>
         if n = 0 then 0 else Evm.U256.ofNat ((a.toNat + b.toNat) % n.toNat)) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1018,7 +1018,7 @@ theorem step1_mulmod_shifted (i i2 : Evm) (g pcv : Nat)
       (fun a b n =>
         if n = 0 then 0 else Evm.U256.ofNat ((a.toNat * b.toNat) % n.toNat)) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1034,7 +1034,7 @@ theorem step1_signextend_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.low
       Instructions.signExtend hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1050,7 +1050,7 @@ theorem step1_lt_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => if a < b then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1066,7 +1066,7 @@ theorem step1_gt_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => if a > b then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1082,7 +1082,7 @@ theorem step1_slt_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => if BitVec.slt a b then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1098,7 +1098,7 @@ theorem step1_sgt_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => if BitVec.slt b a then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1114,7 +1114,7 @@ theorem step1_eq_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => if a = b then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1130,7 +1130,7 @@ theorem step1_iszero_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_unary_shifted i i2 g pcv Gas.veryLow
       (fun a => if a = 0 then 1 else 0) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1146,7 +1146,7 @@ theorem step1_and_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => a &&& b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1162,7 +1162,7 @@ theorem step1_or_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => a ||| b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1178,7 +1178,7 @@ theorem step1_xor_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       (fun a b => a ^^^ b) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1194,7 +1194,7 @@ theorem step1_not_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_unary_shifted i i2 g pcv Gas.veryLow
       (fun a => ~~~ a) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1210,7 +1210,7 @@ theorem step1_byte_shifted (i i2 : Evm) (g pcv : Nat)
     liftPure_binary_shifted i i2 g pcv Gas.veryLow
       Instructions.byteOf hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1249,7 +1249,7 @@ theorem step1_exp_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.exp
       { i with gasLeft := i.gasLeft + (Gas.exp + g), pc := pcv,
@@ -1312,7 +1312,7 @@ theorem step1_keccak256_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.keccak256
       { i with gasLeft := i.gasLeft + (Gas.keccak256 + g), pc := pcv,
@@ -1366,7 +1366,7 @@ theorem step1_calldatacopy_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.calldatacopy
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -1420,7 +1420,7 @@ theorem step1_codecopy_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.codecopy
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -1503,7 +1503,7 @@ theorem step1_address_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.message.currentTarget.toNat)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1521,7 +1521,7 @@ theorem step1_origin_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.origin.toNat)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1539,7 +1539,7 @@ theorem step1_caller_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.message.caller.toNat)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1557,7 +1557,7 @@ theorem step1_callvalue_shifted (i i2 : Evm) (g pcv : Nat)
       (i.message.value)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1575,7 +1575,7 @@ theorem step1_calldatasize_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.message.data.size)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1593,7 +1593,7 @@ theorem step1_codesize_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.message.code.size)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1611,7 +1611,7 @@ theorem step1_gasprice_shifted (i i2 : Evm) (g pcv : Nat)
       (i.env.gasPrice)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1629,7 +1629,7 @@ theorem step1_coinbase_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.coinbase.toNat)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1647,7 +1647,7 @@ theorem step1_timestamp_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.timestamp)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1665,7 +1665,7 @@ theorem step1_number_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.number)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1683,7 +1683,7 @@ theorem step1_difficulty_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.difficulty)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1701,7 +1701,7 @@ theorem step1_gaslimit_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.env.gasLimit)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1719,7 +1719,7 @@ theorem step1_pc_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat pcv)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1737,7 +1737,7 @@ theorem step1_msize_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat i.memory.size)
       rfl hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1755,7 +1755,7 @@ theorem step1_gas_shifted (i i2 : Evm) (g pcv : Nat)
       (Evm.U256.ofNat (i.gasLeft + g))
       (congrArg Evm.U256.ofNat (nat_add_sub_mid i.gasLeft Gas.base g)) hHalt hIR
   refine ⟨?_, hmsg, hhalt⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   exact hRun
 
@@ -1781,7 +1781,7 @@ theorem step1_calldataload_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.calldataload
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -1819,7 +1819,7 @@ theorem step1_mstore8_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.mstore8
       { i with gasLeft := i.gasLeft + (Gas.veryLow + g), pc := pcv,
@@ -1851,7 +1851,7 @@ theorem step1_jumpdest_shifted (i i2 : Evm) (g pcv : Nat)
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
   refine ⟨?_, rfl, rfl⟩
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.jumpdest
       { i with gasLeft := i.gasLeft + (Gas.jumpDest + g), pc := pcv,
@@ -1881,7 +1881,7 @@ theorem step1_dispatch_push (evm : Evm) (nop : Nat)
     Effect.step1 evm
       = Effect.liftPure (Instructions.push (nop - 0x5f)) evm := by
   interval_cases nop <;>
-  · simp only [Effect.step1, hHalt, hCode, if_false,
+  · simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (evm.pc ≥ evm.message.code.size) from
                  Nat.not_le.mpr hSize]
     rfl
@@ -1941,7 +1941,7 @@ theorem step1_dispatch_dup (evm : Evm) (nop : Nat)
     Effect.step1 evm
       = Effect.liftPure (Instructions.dup (nop - 0x7f)) evm := by
   interval_cases nop <;>
-  · simp only [Effect.step1, hHalt, hCode, if_false,
+  · simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (evm.pc ≥ evm.message.code.size) from
                  Nat.not_le.mpr hSize]
     rfl
@@ -1954,7 +1954,7 @@ theorem step1_dispatch_swap (evm : Evm) (nop : Nat)
     Effect.step1 evm
       = Effect.liftPure (Instructions.swap (nop - 0x8f)) evm := by
   interval_cases nop <;>
-  · simp only [Effect.step1, hHalt, hCode, if_false,
+  · simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (evm.pc ≥ evm.message.code.size) from
                  Nat.not_le.mpr hSize]
     rfl
@@ -2033,7 +2033,7 @@ theorem step1_dispatch_log (evm : Evm) (nop : Nat)
     (hlo : 0xa0 ≤ nop) (hhi : nop ≤ 0xa4) :
     Effect.step1 evm = Effect.doLog (nop - 0xa0) evm := by
   interval_cases nop <;>
-  · simp only [Effect.step1, hHalt, hCode, if_false,
+  · simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (evm.pc ≥ evm.message.code.size) from
                  Nat.not_le.mpr hSize]
     rfl
@@ -2050,7 +2050,7 @@ theorem step1_stop_halts (i : Evm) (pcv : Nat)
     (hCode : i.message.code.get! pcv = 0x00) :
     Effect.step1 { i with pc := pcv }
       = .halt { i with halted := true, pc := pcv } i.output := by
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   rfl
 
@@ -2060,7 +2060,7 @@ theorem step1_endOfCode_halts (i : Evm) (pcv : Nat)
     Effect.step1 { i with pc := pcv }
       = .halt { i with halted := true, pc := pcv } i.output := by
   simp only [Effect.step1, hHalt,
-             show (pcv ≥ i.message.code.size) from hSize, if_true]
+             show (pcv ≥ i.message.code.size) from hSize, ite_true]
   rfl
 
 theorem step1_ret_halts (i i' : Evm) (pcv : Nat)
@@ -2081,7 +2081,7 @@ theorem step1_ret_halts (i i' : Evm) (pcv : Nat)
   rw [hcm] at hTerm
   simp only [pure, Except.pure, Except.ok.injEq] at hTerm
   subst hTerm
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.return_
       { i with pc := pcv, halted := false } = _
@@ -2152,7 +2152,7 @@ theorem runFrameR_sload_shifted (i i2 : Evm) (g pcv : Nat)
       { i with gasLeft := i.gasLeft + (Gas.sLoad + g), pc := pcv }
       = .yield { i with gasLeft := i.gasLeft + g, stack := s, pc := pcv,
                         halted := false } (.sload key) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doSload
         { i with gasLeft := i.gasLeft + (Gas.sLoad + g), pc := pcv,
@@ -2161,7 +2161,7 @@ theorem runFrameR_sload_shifted (i i2 : Evm) (g pcv : Nat)
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeSload, bind, Except.bind, hpush, pure,
-             Except.pure, hHalt, if_true]
+             Except.pure, hHalt, ite_true]
 
 theorem runFrameR_sstore_shifted (i i2 : Evm) (g pcv : Nat)
     (hHalt : i.halted = false)
@@ -2175,8 +2175,8 @@ theorem runFrameR_sstore_shifted (i i2 : Evm) (g pcv : Nat)
     i2.message = i.message ∧ i2.halted = i.halted := by
   unfold IR.execOp at hIR
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hIR; simp at hIR
-  rw [if_neg hSt] at hIR
+  · rw [ite_eq_left hSt] at hIR; simp at hIR
+  rw [ite_eq_right hSt] at hIR
   have hStf : i.message.isStatic = false := by simpa using hSt
   simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hIR
   obtain ⟨⟨key, value, s⟩, hp2, hIR⟩ := hIR
@@ -2192,12 +2192,12 @@ theorem runFrameR_sstore_shifted (i i2 : Evm) (g pcv : Nat)
       { i with gasLeft := i.gasLeft + (0 + g), pc := pcv }
       = .yield { i with gasLeft := i.gasLeft + (0 + g), stack := s,
                         pc := pcv, halted := false } (.sstore key value) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doSstore
         { i with gasLeft := i.gasLeft + (0 + g), pc := pcv,
                  halted := false } = _
-    simp only [Effect.doSstore, hStf, Bool.false_eq_true, if_false, hp2]
+    simp only [Effect.doSstore, hStf, Bool.false_eq_true, ite_false, hp2]
   have hch2 : Gas.charge (i.gasLeft + (0 + g))
       (if i.env.state.getStorage i.message.currentTarget key
             = (0 : Evm.U256) ∧ value ≠ (0 : Evm.U256)
@@ -2212,7 +2212,7 @@ theorem runFrameR_sstore_shifted (i i2 : Evm) (g pcv : Nat)
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeSstore, bind, Except.bind, hch2, pure,
-             Except.pure, hHalt, if_true]
+             Except.pure, hHalt, ite_true]
 
 theorem runFrameR_balance_shifted (i i2 : Evm) (g pcv : Nat)
     (hHalt : i.halted = false)
@@ -2237,7 +2237,7 @@ theorem runFrameR_balance_shifted (i i2 : Evm) (g pcv : Nat)
       = .yield { i with gasLeft := i.gasLeft + g, stack := s, pc := pcv,
                         halted := false }
           (.balance (Effect.u256ToAddr addrW)) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doBalance
         { i with gasLeft := i.gasLeft + (Gas.balance + g), pc := pcv,
@@ -2246,7 +2246,7 @@ theorem runFrameR_balance_shifted (i i2 : Evm) (g pcv : Nat)
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeBalance, Effect.u256ToAddr, bind, Except.bind,
-             hpush, pure, Except.pure, hHalt, if_true]
+             hpush, pure, Except.pure, hHalt, ite_true]
 
 theorem runFrameR_extcodesize_shifted (i i2 : Evm) (g pcv : Nat)
     (hHalt : i.halted = false)
@@ -2271,7 +2271,7 @@ theorem runFrameR_extcodesize_shifted (i i2 : Evm) (g pcv : Nat)
       = .yield { i with gasLeft := i.gasLeft + g, stack := s, pc := pcv,
                         halted := false }
           (.extcodesize (Effect.u256ToAddr addrW)) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doExtcodesize
         { i with gasLeft := i.gasLeft + (Gas.extCode + g), pc := pcv,
@@ -2280,7 +2280,7 @@ theorem runFrameR_extcodesize_shifted (i i2 : Evm) (g pcv : Nat)
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeExtcodesize, Effect.u256ToAddr, bind, Except.bind,
-             hpush, pure, Except.pure, hHalt, if_true]
+             hpush, pure, Except.pure, hHalt, ite_true]
 
 theorem runFrameR_extcodecopy_shifted (i i2 : Evm) (g pcv : Nat)
     (hHalt : i.halted = false)
@@ -2319,7 +2319,7 @@ theorem runFrameR_extcodecopy_shifted (i i2 : Evm) (g pcv : Nat)
                         halted := false }
           (.extcodecopy (Effect.u256ToAddr addrW) memOff.toNat
              codeOff.toNat size.toNat) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doExtcodecopy
         { i with gasLeft := i.gasLeft + (Gas.extCode + g), pc := pcv,
@@ -2328,7 +2328,7 @@ theorem runFrameR_extcodecopy_shifted (i i2 : Evm) (g pcv : Nat)
                chargeMemory_shifted (Gas.extCode + g) hcm, hch2]
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
-             Effect.resumeExtcodecopy, Effect.u256ToAddr, pure, Except.pure, hHalt, if_true]
+             Effect.resumeExtcodecopy, Effect.u256ToAddr, pure, Except.pure, hHalt, ite_true]
 
 theorem runFrameR_blockhash_shifted (i i2 : Evm) (g pcv : Nat)
     (hHalt : i.halted = false)
@@ -2352,7 +2352,7 @@ theorem runFrameR_blockhash_shifted (i i2 : Evm) (g pcv : Nat)
       { i with gasLeft := i.gasLeft + (Gas.blockHash + g), pc := pcv }
       = .yield { i with gasLeft := i.gasLeft + g, stack := s, pc := pcv,
                         halted := false } (.blockhash n.toNat) := by
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.doBlockhash
         { i with gasLeft := i.gasLeft + (Gas.blockHash + g), pc := pcv,
@@ -2361,7 +2361,7 @@ theorem runFrameR_blockhash_shifted (i i2 : Evm) (g pcv : Nat)
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeBlockhash, bind, Except.bind, hpush, pure,
-             Except.pure, hHalt, if_true]
+             Except.pure, hHalt, ite_true]
 
 theorem runFrameR_log_shifted (i i2 : Evm) (g pcv nop : Nat)
     (hHalt : i.halted = false)
@@ -2382,8 +2382,8 @@ theorem runFrameR_log_shifted (i i2 : Evm) (g pcv nop : Nat)
   -- single `bind_eq_ok` round rewrites the whole chain at once.
   simp only [IR.execOp] at hIR
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hIR; simp at hIR
-  rw [if_neg hSt] at hIR
+  · rw [ite_eq_left hSt] at hIR; simp at hIR
+  rw [ite_eq_right hSt] at hIR
   have hStf : i.message.isStatic = false := by simpa using hSt
   simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hIR
   obtain ⟨⟨offset, len, s⟩, hp2, hIR⟩ := hIR
@@ -2416,12 +2416,12 @@ theorem runFrameR_log_shifted (i i2 : Evm) (g pcv nop : Nat)
                      + (Gas.log + Gas.logTopic * (nop - 0xa0) + g),
                    pc := pcv }
           nop hHalt hSize hCode hlo hhi]
-    simp only [Effect.doLog, hStf, Bool.false_eq_true, if_false, hp2, hpt,
+    simp only [Effect.doLog, hStf, Bool.false_eq_true, ite_false, hp2, hpt,
                hch2, chargeMemory_shifted g hcm, hHalt]
   rw [runFrameR_succ, hs1]
   simp only [Effect.YieldEffect.isState, Effect.handleYield,
              Effect.resumeLog, pure, Except.pure, hHalt,
-             if_true]
+             ite_true]
 
 /-- A successful `.ret` terminator always yields a halted frame. -/
 private theorem execTerm_ret_halted (i i' : Evm) (endPc : Nat)
@@ -2449,8 +2449,8 @@ private theorem execTerm_selfdestruct_halted (i i' : Evm) (endPc : Nat)
   unfold Evm.Frontier.Vm.selfdestruct at hTerm
   simp only [bind, Except.bind, pure, Except.pure] at hTerm
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hTerm; simp at hTerm
-  rw [if_neg hSt] at hTerm
+  · rw [ite_eq_left hSt] at hTerm; simp at hTerm
+  rw [ite_eq_right hSt] at hTerm
   rcases hp : Stack.pop i.stack with _ | ⟨bW, s⟩
   · rw [hp] at hTerm; simp at hTerm
   rw [hp] at hTerm
@@ -2470,7 +2470,7 @@ private theorem step1_selfdestruct_halts (i i' : Evm) (pcv : Nat)
     Effect.step1 { i with pc := pcv } = .halt i' i'.output := by
   have hHalted := execTerm_selfdestruct_halted i i' pcv hTerm
   simp only [IR.execTerm] at hTerm
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.selfdestruct
       { i with pc := pcv, halted := false } = _
@@ -2506,7 +2506,7 @@ private theorem step1_jump_continue (i i' : Evm) (pcv : Nat)
     subst hTerm
     have hvj' : Instructions.isValidJumpDest
         { i with pc := pcv, halted := false } dest.toNat = true := hvj
-    simp only [Effect.step1, hHalt, hCode, if_false,
+    simp only [Effect.step1, hHalt, hCode, ite_false,
                show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
     show Effect.liftPure Evm.Frontier.Vm.Instructions.jump
         { i with pc := pcv, halted := false } = _
@@ -2541,12 +2541,12 @@ private theorem step1_jumpi_continue (i i' : Evm) (pcv : Nat)
   · rw [hp2] at hTerm; simp at hTerm
   rw [hp2] at hTerm
   simp only at hTerm
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (pcv ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show Effect.liftPure Evm.Frontier.Vm.Instructions.jumpi
       { i with pc := pcv, halted := false } = _
   by_cases hc : cond = (0 : Evm.U256)
-  · rw [if_pos hc] at hTerm
+  · rw [ite_eq_left hc] at hTerm
     simp only [pure, Except.pure, Except.ok.injEq] at hTerm
     subst hTerm
     have hJumpi : Evm.Frontier.Vm.Instructions.jumpi
@@ -2558,7 +2558,7 @@ private theorem step1_jumpi_continue (i i' : Evm) (pcv : Nat)
     unfold Effect.liftPure
     rw [hJumpi]
     simp [hHalt]
-  · rw [if_neg hc] at hTerm
+  · rw [ite_eq_right hc] at hTerm
     split at hTerm
     next hvj =>
       simp only [pure, Except.pure, Except.ok.injEq] at hTerm
@@ -2591,6 +2591,7 @@ private theorem step1_jumpi_continue (i i' : Evm) (pcv : Nat)
     the whole chunk up front, so mid-chunk the Effect frame is
     always "ahead" by the static gas of what's left. -/
 
+set_option maxHeartbeats 1000000 in
 /-- `compileLoop` at a PUSH opcode: one `Op.push` plus the recursive
     tail at `pc + 1 + immBytes`. Stated with an abstract opcode value
     `nop` so the chunk induction can use it directly; the proof
@@ -2604,9 +2605,9 @@ private theorem compileLoop_push_eq (fork : Evm.Fork) (code : Evm.Bytes)
       return (Op.push (nop - 0x5f) (IR.readImmediate code pc (nop - 0x5f)) :: ops,
               Gas.veryLow + gas, term, e) := by
   interval_cases nop <;>
-  · rw [IR.compileLoop.eq_def, dif_neg hlt]
+  · rw [IR.compileLoop.eq_def, dite_eq_right hlt]
     simp only [hop]
-    rw [if_pos (by omega)]
+    rw [ite_eq_left (by omega)]
     rfl
 
 /-- `compileLoop` at a DUP opcode: one `Op.dup` plus the recursive
@@ -2619,9 +2620,9 @@ private theorem compileLoop_dup_eq (fork : Evm.Fork) (code : Evm.Bytes)
       let (ops, gas, term, e) ← IR.compileLoop fork code (pc + 1)
       return (Op.dup (nop - 0x7f) :: ops, Gas.veryLow + gas, term, e) := by
   interval_cases nop <;>
-  · rw [IR.compileLoop.eq_def, dif_neg hlt]
+  · rw [IR.compileLoop.eq_def, dite_eq_right hlt]
     simp only [hop]
-    rw [if_neg (by omega), if_pos (by omega)]
+    rw [ite_eq_right (by omega), ite_eq_left (by omega)]
     rfl
 
 /-- `compileLoop` at a SWAP opcode: one `Op.swap` plus the recursive
@@ -2634,9 +2635,9 @@ private theorem compileLoop_swap_eq (fork : Evm.Fork) (code : Evm.Bytes)
       let (ops, gas, term, e) ← IR.compileLoop fork code (pc + 1)
       return (Op.swap (nop - 0x8f) :: ops, Gas.veryLow + gas, term, e) := by
   interval_cases nop <;>
-  · rw [IR.compileLoop.eq_def, dif_neg hlt]
+  · rw [IR.compileLoop.eq_def, dite_eq_right hlt]
     simp only [hop]
-    rw [if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left (by omega)]
     rfl
 
 /-- `compileLoop` at a LOG opcode: one `Op.log` plus the recursive
@@ -2652,12 +2653,13 @@ private theorem compileLoop_log_eq (fork : Evm.Fork) (code : Evm.Bytes)
       return (Op.log (nop - 0xa0) :: ops,
               (Gas.log + Gas.logTopic * (nop - 0xa0)) + gas, term, e) := by
   interval_cases nop <;>
-  · rw [IR.compileLoop.eq_def, dif_neg hlt]
+  · rw [IR.compileLoop.eq_def, dite_eq_right hlt]
     simp only [hop]
-    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega),
-        if_pos (by omega)]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega),
+        ite_eq_left (by omega)]
     rfl
 
+set_option maxHeartbeats 1000000 in
 theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     ∀ (ops : List Op) (gas : Nat) (term : Terminator) (endPc : Nat),
     IR.compileLoop .frontier code pc = .ok (ops, gas, term, endPc) →
@@ -2672,7 +2674,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
   | case1 x hge =>
     -- pc ≥ code.size : endOfCode
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
-    rw [IR.compileLoop.eq_def, dif_pos hge] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_left hge] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -2688,7 +2690,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x00 : STOP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x00 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -2705,7 +2707,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xf3 : RETURN
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf3 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -2721,7 +2723,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x01 : ADD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x01 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2742,7 +2744,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x02 : MUL
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x02 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2763,7 +2765,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x03 : SUB
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x03 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2784,7 +2786,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x50 : POP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x50 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2805,7 +2807,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x51 : MLOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x51 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2826,7 +2828,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x52 : MSTORE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x52 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2847,7 +2849,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x04 : DIV
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x04 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2868,7 +2870,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x05 : SDIV
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x05 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2889,7 +2891,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x06 : MOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x06 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2910,7 +2912,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x07 : SMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x07 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2931,7 +2933,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x08 : ADDMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x08 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2952,7 +2954,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x09 : MULMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x09 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2973,7 +2975,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x0b : SIGNEXTEND
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x0b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -2994,7 +2996,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x10 : LT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x10 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3015,7 +3017,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x11 : GT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x11 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3036,7 +3038,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x12 : SLT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x12 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3057,7 +3059,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x13 : SGT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x13 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3078,7 +3080,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x14 : EQ
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x14 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3099,7 +3101,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x15 : ISZERO
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x15 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3120,7 +3122,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x16 : AND
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x16 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3141,7 +3143,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x17 : OR
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x17 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3162,7 +3164,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x18 : XOR
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x18 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3183,7 +3185,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x19 : NOT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x19 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3204,7 +3206,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x1a : BYTE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3225,7 +3227,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x0a : EXP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x0a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3246,7 +3248,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x30 : ADDRESS
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x30 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3267,7 +3269,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x32 : ORIGIN
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x32 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3288,7 +3290,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x33 : CALLER
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x33 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3309,7 +3311,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x34 : CALLVALUE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x34 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3330,7 +3332,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x35 : CALLDATALOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x35 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3351,7 +3353,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x36 : CALLDATASIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x36 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3372,7 +3374,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x38 : CODESIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x38 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3393,7 +3395,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3a : GASPRICE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3414,7 +3416,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x41 : COINBASE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x41 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3435,7 +3437,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x42 : TIMESTAMP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x42 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3456,7 +3458,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x43 : NUMBER
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x43 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3477,7 +3479,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x44 : DIFFICULTY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x44 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3498,7 +3500,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x45 : GASLIMIT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x45 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3519,7 +3521,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x53 : MSTORE8
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x53 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3540,7 +3542,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x58 : PC
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x58 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3561,7 +3563,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x59 : MSIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x59 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3582,7 +3584,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5a : GAS
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3603,7 +3605,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5b : JUMPDEST
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3624,7 +3626,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x56 : JUMP — dynamic-target terminator; transfers, does not halt
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x56 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -3639,7 +3641,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x57 : JUMPI — transfers or falls through to x + 1
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x57 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -3654,7 +3656,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xfe : INVALID — `execTerm .invalid` errors; hypothesis is vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfe := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3662,7 +3664,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x20 : KECCAK256
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x20 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3684,7 +3686,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x37 : CALLDATACOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x37 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3706,7 +3708,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x39 : CODECOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x39 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3728,7 +3730,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x31 : BALANCE (state yield, resolved in-frame by runFrameR)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x31 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3750,7 +3752,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3b : EXTCODESIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3772,7 +3774,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3c : EXTCODECOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3794,7 +3796,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x40 : BLOCKHASH
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x40 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3816,7 +3818,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x54 : SLOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x54 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3838,7 +3840,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x55 : SSTORE (no static pre-charge; cost depends on old value)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x55 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -3863,7 +3865,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- track is `IR.executeStep`.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf0 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3871,7 +3873,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xf1 : CALL terminator — vacuous (see the 0xf0 case)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf1 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3879,7 +3881,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xf2 : CALLCODE terminator — vacuous (see the 0xf0 case)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf2 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3889,7 +3891,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- via `liftPure`), so it closes like STOP/RETURN.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xff := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -3908,9 +3910,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x1b SHL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3921,9 +3923,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x1c SHR gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3934,9 +3936,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x1d SAR gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3947,9 +3949,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3d RETURNDATASIZE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3960,9 +3962,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3e RETURNDATACOPY gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3973,9 +3975,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x3f EXTCODEHASH gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3f := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3986,9 +3988,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x46 CHAINID gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x46 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -3999,9 +4001,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x47 SELFBALANCE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x47 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4012,9 +4014,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x48 BASEFEE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x48 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4025,9 +4027,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x49 BLOBHASH gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x49 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4038,9 +4040,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x4a BLOBBASEFEE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x4a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4051,9 +4053,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5c TLOAD gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4064,9 +4066,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5d TSTORE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4077,9 +4079,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5e MCOPY gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4090,9 +4092,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x5f PUSH0 gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5f := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4103,9 +4105,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xfd REVERT gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfd := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4116,9 +4118,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xf4 DELEGATECALL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf4 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4129,9 +4131,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xfa STATICCALL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfa := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4142,9 +4144,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0xf5 CREATE2 gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf5 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4155,9 +4157,9 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
     -- 0x1e CLZ gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -4380,7 +4382,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
       hns
     have hnl' : ¬ (0xa0 ≤ (code.get! x).toNat ∧ (code.get! x).toNat ≤ 0xa4) :=
       hnl
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     -- `simp only []` reduces the opcode match to its default arm
     -- (the literal arms are ruled out by h0'..h82'); the `split`s
     -- then case on the PUSH/DUP/SWAP range `if`s, all branches
@@ -4476,7 +4478,7 @@ private theorem executeStep_call (i : Evm) (x : Nat)
     (hCode : i.message.code.get! x = 0xf1) :
     IR.executeStep .frontier ⟨x, x, 0, [], .call .call⟩ i
       = Effect.step1 { i with pc := x } := by
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (x ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show IR.executeStep .frontier ⟨x, x, 0, [], .call .call⟩ i
       = Effect.doCall { i with pc := x, halted := false }
@@ -4490,7 +4492,7 @@ private theorem executeStep_callcode (i : Evm) (x : Nat)
     (hCode : i.message.code.get! x = 0xf2) :
     IR.executeStep .frontier ⟨x, x, 0, [], .call .callcode⟩ i
       = Effect.step1 { i with pc := x } := by
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (x ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show IR.executeStep .frontier ⟨x, x, 0, [], .call .callcode⟩ i
       = Effect.doCallcode { i with pc := x, halted := false }
@@ -4504,7 +4506,7 @@ private theorem executeStep_create (i : Evm) (x : Nat)
     (hCode : i.message.code.get! x = 0xf0) :
     IR.executeStep .frontier ⟨x, x, 0, [], .create .create⟩ i
       = Effect.step1 { i with pc := x } := by
-  simp only [Effect.step1, hHalt, hCode, if_false,
+  simp only [Effect.step1, hHalt, hCode, ite_false,
              show ¬ (x ≥ i.message.code.size) from Nat.not_le.mpr hSize]
   show IR.executeStep .frontier ⟨x, x, 0, [], .create .create⟩ i
       = Effect.doCreate { i with pc := x, halted := false }
@@ -4524,7 +4526,7 @@ theorem executeStep_call_sound (code : Evm.Bytes) (x : Nat)
     (i : Evm) (hcc : i.message.code = code) (hHalt : i.halted = false) :
     IR.executeStep .frontier ⟨x, endPc, gas, ops, term⟩ i
       = Effect.step1 { i with pc := x } := by
-  rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+  rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
   simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
   obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
   exact executeStep_call i x hHalt (by rw [hcc]; omega)
@@ -4539,7 +4541,7 @@ theorem executeStep_callcode_sound (code : Evm.Bytes) (x : Nat)
     (i : Evm) (hcc : i.message.code = code) (hHalt : i.halted = false) :
     IR.executeStep .frontier ⟨x, endPc, gas, ops, term⟩ i
       = Effect.step1 { i with pc := x } := by
-  rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+  rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
   simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
   obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
   exact executeStep_callcode i x hHalt (by rw [hcc]; omega)
@@ -4554,7 +4556,7 @@ theorem executeStep_create_sound (code : Evm.Bytes) (x : Nat)
     (i : Evm) (hcc : i.message.code = code) (hHalt : i.halted = false) :
     IR.executeStep .frontier ⟨x, endPc, gas, ops, term⟩ i
       = Effect.step1 { i with pc := x } := by
-  rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+  rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
   simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
   obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
   exact executeStep_create i x hHalt (by rw [hcc]; omega)
@@ -4597,10 +4599,10 @@ private theorem chargeMemory_spec {g : Nat} {m : Memory} {off size g' : Nat}
     simp only [Evm.Frontier.Spec.memExpansionGas,
                Evm.Frontier.Spec.memAfterExpand, reduceIte]
     exact ⟨Nat.zero_le _, by omega, hm⟩
-  · simp only [if_neg hsz] at hle hg hm
+  · simp only [ite_eq_right hsz] at hle hg hm
     rw [Evm.Frontier.Spec.memoryExpansionCost_max] at hle hg
     simp only [Evm.Frontier.Spec.memExpansionGas,
-               Evm.Frontier.Spec.memAfterExpand, if_neg hsz]
+               Evm.Frontier.Spec.memAfterExpand, ite_eq_right hsz]
     exact ⟨hle, hg, hm⟩
 
 /-- `popTopicsAux` success splits the stack: the popped topics are a
@@ -6109,8 +6111,8 @@ theorem spec_sstore_shifted (i i2 : Evm) (g pcv : Nat)
     i2.message = i.message ∧ i2.halted = i.halted := by
   unfold IR.execOp at hIR
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hIR; simp at hIR
-  rw [if_neg hSt] at hIR
+  · rw [ite_eq_left hSt] at hIR; simp at hIR
+  rw [ite_eq_right hSt] at hIR
   simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hIR
   obtain ⟨⟨key, value, s⟩, hp2, hIR⟩ := hIR
   simp only at hIR
@@ -6144,8 +6146,8 @@ theorem spec_log_shifted (i i2 : Evm) (g pcv nop : Nat)
   -- equation lemma, then one `bind_eq_ok` round rewrites the chain.
   simp only [IR.execOp] at hIR
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hIR; simp at hIR
-  rw [if_neg hSt] at hIR
+  · rw [ite_eq_left hSt] at hIR; simp at hIR
+  rw [ite_eq_right hSt] at hIR
   simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hIR
   obtain ⟨⟨offset, len, s⟩, hp2, hIR⟩ := hIR
   obtain ⟨⟨topics, s'⟩, hpt, hIR⟩ := hIR
@@ -6529,8 +6531,8 @@ theorem spec_selfdestruct_step (i i' : Evm) (pcv : Nat)
   unfold Evm.Frontier.Vm.selfdestruct at hTerm
   simp only [bind, Except.bind, pure, Except.pure] at hTerm
   by_cases hSt : i.message.isStatic = true
-  · rw [if_pos hSt] at hTerm; simp at hTerm
-  rw [if_neg hSt] at hTerm
+  · rw [ite_eq_left hSt] at hTerm; simp at hTerm
+  rw [ite_eq_right hSt] at hTerm
   rcases hp : Stack.pop i.stack with _ | ⟨bW, s⟩
   · rw [hp] at hTerm; simp at hTerm
   rw [hp] at hTerm
@@ -6590,12 +6592,12 @@ private theorem spec_jumpi_step (i i' : Evm) (pcv : Nat)
   subst hgl
   have hStack := (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp2
   by_cases hc : cond = (0 : Evm.U256)
-  · rw [if_pos hc] at hTerm
+  · rw [ite_eq_left hc] at hTerm
     simp only [pure, Except.pure, Except.ok.injEq] at hTerm
     subst hTerm
     refine anyStep_jumpi _ _ hSize hCode ?_
     exact ⟨dest, cond, s, hStack, hle, .inl ⟨hc, rfl⟩⟩
-  · rw [if_neg hc] at hTerm
+  · rw [ite_eq_right hc] at hTerm
     split at hTerm
     next hvj =>
       simp only [pure, Except.pure, Except.ok.injEq] at hTerm
@@ -6604,6 +6606,7 @@ private theorem spec_jumpi_step (i i' : Evm) (pcv : Nat)
       exact ⟨dest, cond, s, hStack, hle, .inr ⟨hc, hvj, rfl⟩⟩
     next hvj => simp at hTerm
 
+set_option maxHeartbeats 1000000 in
 theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     ∀ (ops : List Op) (gas : Nat) (term : Terminator) (endPc : Nat),
     IR.compileLoop .frontier code pc = .ok (ops, gas, term, endPc) →
@@ -6619,7 +6622,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
   | case1 x hge =>
     -- pc ≥ code.size : endOfCode
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
-    rw [IR.compileLoop.eq_def, dif_pos hge] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_left hge] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -6636,7 +6639,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x00 : STOP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x00 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -6654,7 +6657,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xf3 : RETURN
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf3 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -6669,7 +6672,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x01 : ADD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x01 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6689,7 +6692,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x02 : MUL
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x02 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6709,7 +6712,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x03 : SUB
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x03 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6729,7 +6732,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x50 : POP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x50 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6749,7 +6752,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x51 : MLOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x51 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6769,7 +6772,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x52 : MSTORE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x52 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6789,7 +6792,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x04 : DIV
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x04 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6809,7 +6812,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x05 : SDIV
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x05 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6829,7 +6832,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x06 : MOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x06 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6849,7 +6852,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x07 : SMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x07 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6869,7 +6872,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x08 : ADDMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x08 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6889,7 +6892,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x09 : MULMOD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x09 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6909,7 +6912,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x0b : SIGNEXTEND
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x0b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6929,7 +6932,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x10 : LT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x10 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6949,7 +6952,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x11 : GT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x11 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6969,7 +6972,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x12 : SLT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x12 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -6989,7 +6992,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x13 : SGT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x13 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7009,7 +7012,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x14 : EQ
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x14 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7029,7 +7032,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x15 : ISZERO
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x15 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7049,7 +7052,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x16 : AND
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x16 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7069,7 +7072,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x17 : OR
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x17 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7089,7 +7092,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x18 : XOR
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x18 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7109,7 +7112,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x19 : NOT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x19 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7129,7 +7132,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x1a : BYTE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7149,7 +7152,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x0a : EXP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x0a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7169,7 +7172,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x30 : ADDRESS
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x30 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7189,7 +7192,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x32 : ORIGIN
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x32 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7209,7 +7212,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x33 : CALLER
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x33 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7229,7 +7232,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x34 : CALLVALUE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x34 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7249,7 +7252,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x35 : CALLDATALOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x35 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7269,7 +7272,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x36 : CALLDATASIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x36 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7289,7 +7292,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x38 : CODESIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x38 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7309,7 +7312,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3a : GASPRICE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7329,7 +7332,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x41 : COINBASE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x41 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7349,7 +7352,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x42 : TIMESTAMP
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x42 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7369,7 +7372,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x43 : NUMBER
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x43 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7389,7 +7392,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x44 : DIFFICULTY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x44 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7409,7 +7412,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x45 : GASLIMIT
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x45 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7429,7 +7432,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x53 : MSTORE8
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x53 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7449,7 +7452,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x58 : PC
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x58 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7469,7 +7472,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x59 : MSIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x59 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7489,7 +7492,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5a : GAS
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7509,7 +7512,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5b : JUMPDEST
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7529,7 +7532,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x56 : JUMP — dynamic-target terminator; transfers, does not halt
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x56 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -7544,7 +7547,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x57 : JUMPI — transfers or falls through to x + 1
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x57 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -7559,7 +7562,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xfe : INVALID — `execTerm .invalid` errors; hypothesis is vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfe := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7567,7 +7570,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x20 : KECCAK256
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x20 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7587,7 +7590,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x37 : CALLDATACOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x37 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7607,7 +7610,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x39 : CODECOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x39 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7627,7 +7630,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x31 : BALANCE (state yield in the Effect track; pure step here)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x31 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7647,7 +7650,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3b : EXTCODESIZE
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7667,7 +7670,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3c : EXTCODECOPY
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7687,7 +7690,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x40 : BLOCKHASH
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x40 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7707,7 +7710,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x54 : SLOAD
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x54 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7727,7 +7730,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x55 : SSTORE (no static pre-charge; cost depends on old value)
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x55 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at hC
     obtain ⟨⟨ops', gas', term', endPc'⟩, hrec, hC⟩ := hC
     simp only [pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at hC
@@ -7750,7 +7753,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- track is `IR.executeStep`.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf0 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7758,7 +7761,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xf1 : CALL terminator — vacuous, see 0xf0.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf1 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7766,7 +7769,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xf2 : CALLCODE terminator — vacuous, see 0xf0.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf2 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7775,7 +7778,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- own pc.
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xff := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop, Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp only [IR.execOps, pure, Except.pure, Except.ok.injEq] at hOps
@@ -7793,9 +7796,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x1b SHL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1b := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7806,9 +7809,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x1c SHR gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7819,9 +7822,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x1d SAR gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7832,9 +7835,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3d RETURNDATASIZE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7845,9 +7848,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3e RETURNDATACOPY gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7858,9 +7861,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x3f EXTCODEHASH gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x3f := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7871,9 +7874,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x46 CHAINID gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x46 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7884,9 +7887,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x47 SELFBALANCE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x47 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7897,9 +7900,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x48 BASEFEE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x48 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7910,9 +7913,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x49 BLOBHASH gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x49 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7923,9 +7926,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x4a BLOBBASEFEE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x4a := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7936,9 +7939,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5c TLOAD gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5c := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7949,9 +7952,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5d TSTORE gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5d := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7962,9 +7965,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5e MCOPY gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7975,9 +7978,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x5f PUSH0 gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x5f := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -7988,9 +7991,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xfd REVERT gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfd := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -8001,9 +8004,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xf4 DELEGATECALL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf4 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -8014,9 +8017,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xfa STATICCALL gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xfa := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -8027,9 +8030,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0xf5 CREATE2 gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0xf5 := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -8040,9 +8043,9 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
     -- 0x1e CLZ gated off at .frontier : compiles to .invalid, execTerm errors, vacuous
     intro ops gas term endPc hC i i2 i' hcc hHalt hOps hTerm
     have hop : (code.get! x).toNat = 0x1e := hop
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [hop] at hC
-    rw [if_neg hgate] at hC
+    rw [ite_eq_right hgate] at hC
     simp only [Except.ok.injEq, Prod.mk.injEq] at hC
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hC
     simp [IR.execTerm] at hTerm
@@ -8257,7 +8260,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
       hns
     have hnl' : ¬ (0xa0 ≤ (code.get! x).toNat ∧ (code.get! x).toNat ≤ 0xa4) :=
       hnl
-    rw [IR.compileLoop.eq_def, dif_neg hlt] at hC
+    rw [IR.compileLoop.eq_def, dite_eq_right hlt] at hC
     simp only [] at hC
     split at hC
     · exact absurd ‹_› hnp'
@@ -8379,8 +8382,8 @@ private theorem execTerm_message (evm evm' : Evm) (endPc : Nat)
     unfold Evm.Frontier.Vm.selfdestruct at h
     simp only [bind, Except.bind, pure, Except.pure] at h
     by_cases hSt : evm.message.isStatic = true
-    · rw [if_pos hSt] at h; simp at h
-    rw [if_neg hSt] at h
+    · rw [ite_eq_left hSt] at h; simp at h
+    rw [ite_eq_right hSt] at h
     rcases hp : Stack.pop evm.stack with _ | ⟨bW, s⟩
     · rw [hp] at h; simp at h
     rw [hp] at h
@@ -8506,12 +8509,12 @@ theorem executeProgram_sound_vs_effect (fuel : Nat) (code : Evm.Bytes)
       rw [Nat.sub_add_cancel hle]
     rw [hEq] at hrunF
     by_cases hH : evmMid.halted
-    · rw [if_pos hH] at hrun
+    · rw [ite_eq_left hH] at hrun
       simp only [Except.ok.injEq] at hrun
       subst hrun
       refine ⟨n + (0 + 1), ?_⟩
       rw [hrunF 0, runFrameR_succ, step1_halted evmMid hH]
-    · rw [if_neg hH] at hrun
+    · rw [ite_eq_right hH] at hrun
       obtain ⟨m, hm⟩ := ih evmMid evm'
         (by rw [hmsg, hcc]) (by simpa using hH) hrun
       cases m with
@@ -8558,11 +8561,11 @@ theorem executeProgram_sound_vs_spec (fuel : Nat) (code : Evm.Bytes)
       rw [Nat.sub_add_cancel hle]
     rw [hEq] at hrunF
     by_cases hH : evmMid.halted
-    · rw [if_pos hH] at hrun
+    · rw [ite_eq_left hH] at hrun
       simp only [Except.ok.injEq] at hrun
       subst hrun
       exact ⟨.stop, hrunF .stop evmMid (.done _ _ hH)⟩
-    · rw [if_neg hH] at hrun
+    · rw [ite_eq_right hH] at hrun
       obtain ⟨cause, hk⟩ := ih evmMid evm'
         (by rw [hmsg, hcc]) (by simpa using hH) hrun
       exact ⟨cause, hrunF cause evm' hk⟩

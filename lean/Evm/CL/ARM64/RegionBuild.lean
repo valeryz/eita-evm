@@ -297,7 +297,7 @@ theorem symStep_sb {b : Nat} {ss ss' : SymStack} (op : Op) (h : symStep op ss = 
     · exact LB.mono (by omega) _ (peek_lb_lt (n + 1 - 1) hlt hs)
     · have := peek_lb_ge (ss := ss) (n + 1 - 1) (by omega)
       refine LB.mono ?_ _ this
-      rw [if_pos (by omega)]; omega
+      rw [ite_eq_left (by omega)]; omega
   case swap n =>
     cases n with
     | zero => simp at h

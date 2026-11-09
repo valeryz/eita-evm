@@ -210,6 +210,7 @@ theorem mat_slot (s : State A S Acct) : (mat ec s).slot = s.slot := rfl
 theorem hasSto_mat (s : State A S Acct) (a : A) : HasSto (mat ec s) a ↔ HasSto s a :=
   Iff.rfl
 
+set_option backward.isDefEq.respectTransparency false in
 theorem mat_idem (s : State A S Acct) : mat ec (mat ec s) = mat ec s := by
   apply State.ext'
   · intro a
@@ -223,9 +224,9 @@ theorem mat_idem (s : State A S Acct) : mat ec (mat ec s) = mat ec s := by
       · simp [hh]; exact hh
     | some f =>
       by_cases hi : f.isEmpty ec = false ∨ HasSto s a ∨ f.flag = true
-      · simp only [hi, if_true]
+      · simp only [hi, ite_true]
         cases he : f.isEmpty ec <;> simp_all [Acct.isEmpty]
-      · simp only [hi, if_false]
+      · simp only [hi, ite_false]
         simp only [not_or] at hi
         simp; exact hi.2.1
   · intro a k; rfl
@@ -485,11 +486,11 @@ theorem pointStatus_sealed {fs : List FileEntry} {p : Point} :
     pointStatus fs p = .sealed ↔ p.2 ≠ [] ∧ ∀ c ∈ p.2, (c, DumpStatus.sealed) ∈ fs := by
   unfold pointStatus compSealed
   by_cases h : (!p.2.isEmpty && p.2.all fun c => fs.contains (c, DumpStatus.sealed)) = true
-  · simp only [h, if_true, true_iff]
+  · simp only [h, ite_true, true_iff]
     simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,
       List.all_eq_true, List.contains_iff_mem] at h
     exact h
-  · simp only [h, if_false, reduceCtorEq, false_iff]
+  · simp only [h, ite_false, reduceCtorEq, false_iff]
     intro ⟨hne, hall⟩
     apply h
     simp only [Bool.and_eq_true, Bool.not_eq_true', List.isEmpty_eq_false_iff,

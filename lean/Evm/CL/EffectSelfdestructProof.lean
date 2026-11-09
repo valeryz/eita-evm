@@ -90,18 +90,18 @@ theorem acc_eta (A : Account) (v : Evm.U256) (h : A.balance = v) :
 theorem charge_ok (g c v : Nat) : Evm.Frontier.Vm.Gas.charge g c = .ok v ↔ (c ≤ g ∧ v = g - c) := by
   unfold Evm.Frontier.Vm.Gas.charge
   by_cases h : g < c
-  · simp only [h, if_true]
+  · simp only [h, ite_true]
     constructor
     · intro hc; cases hc
     · intro ⟨h1, _⟩; exact absurd h (Nat.not_lt.mpr h1)
-  · simp only [h, if_false, Except.ok.injEq]
+  · simp only [h, ite_false, Except.ok.injEq]
     exact ⟨fun hv => ⟨Nat.not_lt.mp h, hv.symm⟩, fun ⟨_, hv⟩ => hv.symm⟩
 theorem charge_err (g c : Nat) (e : Exception) :
     Evm.Frontier.Vm.Gas.charge g c = .error e ↔ (g < c ∧ e = .outOfGas) := by
   unfold Evm.Frontier.Vm.Gas.charge
   by_cases h : g < c
-  · simp only [h, if_true, Except.error.injEq, true_and]; exact eq_comm
-  · simp only [h, if_false, false_and, iff_false]; intro hc; cases hc
+  · simp only [h, ite_true, Except.error.injEq, true_and]; exact eq_comm
+  · simp only [h, ite_false, false_and, iff_false]; intro hc; cases hc
 
 theorem gas_close (g c s : Nat) (h : c ≤ g) (hs : s = c) : g = g - c + s := by omega
 theorem gas_eq (g c d : Nat) (h : c + d ≤ g) : g = g - (c + d) + c + d := by omega

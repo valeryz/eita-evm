@@ -49,10 +49,10 @@ theorem createDepositOk_sound (parent subEvm parent' : Evm) (newAddr : Evm.Addre
   have hlt : ¬ subEvm.gasLeft < Gas.codeDeposit * subEvm.output.size := by
     unfold depositCost at hgas; exact Nat.not_lt.mpr hgas
   simp only [Create.resume, rules, Create.Rules.ofOrd, hrev, hlt, Bool.false_eq_true,
-    if_false, decide_eq_true_eq, Create.push, Stack.push] at hres
+    ite_false, decide_eq_true_eq, Create.push, Stack.push] at hres
   by_cases hs : parent.stack.length ≥ stackLimit
   · simp [hs] at hres; cases hres
-  · simp only [hs, if_false] at hres
+  · simp only [hs, ite_false] at hres
     refine ⟨hrev, hhalt, hgas, by omega, ?_⟩
     cases hres
     rfl
@@ -68,6 +68,7 @@ theorem createDepositOk_sound (parent subEvm parent' : Evm) (newAddr : Evm.Addre
     lands on `IsCreateDepositRevert` of the pre-bump frame, its sender and
     nonce, and the gas left after forwarding (the forwarded gas is
     consumed). -/
+set_option backward.isDefEq.respectTransparency false in
 theorem createDepositRevert_sound (evm subEvm parent' : Evm) (value : Evm.U256)
     (initCode : Evm.Bytes) (newAddr : Evm.Address) (base : Nat)
     (p : Evm) (m : Message) (st : Evm.Frontier.State)
@@ -94,10 +95,10 @@ theorem createDepositRevert_sound (evm subEvm parent' : Evm) (value : Evm.U256)
   · cases hstart
   cases hstart
   simp only [Create.resume, Create.Rules.ofOrd, hrev, hlt, Bool.false_eq_true,
-    if_false, if_true, decide_eq_true_eq, Create.push, Stack.push] at hres
+    ite_false, ite_true, decide_eq_true_eq, Create.push, Stack.push] at hres
   by_cases hs : evm.stack.length ≥ stackLimit
   · simp [hs, Functor.map, Except.map] at hres
-  · simp only [hs, if_false] at hres
+  · simp only [hs, ite_false] at hres
     refine ⟨hrev, hhalt, hgas, by omega, ?_⟩
     cases hres
     simp

@@ -156,7 +156,7 @@ theorem selfdestruct_preserves_account_when_not_created
     rw [hEvm]
     have hNot : evm.env.createdAccounts.contains evm.message.currentTarget = false := by
       simpa using notCreated
-    simp only [hNot, Bool.false_eq_true, if_false]
+    simp only [hNot, Bool.false_eq_true, ite_false]
     -- Inside stCleared: split on the inner branch.
     split
     · -- Branch where stCleared = evm.env.state (the same-beneficiary
@@ -184,7 +184,7 @@ theorem selfdestruct_full_destroy_when_created
   -- `stFinal` is built by the `if createdHere then stCleared.deleteAccount
   -- self else stCleared`. With `created : createdAccounts.contains self`,
   -- we're in the `then` branch ⇒ `stFinal = _ .deleteAccount self`.
-  simp only [created, if_true]
+  simp only [created, ite_true]
   -- Now goal: (something.deleteAccount self).accountExists self = false.
   -- After deleteAccount, accounts has been filtered (≠ self), so the
   -- find? for self returns none, and isSome → false.
