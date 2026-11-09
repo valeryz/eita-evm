@@ -62,11 +62,6 @@ def targetBlobGasPerBlock : Nat := 3 * gasPerBlob
     cannot exceed a block's worth of blob gas. -/
 def maxBlobGasPerBlock : Nat := 6 * gasPerBlob
 
-/-- `MAX_BLOB_COUNT_PER_TRANSACTION = 6`. Equivalent to
-    `MAX_BLOB_GAS_PER_BLOCK / GAS_PER_BLOB`. EELS:
-    `forks/cancun/transactions.py::MAX_BLOB_GAS_PER_TRANSACTION`. -/
-def maxBlobCountPerTransaction : Nat := 6
-
 /-- `MIN_BASE_FEE_PER_BLOB_GAS = 1` wei/gas. EELS:
     `forks/cancun/vm/gas.py::MIN_BASE_FEE_PER_BLOB_GAS`. -/
 def minBaseFeePerBlobGas : Nat := 1
@@ -143,11 +138,15 @@ def txBlobGas (numBlobs : Nat) : Nat :=
 def txBlobFee (blobBaseFee numBlobs : Nat) : Nat :=
   blobBaseFee * txBlobGas numBlobs
 
-/-- The per-tx limit predicate: at most 6 blobs. EELS:
-    `forks/cancun/transactions.py::validate_transaction` around the
-    `MAX_BLOB_GAS_PER_TRANSACTION` check. -/
-def IsBlobCountValid (numBlobs : Nat) : Prop :=
-  0 < numBlobs ∧ numBlobs ≤ maxBlobCountPerTransaction
+/-- A blob tx's blob count is valid in its block (EELS `forks/cancun/fork.py::
+    check_transaction`): at least one blob (472-473, `NoBlobDataError`) and its blob gas
+    within what the block has left of `MAX_BLOB_GAS_PER_BLOCK` (432-439,
+    `BlobGasLimitExceededError`); `blockBlobGasUsed` is the blob gas of the block's
+    earlier txs. Cancun has no per-tx cap of its own — at most 6 blobs follows from the
+    block's. Restated 2026-11-09: this used to be `0 < n ≤ 6` per tx, which the
+    implementation did not check at Cancun and EELS does not state. -/
+def IsBlobCountValid (blockBlobGasUsed numBlobs : Nat) : Prop :=
+  0 < numBlobs ∧ blockBlobGasUsed + txBlobGas numBlobs ≤ maxBlobGasPerBlock
 
 /-- The sender-affordability predicate for the blob fee. EELS:
     `forks/cancun/transactions.py::validate_transaction` checks that

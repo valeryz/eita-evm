@@ -85,40 +85,27 @@ def historyStorageAddress : Evm.Address :=
 def systemAddress : Evm.Address :=
   Evm.Address.ofNat 0xfffffffffffffffffffffffffffffffffffffffe
 
-/-- Group requests by type, preserving in-block order. -/
-private def groupByType (rs : List Evm.Prague.Request) :
-    List (UInt8 × List Evm.Bytes) := Id.run do
-  let mut deposits      : List Evm.Bytes := []
-  let mut withdrawals   : List Evm.Bytes := []
-  let mut consolidations: List Evm.Bytes := []
-  for r in rs do
-    if r.type = depositRequestType then deposits := deposits ++ [r.payload]
-    else if r.type = withdrawalRequestType then withdrawals := withdrawals ++ [r.payload]
-    else if r.type = consolidationRequestType then consolidations := consolidations ++ [r.payload]
-  let mut out : List (UInt8 × List Evm.Bytes) := []
-  if ¬ deposits.isEmpty then out := out ++ [(depositRequestType, deposits)]
-  if ¬ withdrawals.isEmpty then out := out ++ [(withdrawalRequestType, withdrawals)]
-  if ¬ consolidations.isEmpty then out := out ++ [(consolidationRequestType, consolidations)]
-  pure out
+/-- A system call's output as a request list: nothing for an empty output, else one
+    request of `type` (EELS `process_general_purpose_requests`, fork.py 794-810:
+    `if len(output.return_data) > 0: requests_from_execution.append(TYPE + data)`). -/
+def ofOutput (type : UInt8) (out : Evm.Bytes) : List Evm.Prague.Request :=
+  if out.size = 0 then [] else [{ type := type, payload := out }]
 
 /-- Concatenate a list of byte strings. -/
 private def concatBytes : List Evm.Bytes → Evm.Bytes
   | []      => Evm.Bytes.empty
   | b :: bs => b ++ concatBytes bs
 
-/-- EIP-7685 requests-hash. Sha256 of the concatenated per-type
-    commitments, each commitment being `sha256(type_byte || concat
-    payloads)`. Empty types are excluded.
-
-    EELS: `compute_requests_hash` in
-    `ethereum/forks/prague/requests.py`. -/
+/-- EIP-7685 requests-hash: the SHA2-256 of the concatenated SHA2-256 of each
+    request, a request being its type byte followed by its data. EELS
+    `forks/prague/requests.py::compute_requests_hash` 289-308 (`for request in
+    requests: m.update(sha256(request).digest())`). The list is one request per
+    non-empty type in type order (`applyBlock`'s `ofOutput`s; EELS
+    `process_general_purpose_requests`), so there is no grouping step here.
+    (2026-11-09: a by-type regrouping `groupByType` that EELS does not have was
+    deleted.) -/
 def computeRequestsHash (rs : List Evm.Prague.Request) : Evm.Hash32 :=
-  let groups := groupByType rs
-  -- For each non-empty (type, payloads) group:
-  --   inner := sha256(byte(type) || concat(payloads))
-  let inners : List Evm.Bytes := groups.map fun (t, payloads) =>
-    let typeByte : Evm.Bytes := ByteArray.mk (Array.mk [t])
-    Evm.Crypto.sha256 (typeByte ++ concatBytes payloads)
-  Evm.U256.ofBytesBE (Evm.Crypto.sha256 (concatBytes inners))
+  Evm.U256.ofBytesBE (Evm.Crypto.sha256 (concatBytes (rs.map fun r =>
+    Evm.Crypto.sha256 (ByteArray.mk (Array.mk [r.type]) ++ r.payload))))
 
 end Evm.Prague.Requests

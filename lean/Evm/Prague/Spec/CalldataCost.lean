@@ -54,14 +54,11 @@ def authPerEmptyAccount  : Nat := 25000
 
 /-! ## Per-byte counting -/
 
-/-- Count zero bytes and non-zero bytes in `data`. -/
-def countBytes (data : Evm.Bytes) : Nat × Nat := Id.run do
-  let mut zeros : Nat := 0
-  let mut nonZeros : Nat := 0
-  for i in [0:data.size] do
-    if data.get! i = (0 : UInt8) then zeros := zeros + 1
-    else nonZeros := nonZeros + 1
-  pure (zeros, nonZeros)
+/-- `num_zeros = tx.data.count(0)`, `num_non_zeros = len(tx.data) - num_zeros`
+    (transactions.py:621-622). -/
+def countBytes (data : Evm.Bytes) : Nat × Nat :=
+  let zeros := (List.range data.size).countP (fun i => data.get! i = 0)
+  (zeros, data.size - zeros)
 
 /-- `tokens_in_calldata = num_zeros + num_non_zeros * 4` (transactions.py:624). -/
 def tokens (zeros nonZeros : Nat) : Nat := zeros + tokensPerNonZero * nonZeros
@@ -97,10 +94,17 @@ def gasUsedAfterRefund (used refundCounter floor : Nat) : Nat :=
     factor them out into `baseExtras` so this file stays focused on
     the calldata side. -/
 
-/-- The intrinsic-gas obligation: `tx.gas ≥ intrinsicCost(...)`. The
-    caller is responsible for computing `baseExtras` from the tx's
-    creation / access-list / authorization fields (since those have
-    different shapes across tx types). -/
+/-- The regular cost's extras (transactions.py:632-649): `TX_CREATE` plus the
+    EIP-3860 init-code words for a creation, `TX_ACCESS_LIST_ADDRESS` (2400) per
+    access-list entry and `TX_ACCESS_LIST_STORAGE_KEY` (1900) per slot, and
+    `AUTH_PER_EMPTY_ACCOUNT` per EIP-7702 authorization. -/
+def baseExtras (isCreate : Bool) (dataLen accessAddrs accessKeys auths : Nat) : Nat :=
+  (if isCreate then txCreateCost + initCodeWordCost * ((dataLen + 31) / 32) else 0) +
+  (2400 * accessAddrs + 1900 * accessKeys) + authPerEmptyAccount * auths
+
+/-- The intrinsic-gas obligation (`validate_transaction`, transactions.py:578-579):
+    `max(regular, calldata_floor) ≤ tx.gas`, with the regular cost's extras
+    `baseExtras` (create, access list, authorizations). -/
 def IsIntrinsicGasSufficient (txGas : Nat) (data : Evm.Bytes)
                               (baseExtras : Nat) : Prop :=
   let (zeros, nonZeros) := countBytes data

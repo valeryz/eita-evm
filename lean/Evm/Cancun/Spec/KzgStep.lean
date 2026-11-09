@@ -29,19 +29,19 @@
           FIELD_ELEMENTS_PER_BLOB (32 bytes BE) || BLS_MODULUS (32 bytes BE)
       = the canonical "verified" output specified by EIP-4844.
 
-  Per the methodology, the cryptographic predicate itself is
-  *axiomatised*: we introduce `IsValidKzgProof` and
-  `IsValidVersionedHash` as opaque `Prop`s and the spec branches on
-  them. The executable side (Evm.Cancun.Vm.PrecompiledContracts.pointEvaluation
-  and the replay's run-precompile) calls lean/c/point_evaluation.c over blst,
-  checked against the c-kzg-4844 verify_kzg_proof vectors; that FFI is the
-  trust boundary these axioms name.
+  The versioned-hash binding is computed (over SHA2-256); the KZG
+  pairing check is an oracle parameter `verify`. The executable side
+  (Evm.Cancun.Vm.PrecompiledContracts.pointEvaluation and the replay's
+  run-precompile) calls lean/c/point_evaluation.c over blst, checked
+  against the c-kzg-4844 verify_kzg_proof vectors; that FFI is the trust
+  boundary, named as the refinement's hypothesis.
 
   Inheritance: applies unchanged at Prague (which only adds the
   EIP-2537 BLS12-381 precompiles on top).
 -/
 
 import Evm.BaseTypes
+import Evm.Crypto.Sha256
 
 namespace Evm.Cancun.Spec
 
@@ -69,32 +69,36 @@ def inputSize : Nat := 192
 /-- Output length on success: 64 bytes. -/
 def outputSize : Nat := 64
 
-/-! ## Axiomatised cryptographic predicates
+/-! ## The two checks
 
-    We do not specify KZG math in Lean — the task brief says to
-    axiomatise these; the executable precompile runs lean/c/point_evaluation.c.
+    `kzg_commitment_to_versioned_hash` (EELS `crypto/kzg.py` 65-74) is computed
+    here: `VERSIONED_HASH_VERSION_KZG ‖ sha256(commitment)[1:]`, over the SHA2-256
+    primitive `Evm.Crypto.sha256`. The pairing check `verify_kzg_proof`
+    (`e(commitment − [y]₁, [1]₂) = e(proof, [s − z]₂)` over BLS12-381) is a trusted
+    oracle, the parameter `verify commitment z y proof` of the relations below —
+    no uninterpreted axioms (restated 2026-11-09: the two checks used to be
+    `axiom … : Prop`s). -/
 
-    `IsValidVersionedHash` checks the simple sha256-based binding
-    between the 48-byte commitment and the 32-byte versioned hash.
+/-- EELS `kzg_commitment_to_versioned_hash`. -/
+def kzgToVersionedHash (commitment : Evm.Bytes) : Evm.Bytes :=
+  ByteArray.mk (Array.mk [versionedHashVersionKzg]) ++
+    (Evm.Crypto.sha256 commitment).extract 1 32
 
-    `IsValidKzgProof` is the full pairing check
-    `e(commitment - [y]_1, [1]_2) == e(proof, [z]_2 - [s]_2)`
-    over BLS12-381, where `[s]` is the trusted-setup secret. -/
-
-/-- Versioned-hash check: `versioned_hash == 0x01 || sha256(commitment)[1..32]`. -/
-axiom IsValidVersionedHash : Evm.Bytes → Evm.Bytes → Prop
-
-/-- The KZG opening proof check itself. Inputs: commitment (48 bytes,
-    compressed G1), z (32 bytes, scalar), y (32 bytes, scalar), proof
-    (48 bytes, compressed G1). -/
-axiom IsValidKzgProof : Evm.Bytes → Evm.Bytes → Evm.Bytes → Evm.Bytes → Prop
+/-- EELS `point_evaluation`'s acceptance condition (44-65): 192 bytes, the versioned
+    hash binds the commitment, and the proof verifies. -/
+def pointEvaluationAccepts (verify : Evm.Bytes → Evm.Bytes → Evm.Bytes → Evm.Bytes → Bool)
+    (input : Evm.Bytes) : Prop :=
+  input.size = inputSize ∧
+  kzgToVersionedHash (Evm.Bytes.sliceZeroPad input 96 48) = Evm.Bytes.sliceZeroPad input 0 32 ∧
+  verify (Evm.Bytes.sliceZeroPad input 96 48) (Evm.Bytes.sliceZeroPad input 32 32)
+    (Evm.Bytes.sliceZeroPad input 64 32) (Evm.Bytes.sliceZeroPad input 144 48) = true
 
 /-! ## The canonical success output
 
     On a successful verification the precompile returns 64 bytes:
         be32(FIELD_ELEMENTS_PER_BLOB) || be32(BLS_MODULUS) -/
 
-private def be32 (n : Nat) : Evm.Bytes :=
+def be32 (n : Nat) : Evm.Bytes :=
   Evm.U256.toBytesBE (Evm.U256.ofNat n)
 
 /-- Canonical success-output: the 32-byte big-endian
@@ -115,38 +119,20 @@ def kzgSuccessOutput : Evm.Bytes :=
     The shape matches Frontier's other precompiles:
         `Precompile = Bytes → Nat → Except Exception (Bytes × Nat)`. -/
 
-/-- Success: input parses as `(vh, z, y, commitment, proof)`, gas is
-    sufficient, both crypto checks pass, output equals the canonical
-    success bytes. -/
-def IsKzgPrecompileSuccess (input : Evm.Bytes) (gas : Nat)
-                            (output : Evm.Bytes) (gas' : Nat) : Prop :=
-  input.size = inputSize ∧
+/-- Success (EELS `point_evaluation` 32-72): the input is accepted, the 50000 gas
+    is there, the output is the canonical 64 bytes. -/
+def IsKzgPrecompileSuccess (verify : Evm.Bytes → Evm.Bytes → Evm.Bytes → Evm.Bytes → Bool)
+    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) : Prop :=
+  pointEvaluationAccepts verify input ∧
   gas ≥ pointEvaluationGas ∧
-  let vh    := Evm.Bytes.sliceZeroPad input 0   32
-  let _z    := Evm.Bytes.sliceZeroPad input 32  32
-  let _y    := Evm.Bytes.sliceZeroPad input 64  32
-  let c     := Evm.Bytes.sliceZeroPad input 96  48
-  let pf    := Evm.Bytes.sliceZeroPad input 144 48
-  IsValidVersionedHash vh c ∧
-  IsValidKzgProof c (Evm.Bytes.sliceZeroPad input 32 32)
-                    (Evm.Bytes.sliceZeroPad input 64 32) pf ∧
   output = kzgSuccessOutput ∧
   gas' = gas - pointEvaluationGas
 
-/-- Failure: any of the input-size, gas, versioned-hash, or KZG
-    predicates fails. The precompile signals failure via an EVM
-    `Exception` (typically `outOfGas`); the caller frame then
-    receives `0` on its stack via the trampoline. -/
-def IsKzgPrecompileFailure (input : Evm.Bytes) (gas : Nat) : Prop :=
-  input.size ≠ inputSize ∨
-  gas < pointEvaluationGas ∨
-  (let vh := Evm.Bytes.sliceZeroPad input 0 32
-   let c  := Evm.Bytes.sliceZeroPad input 96 48
-   ¬ IsValidVersionedHash vh c) ∨
-  (let c  := Evm.Bytes.sliceZeroPad input 96 48
-   let z  := Evm.Bytes.sliceZeroPad input 32 32
-   let y  := Evm.Bytes.sliceZeroPad input 64 32
-   let pf := Evm.Bytes.sliceZeroPad input 144 48
-   ¬ IsValidKzgProof c z y pf)
+/-- Failure: wrong length (44-45), too little gas (54), a versioned-hash mismatch
+    (55-56) or a proof that does not verify (59-65) — each `KZGProofError`, the
+    exceptional halt. -/
+def IsKzgPrecompileFailure (verify : Evm.Bytes → Evm.Bytes → Evm.Bytes → Evm.Bytes → Bool)
+    (input : Evm.Bytes) (gas : Nat) : Prop :=
+  ¬ pointEvaluationAccepts verify input ∨ gas < pointEvaluationGas
 
 end Evm.Cancun.Spec

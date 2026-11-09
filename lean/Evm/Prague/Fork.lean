@@ -81,7 +81,7 @@ def requestCall (k : Nat) (runSub : Evm.Frontier.Vm.Evm → Except Evm.Frontier.
     (type : UInt8) : Except String (Evm.Prague.State × List Evm.Prague.Request) := do
   let (st, out) ← Evm.Frontier.Vm.System.checked k env state.inner (Evm.Frontier.Vm.System.eels env)
     target Evm.Bytes.empty (Evm.Frontier.Vm.Tx.table k) runSub
-  return ({ state with inner := st }, if out.size = 0 then [] else [{ type := type, payload := out }])
+  return ({ state with inner := st }, Evm.Prague.Requests.ofOutput type out)
 
 /-- EIP-6110 deposit harvesting from receipt logs. Stub (no receipts
     are tracked yet at this layer). -/

@@ -594,7 +594,7 @@ theorem refines_cancun_ok (k : Nat) (hlo : 16 ≤ k) (evm : Evm) (bW : Evm.U256)
     (hrun : DischargesEIP6780 run) (hspec : yieldSpec run evm = .ok evm') :
     Agree evm'.env (runOn k evm (Evm.Address.ofNat bW.toNat)) ∧
       evm.gasLeft = evm'.gasLeft + baseGas k + (runOn k evm (Evm.Address.ofNat bW.toNat)).gas := by
-  have hu : ∀ x, (priv% Evm.Cancun.Vm.Effect Evm.Cancun.Vm.Effect.u256ToAddrL) x = Evm.Address.ofNat x.toNat := fun _ => rfl
+  have hu : ∀ x, Evm.Cancun.Vm.Effect.u256ToAddrL x = Evm.Address.ofNat x.toNat := fun _ => rfl
   obtain ⟨hk3, hl3, hk4, hl4, hk10, hl10, hk11, hl11, hk16, hl16⟩ :
       3 ≤ k ∧ ¬ k < 3 ∧ 4 ≤ k ∧ ¬ k < 4 ∧ 10 ≤ k ∧ ¬ k < 10 ∧ 11 ≤ k ∧ ¬ k < 11 ∧ 16 ≤ k ∧ ¬ k < 16 := by
     refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> omega
@@ -645,7 +645,7 @@ theorem refines_cancun_err (k : Nat) (hlo : 16 ≤ k) (evm : Evm) (bW : Evm.U256
     (run : Evm → Evm.Byzantium.Vm.Effect.YieldEffect → (Evm → Except Exception Evm) → Except Exception Evm)
     (hrun : DischargesEIP6780 run) (e : Exception) (hspec : yieldSpec run evm = .error e) :
     e = .outOfGas ∧ evm.gasLeft < baseGas k + (runOn k evm (Evm.Address.ofNat bW.toNat)).gas := by
-  have hu : ∀ x, (priv% Evm.Cancun.Vm.Effect Evm.Cancun.Vm.Effect.u256ToAddrL) x = Evm.Address.ofNat x.toNat := fun _ => rfl
+  have hu : ∀ x, Evm.Cancun.Vm.Effect.u256ToAddrL x = Evm.Address.ofNat x.toNat := fun _ => rfl
   obtain ⟨hk3, hl3, hk4, hl4, hk10, hl10, hk11, hl11, hk16, hl16⟩ :
       3 ≤ k ∧ ¬ k < 3 ∧ 4 ≤ k ∧ ¬ k < 4 ∧ 10 ≤ k ∧ ¬ k < 10 ∧ 11 ≤ k ∧ ¬ k < 11 ∧ 16 ≤ k ∧ ¬ k < 16 := by
     refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> omega

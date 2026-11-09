@@ -28,8 +28,9 @@
        `requests_hash = sha256("")` (the outer hash of an empty
        concatenation).
 
-  This file states the predicate and references the existing
-  implementation in `Evm.Prague.Requests.computeRequestsHash`.
+  This file states the commitment from EELS (`requestsHash`,
+  `requestsFromExecution`); `Evm.Prague.Requests.computeRequestsHash` is
+  the implementation it refines.
 
   Inheritance: introduced at Prague.
 -/
@@ -49,56 +50,55 @@ def depositRequestType        : UInt8 := 0x00
 def withdrawalRequestType     : UInt8 := 0x01
 def consolidationRequestType  : UInt8 := 0x02
 
-/-! ## The commitment
+/-! ## The commitment (EIP-7685)
 
-    We reuse the impl's `computeRequestsHash` (which is itself a
-    straight port of EELS) as the canonical computation. The spec
-    predicate then says: the header's `requestsHash` must equal
-    this. -/
+    EELS `forks/prague/requests.py::compute_requests_hash` 289-308: the
+    SHA2-256 of the concatenation of the SHA2-256 of each request, where a
+    request is the type byte followed by the request data. The request list
+    is the block's (EELS `forks/prague/fork.py::process_general_purpose_requests`
+    767-810): deposits (type 0x00), then the EIP-7002 withdrawal predeploy's
+    output (0x01), then the EIP-7251 consolidation predeploy's output (0x02),
+    each included only when non-empty. Restated 2026-11-09: the predicate used
+    to be the implementation's `computeRequestsHash`, so its refinement was
+    circular. -/
 
-/-- The header's `requestsHash` must equal the spec computation. -/
-def IsRequestsHashValid (requests : List Request) (headerHash : Evm.Hash32) : Prop :=
-  headerHash = Evm.Prague.Requests.computeRequestsHash requests
+/-- One request: the type byte, then the data (EELS `TYPE + data`). -/
+def typedRequest (type : UInt8) (data : Evm.Bytes) : Evm.Bytes :=
+  ByteArray.mk (Array.mk [type]) ++ data
+
+/-- EELS `compute_requests_hash`: `sha256(sha256(r₀) ‖ sha256(r₁) ‖ …)`. -/
+def requestsHash (requests : List Evm.Bytes) : Evm.Hash32 :=
+  Evm.U256.ofBytesBE (Evm.Crypto.sha256
+    (requests.foldr (fun r acc => Evm.Crypto.sha256 r ++ acc) Evm.Bytes.empty))
+
+/-- EELS `process_general_purpose_requests`: the block's requests, from the
+    concatenated deposit data and the two predeploys' outputs. -/
+def requestsFromExecution (deposits withdrawals consolidations : Evm.Bytes) :
+    List Evm.Bytes :=
+  (if deposits.size = 0 then [] else [typedRequest depositRequestType deposits]) ++
+  (if withdrawals.size = 0 then [] else [typedRequest withdrawalRequestType withdrawals]) ++
+  (if consolidations.size = 0 then [] else
+    [typedRequest consolidationRequestType consolidations])
+
+/-- The header's `requestsHash` is EIP-7685's commitment to the block's requests. -/
+def IsRequestsHashValid (requests : List Evm.Bytes) (headerHash : Evm.Hash32) : Prop :=
+  headerHash = requestsHash requests
 
 /-! ## Properties
 
-    Two structural invariants that hold for any correct implementation. -/
+    The empty block's commitment. -/
 
 /-- Empty requests list collapses to `sha256("")`. -/
 theorem requests_hash_empty :
     Evm.Prague.Requests.computeRequestsHash [] =
     Evm.U256.ofBytesBE (Evm.Crypto.sha256 Evm.Bytes.empty) := by
-  -- `computeRequestsHash []` → `groupByType []` returns `[]` →
-  -- inner list is `[]` → outer sha256 is over `concatBytes []` = `empty`.
   rfl
-
-/-- The commitment is type-sensitive: a single 5-byte deposit yields
-    a different hash than a single 5-byte withdrawal-request, because
-    the inner sha256 hashes a different prefix byte. -/
-theorem requests_hash_type_sensitive
-    (payload : Evm.Bytes) :
-    let dep := [{ type := depositRequestType,    payload := payload : Request }]
-    let wd  := [{ type := withdrawalRequestType, payload := payload : Request }]
-    Evm.Prague.Requests.computeRequestsHash dep ≠
-    Evm.Prague.Requests.computeRequestsHash wd ∨
-    -- The disjunct lets us pass without proving that two distinct
-    -- byte sequences `0x00 || p` and `0x01 || p` always hash to
-    -- different 32-byte digests (the sha256 collision-resistance is
-    -- a cryptographic assumption, not a Lean theorem).
-    True := by
-  -- The second disjunct is trivially true; we take that path.
-  exact Or.inr trivial
 
 /-! ## Notes
 
-    * The implementation's `computeRequestsHash` (in
-      `Evm.Prague.Requests`) is already a fork-delta-friendly port
-      of EELS. The spec just re-exports it as the canonical hash and
-      pins it to the header's `requestsHash`.
-
-    * A future Osaka may add a 4th request type (e.g. EIP-7251
-      already used 0x02; EIP-something might use 0x03). The
-      `groupByType` helper in the impl will need an extra branch;
-      the spec predicate `IsRequestsHashValid` remains correct. -/
+    * The implementation's `computeRequestsHash` (in `Evm.Prague.Requests`)
+      works over `Request` records; `Refinement.requestsHashValid_sound`
+      proves it equal to `requestsHash ∘ requestsFromExecution` on the
+      lists `applyBlock` builds. -/
 
 end Evm.Prague.Spec

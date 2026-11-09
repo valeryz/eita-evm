@@ -185,7 +185,7 @@ def applyBlockTyped
   let state := beaconRootCall state (blockEnv header blockHashes) header.parentBeaconBlockRoot
   let (state, gasUsed, logs) ← Evm.Frontier.Vm.Tx.runAll 16 (blockEnv header blockHashes)
     (Evm.Frontier.Vm.Tx.table 16) (Evm.Cancun.Vm.Effect.trampoline Evm.Cancun.Vm.PrecompiledContracts.lookup)
-    (fun _ => none) state txsWithSender 0 []
+    (fun _ => none) state txsWithSender 0 0 []
   let state := processWithdrawals state withdrawals
   return { state := state, gasUsed := gasUsed, logs := logs }
 

@@ -25,6 +25,7 @@
 -/
 
 import Evm.BaseTypes
+import Evm.CL.GasEmit
 
 namespace Evm.Prague.Spec
 
@@ -101,15 +102,20 @@ def IsMapFp2ToG2InputValid  (input : Evm.Bytes) : Prop :=
 
 /-! ## Gas formulas -/
 
-/-- G1_MSM gas: `k · GAS_BLS_G1_MUL · discount(k) / 1000`. The discount
-    table at EELS `forks/prague/vm/gas.py::G1_MSM_DISCOUNT_TABLE`
-    starts at `1000` for `k=1` (no discount) and drops to `174` at
-    `k=128`. We expose the simple `k · gasG1Mul` upper bound; the
-    real `discount` lookup is left as an obligation on the impl. -/
-def g1MsmGas (k : Nat) : Nat := k * gasG1Mul
+/-- G1_MSM gas: `k · GAS_BLS_G1_MUL · discount(k) / 1000` (floor), EELS
+    `forks/prague/vm/precompiled_contracts/bls12_381/bls12_381_g1.py::bls12_g1_msm`
+    with `G1_MSM_DISCOUNT_TABLE` (k = 1..128, constant beyond). The table and the
+    formula are the emitted ones (`Evm.CL.GasEmit.msmGas`, `blsG1MsmDiscounts`) — one
+    owner. (2026-11-09: this used to be the undiscounted `k · GAS_BLS_G1_MUL`.) -/
+def g1MsmGas (k : Nat) : Nat :=
+  Evm.CL.GasEmit.msmGas gasG1Mul Evm.CL.GasEmit.blsG1MsmDiscounts
+    Evm.CL.GasEmit.blsG1MsmMaxDiscount k
 
-/-- G2_MSM gas: analogous to G1_MSM with the G2_MSM_DISCOUNT_TABLE. -/
-def g2MsmGas (k : Nat) : Nat := k * gasG2Mul
+/-- G2_MSM gas: the same with `GAS_BLS_G2_MUL` and `G2_MSM_DISCOUNT_TABLE`
+    (`bls12_381_g2.py::bls12_g2_msm`). -/
+def g2MsmGas (k : Nat) : Nat :=
+  Evm.CL.GasEmit.msmGas gasG2Mul Evm.CL.GasEmit.blsG2MsmDiscounts
+    Evm.CL.GasEmit.blsG2MsmMaxDiscount k
 
 /-- PAIRING_CHECK gas: `BASE + k · PER_PAIR`. EELS:
     `forks/prague/vm/gas.py::GAS_BLS_PAIRING_BASE` (37700) plus

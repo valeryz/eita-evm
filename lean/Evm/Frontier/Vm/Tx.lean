@@ -440,16 +440,28 @@ def run (k : Nat) (benv : Environment) (st : State) (sender : Evm.Address) (tx :
   | none => .ok (finish k benv sender tx (message k benv st sender tx pre runSub recover))
 
 
+/-- EIP-4844's block blob-gas allowance (EELS `forks/cancun/fork.py::check_transaction`
+    432-439: `blob_gas_available = MAX_BLOB_GAS_PER_BLOCK - block_output.blob_gas_used`;
+    `if tx_blob_gas_used > blob_gas_available: raise BlobGasLimitExceededError`), from
+    Cancun (`k ≥ 16`), at the emitted per-fork `maxBlobGasPerBlock` (the host's
+    `spec-max-blob-gas-per-block`). `used` is the blob gas of the block's earlier txs. -/
+def blobGasExceeds (k used : Nat) (tx : Tx) : Bool :=
+  decide (k ≥ 16 ∧ used + blobGas tx >
+    Evm.CL.GasEmit.maxBlobGasPerBlock.eval (fun y => if y = "fork-ord" then k else 0))
+
 /-- The block's transactions in order (EELS `apply_body`'s loop; the block gas limit is
-    the driver's): the world after each, the gas, the logs. -/
+    the driver's): the blob-gas allowance (`blobGasExceeds`, `bg` the blob gas so far),
+    then the world after each, the gas, the logs. -/
 def runAll (k : Nat) (benv : Environment)
     (pre : Environment → Evm.Address → Option Precompile) (runSub : Evm → Except Exception Evm)
     (recover : Evm.Prague.Authorization → Option Evm.Address) :
-    State → List (Tx × Evm.Address) → Nat → List Log → Except String (State × Nat × List Log)
-  | st, [], g, ls => .ok (st, g, ls)
-  | st, (tx, s) :: rest, g, ls => do
+    State → List (Tx × Evm.Address) → Nat → Nat → List Log →
+      Except String (State × Nat × List Log)
+  | st, [], g, _, ls => .ok (st, g, ls)
+  | st, (tx, s) :: rest, g, bg, ls => do
+    if blobGasExceeds k bg tx then .error "blob gas limit exceeded"
     let r ← run k benv st s tx pre runSub recover
-    runAll k benv pre runSub recover r.state rest (g + r.gasUsed) (ls ++ r.logs)
+    runAll k benv pre runSub recover r.state rest (g + r.gasUsed) (bg + blobGas tx) (ls ++ r.logs)
 
 /-- A block environment from the header's fields (the state is the tx's, set by `env0`). -/
 def blockEnv (coinbase : Evm.Address) (number difficulty gasLimit timestamp : Nat)

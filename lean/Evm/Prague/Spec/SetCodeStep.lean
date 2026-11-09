@@ -33,8 +33,7 @@
        context.
 
   The signature-recovery primitive itself (`ecrecover` over the
-  EIP-7702 magic message) is axiomatised — Lean doesn't know
-  secp256k1.
+  EIP-7702 magic message) is a trusted oracle parameter `recover`.
 
   Inheritance: introduced at Prague.
 -/
@@ -128,112 +127,70 @@ def parseDelegated (c : Evm.Bytes) : Evm.Address :=
 def encodeDesignator (addr : Evm.Address) : Evm.Bytes :=
   delegationPrefix ++ Evm.Address.toBytesBE addr
 
-/-! ## Authorization processing
+/-! ## Authorization processing (EELS `forks/prague/vm/eoa_delegation.py`)
 
-    Per EIP-7702 §"Behavior", for each authorization tuple
-    `(chainId, address, nonce, yParity, r, s)`:
+    `validate_authorization` 155-189, for each authorization:
+      1. `chain_id ∈ (block chain id, 0)`; `nonce < 2^64 − 1` (`U64.MAX_VALUE`);
+      2. `recover_authority` 77-128: `y_parity ∈ {0,1}`, `0 < r < N`,
+         `0 < s ≤ N // 2`, then the secp256k1 recovery over
+         `keccak(MAGIC ‖ rlp([chain_id, address, nonce]))` — a trusted oracle,
+         the parameter `recover` (as in the implementation), not an axiom;
+      3. the authority is warmed (`accessed_addresses.add`), even when a later
+         check rejects it;
+      4. its code is empty or a delegation; its nonce is the authorization's.
+    `set_delegation` 192-237, for a valid one: refund
+    `AUTH_PER_EMPTY_ACCOUNT − REFUND_AUTH_PER_EXISTING_ACCOUNT` (12500) when the
+    authority EXISTS (`account_exists`), `set_code` (empty for the null address,
+    else the designator), `increment_nonce`. An invalid authorization changes
+    nothing but the warm set (and not even that before recovery).
 
-      1. yParity ∈ {0, 1}, 0 < r < secp256k1n, 0 < s ≤ secp256k1n/2.
-      2. chainId == 0 (wildcard) OR chainId == current_chain_id.
-      3. authority = ecrecover(MAGIC || rlp([chain, addr, nonce]),
-                                yParity, r, s).
-         If recovery fails, skip.
-      4. authority's code is empty OR is already a designator.
-      5. authority's nonce equals the tuple's nonce.
-      6. (Gas refund accounting: refund 12500 to sender if authority
-          was empty.)
-      7. Set authority's code := encodeDesignator(address)
-         (or clear it if address == 0).
-      8. Bump authority's nonce. -/
+    Restated 2026-11-09 over `Environment` (state, warm set, refund counter —
+    where the implementation `Tx.authorize` works): the relation used to
+    refund on "not empty", skip the nonce bound and `r < N`, take its
+    hypotheses as implications (vacuous when false), and recover through an
+    `axiom`. -/
 
-/-- Axiomatised ecrecover-with-magic. Real impl lives in
-    `c/ecrecover.c` and needs a small adapter for the EIP-7702
-    message format. -/
-axiom RecoverAuthority : Authorization → Option Evm.Address
+/-- The checks before recovery (`validate_authorization` 166-170 and
+    `recover_authority` 98-103). -/
+@[reducible] def AuthPrechecks (chainId : Evm.U256) (auth : Authorization) : Prop :=
+  (auth.chainId = chainId ∨ auth.chainId = 0) ∧ auth.nonce.toNat < 2 ^ 64 - 1 ∧
+  auth.yParity.toNat ≤ 1 ∧ 0 < auth.r.toNat ∧ auth.r.toNat < secp256k1n ∧
+  0 < auth.s.toNat ∧ auth.s.toNat ≤ secp256k1n / 2
 
-/-- Per-authorization step: the post-state has been updated according
-    to the EIP-7702 procedure. The `refund` is the gas to credit the
-    sender for this authorization (0 for failures, 0 for non-empty
-    successes, `PER_EMPTY_ACCOUNT_COST - PER_AUTH_BASE_COST` for
-    empty-authority successes). -/
-def IsApplyAuthorization
-    (chainId : Evm.U256) (auth : Authorization)
-    (preState postState : State) (refund : Nat) : Prop :=
-  -- Step 1: signature scalar bounds.
-  (auth.yParity = (0 : Evm.U256) ∨ auth.yParity = (1 : Evm.U256)) →
-  (0 : Evm.U256) < auth.r →
-  (0 : Evm.U256) < auth.s →
-  auth.s.toNat * 2 ≤ secp256k1n →
-  -- Step 2: chain id check.
-  (auth.chainId = (0 : Evm.U256) ∨ auth.chainId = chainId) →
-  -- Step 3-8: recovery + state update.
-  match RecoverAuthority auth with
-  | none => postState = preState ∧ refund = 0
+/-- Per-authorization step over the tx environment. -/
+def IsApplyAuthorization (chainId : Evm.U256)
+    (recover : Authorization → Option Evm.Address) (auth : Authorization)
+    (env env' : Evm.Frontier.Vm.Environment) : Prop :=
+  if ¬ AuthPrechecks chainId auth then env' = env
+  else
+  match recover auth with
+  | none => env' = env
   | some authority =>
-    let acc := preState.getAccount authority
-    let alreadyDelegated := isDelegationDesignator acc.code
-    let nonceMatches : Bool := decide (acc.nonce = auth.nonce.toNat)
-    let codeOk : Bool := (acc.code.size = 0 : Bool) || alreadyDelegated
-    if ¬ codeOk = true ∨ ¬ nonceMatches = true then
-      postState = preState ∧ refund = 0
+    let envW : Evm.Frontier.Vm.Environment :=
+      if env.accessedAddresses.contains authority then env
+      else { env with accessedAddresses := env.accessedAddresses ++ [authority] }
+    let acc := env.state.getAccount authority
+    if (acc.code.size ≠ 0 ∧ isDelegationDesignator acc.code = false) ∨
+       acc.nonce ≠ auth.nonce.toNat then env' = envW
     else
-      let newCode :=
-        if auth.address = (0 : Evm.Address) then Evm.Bytes.empty
-        else encodeDesignator auth.address
-      let postAcc := { acc with code := newCode, nonce := acc.nonce + 1 }
-      -- EIP-7702 step 6: "Add PER_EMPTY_ACCOUNT_COST - PER_AUTH_BASE_COST
-      -- gas to the global refund counter IF authority exists in the
-      -- trie." The intrinsic charges the full PER_EMPTY_ACCOUNT_COST
-      -- (= 25000) per auth upfront; this refund returns half of it
-      -- (12500) when no new account had to be created. So the refund
-      -- fires on EXISTING (non-empty) authorities, NOT empty ones —
-      -- an earlier version of this file had it reversed (caught by
-      -- tx 31 of Base 0x2c9a9a0; see commit history). The condition
-      -- `wasEmpty` is the EIP-161 empty-account predicate.
-      let wasEmpty : Bool := decide (acc.nonce = 0) &&
-                             decide (acc.balance = (0 : Evm.U256)) &&
-                             decide (acc.code.size = 0)
-      postState = preState.setAccount authority postAcc ∧
-      refund = (if wasEmpty then 0 else perEmptyAccountCost - perAuthBaseCost)
+      let withCode := env.state.setAccount authority
+        { acc with code := if auth.address = 0 then Evm.Bytes.empty
+                           else encodeDesignator auth.address }
+      let acc' := withCode.getAccount authority
+      env' = { envW with
+        refundCounter := if env.state.accountExists authority
+                         then env.refundCounter + (perEmptyAccountCost - perAuthBaseCost)
+                         else env.refundCounter,
+        state := withCode.setAccount authority { acc' with nonce := acc'.nonce + 1 } }
 
-/-- Authorization-list processing: fold `IsApplyAuthorization` over
-    the list in order, accumulating the refund. -/
-def IsApplyAuthorizations
-    (chainId : Evm.U256) (auths : List Authorization)
-    (preState postState : State) (totalRefund : Nat) : Prop :=
-  -- We state this inductively rather than as an explicit fold because
-  -- `IsApplyAuthorization` is itself a `Prop`-valued predicate.
-  match auths with
-  | []         => postState = preState ∧ totalRefund = 0
-  | a :: rest  =>
-    ∃ midState midRefund tailRefund,
-      IsApplyAuthorization chainId a preState midState midRefund ∧
-      IsApplyAuthorizations chainId rest midState postState tailRefund ∧
-      totalRefund = midRefund + tailRefund
-
-/-! ## Per-tx ordering: sender nonce bump BEFORE authorization processing
-
-    EELS `forks/prague/fork.py::process_transaction` increments the
-    sender's nonce as part of its standard tx-entry bookkeeping
-    BEFORE calling into the authorization-list processor. This
-    matters when `sender == authority` (the self-delegation
-    pattern). At step 5 of `applyAuthorization` we require
-    `state[authority].nonce == auth.nonce`. With the sender bump
-    happening first, this matches the auth's stated nonce
-    (= sender's pre-bump nonce + 1 in the same-account case).
-
-    Reversing the order would leave `state[authority].nonce`
-    one too low, the auth would silently fail step 5, and the
-    delegated code would not be installed — caught by tx 31 of
-    Base 0x2c9a9a0 (see commit history). -/
-def SenderNonceBumpedBeforeAuths
-    (preState postSenderBumpState postAuthState : State)
-    (sender : Evm.Address) (chainId : Evm.U256)
-    (auths : List Authorization) (refund : Nat) : Prop :=
-  let preAcc := preState.getAccount sender
-  postSenderBumpState =
-    preState.setAccount sender { preAcc with nonce := preAcc.nonce + 1 } ∧
-  IsApplyAuthorizations chainId auths postSenderBumpState postAuthState refund
+/-- Authorization-list processing (`set_delegation`'s loop): the authorizations in order. -/
+def IsApplyAuthorizations (chainId : Evm.U256)
+    (recover : Authorization → Option Evm.Address) :
+    List Authorization → Evm.Frontier.Vm.Environment → Evm.Frontier.Vm.Environment → Prop
+  | [], env, env' => env' = env
+  | a :: rest, env, env' =>
+    ∃ mid, IsApplyAuthorization chainId recover a env mid ∧
+      IsApplyAuthorizations chainId recover rest mid env'
 
 /-! ## CALL into a delegated EOA
 
@@ -255,7 +212,7 @@ def SenderNonceBumpedBeforeAuths
 /-- The "effective code" a CALL into `callee` should execute under
     EIP-7702 semantics: follow the designator once, else use the
     callee's own code. -/
-def IsEffectiveCallCode (state : State) (callee : Evm.Address) (code : Evm.Bytes) : Prop :=
+def IsEffectiveCallCode (state : Evm.Frontier.State) (callee : Evm.Address) (code : Evm.Bytes) : Prop :=
   let acc := state.getAccount callee
   if isDelegationDesignator acc.code then
     code = (state.getAccount (parseDelegated acc.code)).code
@@ -273,7 +230,7 @@ def IsEffectiveCallCode (state : State) (callee : Evm.Address) (code : Evm.Bytes
     23500000 tx 11 showed before the host resolved it (3,000,000 burned vs
     the chain's 107,033; after: 107,033 exact, which also confirms "no
     charge"). Host: `apply-tx` top-frame code selection, src/evm/tx.lisp. -/
-def IsEffectiveTxCode (state : State) (to : Evm.Address) (code : Evm.Bytes) : Prop :=
+def IsEffectiveTxCode (state : Evm.Frontier.State) (to : Evm.Address) (code : Evm.Bytes) : Prop :=
   IsEffectiveCallCode state to code
 
 /-- No tx-level delegation access charge (EELS prepare_message; Arc oracle). -/
@@ -337,7 +294,7 @@ theorem delegationAccessCost_zero_pre_prague
   unfold DelegationAccessCost
   simp [h]
 
-/-! ## What we encoded vs. axiomatised
+/-! ## What we encoded vs. took as an oracle
 
     Encoded:
       * The constants `MAGIC`, `PER_AUTH_BASE_COST`,
@@ -348,12 +305,9 @@ theorem delegationAccessCost_zero_pre_prague
       * The accumulated refund per EIP-7702 §"Gas costs".
       * The CALL-delegation lookup rule (single-hop).
 
-    Axiomatised:
-      * `RecoverAuthority`: ecrecover with the EIP-7702 magic byte.
-        Discharging this requires plumbing the existing
-        `c/ecrecover.c` Frontier helper through a magic-prefix
-        adapter; spec just says "if it returns `some authority`,
-        proceed; otherwise skip".
+    Oracle (a parameter, not an axiom):
+      * `recover`: ecrecover with the EIP-7702 magic byte, the same
+        parameter the implementation `Tx.authorize` takes.
 
     Not in scope for this file (the brief mentions it as the
     "trickiest" alongside EIP-4844):

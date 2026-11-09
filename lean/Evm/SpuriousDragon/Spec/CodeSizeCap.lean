@@ -54,13 +54,18 @@ def IsCodeSizeAllowed (output : Evm.Bytes) : Prop :=
 
 /-! ## IsCreateCodeSizeRevertStep — the new revert path
 
-    Triggered when init code halts cleanly but produces > 24576
-    bytes. Same shape as `Homestead.Spec.CreateStep.IsCreateDeposit
-    Revert` (push 0, no state merge, gas consumed); distinguished by
-    the size-violation pre-condition.
-
-    Inputs match `IsCreateDepositRevert` for one-to-one comparison. -/
-def IsCreateCodeSizeRevertStep (parent subEvm : Evm)
+    EELS `forks/spurious_dragon/vm/interpreter.py::process_create_message`
+    177-193: after a clean init run, charge the deposit and `if len(contract_code)
+    > MAX_CODE_SIZE: raise OutOfGasError`; either failure restores the snapshot
+    taken after the creator's nonce bump (only the bump survives), zeroes the
+    child's gas, and the parent pushes 0. Stated like Homestead's
+    `IsCreateDepositRevert`, against the frame BEFORE the bump (`parent`, the
+    creator `sender` with nonce `senderAccNonce` then). An unaffordable deposit
+    gives the same post-state, so the relation needs no gas premise.
+    (Restated 2026-11-09: the post-state used to keep `parent.env` unchanged,
+    dropping the nonce bump EELS keeps.) -/
+def IsCreateCodeSizeRevertStep (parent subEvm : Evm) (sender : Evm.Address)
+                                (senderAccNonce : Nat)
                                 (gasLeft : Nat) (mem : Memory)
                                 (s : Stack) (pc : Nat) (parent' : Evm) :
     Prop :=
@@ -68,7 +73,11 @@ def IsCreateCodeSizeRevertStep (parent subEvm : Evm)
   subEvm.halted ∧
   subEvm.output.size > maxCodeSize ∧
   s.length < stackLimit ∧
+  let senderAcc := parent.env.state.getAccount sender
+  let stateAfterNonceBump :=
+    parent.env.state.setAccount sender { senderAcc with nonce := senderAccNonce + 1 }
   parent' = { parent with
+    env         := { parent.env with state := stateAfterNonceBump },
     gasLeft     := gasLeft,
     memory      := mem,
     stack       := (0 : Evm.U256) :: s,

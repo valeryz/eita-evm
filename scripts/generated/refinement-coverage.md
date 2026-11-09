@@ -29,22 +29,22 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Frontier/Spec/Refinement`
 | Amsterdam | 4 | 0 | 1 | 0 | 5 |
 | Berlin | 4 | 0 | 0 | 0 | 4 |
 | Byzantium | 4 | 0 | 0 | 0 | 4 |
-| Cancun | 7 | 0 | 4 | 0 | 11 |
+| Cancun | 11 | 0 | 0 | 0 | 11 |
 | Constantinople | 5 | 0 | 0 | 0 | 5 |
 | Frontier | 54 | 0 | 0 | 0 | 54 |
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
 | Istanbul | 4 | 0 | 1 | 0 | 5 |
 | London | 8 | 0 | 0 | 0 | 8 |
-| Osaka | 3 | 0 | 2 | 0 | 5 |
-| Paris | 3 | 0 | 1 | 0 | 4 |
+| Osaka | 4 | 0 | 1 | 0 | 5 |
+| Paris | 4 | 0 | 0 | 0 | 4 |
 | Petersburg | 1 | 0 | 0 | 0 | 1 |
-| Prague | 0 | 0 | 12 | 0 | 12 |
+| Prague | 5 | 0 | 7 | 0 | 12 |
 | Shanghai | 4 | 0 | 0 | 0 | 4 |
-| SpuriousDragon | 5 | 0 | 2 | 0 | 7 |
-| **total** | **171** | **0** | **23** | **0** | **194** |
+| SpuriousDragon | 7 | 0 | 0 | 0 | 7 |
+| **total** | **184** | **0** | **10** | **0** | **194** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 
 ### Amsterdam
 
@@ -71,14 +71,14 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 ### Cancun
 
 - PROVED `blobAffordable_sound` (Refinement.lean)
-- SHAPE `blobCountValid_sound_shape` (Refinement.lean)
+- PROVED `blobCountValid_sound` (Refinement.lean)
 - PROVED `blobFeeBidSufficient_sound` (Refinement.lean)
 - PROVED `blobbasefee_sound` (Refinement.lean)
 - PROVED `blobhash_sound` (Refinement.lean)
-- SHAPE `kzg_failure_sound_shape` (Refinement.lean)
-- SHAPE `kzg_success_sound_shape` (Refinement.lean)
+- PROVED `kzg_failure_sound` (Refinement.lean)
+- PROVED `kzg_success_sound` (Refinement.lean)
 - PROVED `mcopy_sound` (Refinement.lean)
-- SHAPE `selfdestruct_sound_shape` (Refinement.lean)
+- PROVED `selfdestruct_sound` (Refinement.lean)
 - PROVED `tload_sound` (Refinement.lean)
 - PROVED `tstore_sound` (Refinement.lean)
 
@@ -239,7 +239,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 
 ### Osaka
 
-- SHAPE `clz_sound_shape` (Refinement.lean)
+- PROVED `clz_sound` (Refinement.lean)
 - SHAPE `p256Verify_sound_shape` (Refinement.lean)
 - PROVED `validBlobCount_sound` (Refinement.lean)
 - PROVED `validModexpInput_sound` (Refinement.lean)
@@ -249,7 +249,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 
 - PROVED `block_reward_identity` (NoBlockReward.lean)
 - PROVED `parisBlockReward_sound` (Refinement.lean)
-- SHAPE `parisHeaderInvariants_sound_shape` (Refinement.lean)
+- PROVED `parisHeaderInvariants_sound` (Refinement.lean)
 - PROVED `prevrandao_sound` (Refinement.lean)
 
 ### Petersburg
@@ -258,18 +258,18 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 
 ### Prague
 
-- SHAPE `applyAuthorization_sound_shape` (Refinement.lean)
-- SHAPE `applyAuthorizations_sound_shape` (Refinement.lean)
-- SHAPE `effectiveCallCode_sound_shape` (Refinement.lean)
+- PROVED `applyAuthorization_sound` (Refinement.lean)
+- PROVED `applyAuthorizations_sound` (Refinement.lean)
+- PROVED `effectiveCallCode_sound` (Refinement.lean)
 - SHAPE `g1Add_sound_shape` (Refinement.lean)
 - SHAPE `g1Msm_sound_shape` (Refinement.lean)
 - SHAPE `g2Add_sound_shape` (Refinement.lean)
 - SHAPE `g2Msm_sound_shape` (Refinement.lean)
-- SHAPE `intrinsicGasSufficient_sound_shape` (Refinement.lean)
+- PROVED `intrinsicGasSufficient_sound` (Refinement.lean)
 - SHAPE `mapFp2ToG2_sound_shape` (Refinement.lean)
 - SHAPE `mapFpToG1_sound_shape` (Refinement.lean)
 - SHAPE `pairingCheck_sound_shape` (Refinement.lean)
-- SHAPE `requestsHashValid_sound_shape` (Refinement.lean)
+- PROVED `requestsHashValid_sound` (Refinement.lean)
 
 ### Shanghai
 
@@ -282,15 +282,15 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 
 - PROVED `cap_monotone` (CodeSizeCap.lean)
 - PROVED `empty_output_allowed` (CodeSizeCap.lean)
-- SHAPE `createCodeSizeRevert_sound_shape` (Refinement.lean)
-- SHAPE `recoverSender_sound_shape` (Refinement.lean)
+- PROVED `createCodeSizeRevert_sound` (Refinement.lean)
+- PROVED `recoverSender_sound` (Refinement.lean)
 - PROVED `sweepEmptyAccounts_sound` (Refinement.lean)
 - PROVED `touchAccount_sound` (Refinement.lean)
 - PROVED `sweepEmptyAccounts_sound` (SweepEmpty.lean)
 
 ## B. Relation coverage, fully qualified (informational)
 
-195 qualified relations: facts-only 3, missing 99, proved 70, shape 23, spec-is-impl 1.
+193 qualified relations: facts-only 3, missing 97, proved 83, shape 10, spec-is-impl 0.
 
 | relation | status | resolving theorem |
 |---|---|---|
@@ -316,14 +316,14 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 | `Evm.Byzantium.Spec.IsReturndatasizeStep` | PROVED | `Evm.Byzantium.Spec.Refinement.returndatasize_sound` |
 | `Evm.Byzantium.Spec.IsRevertStep` | PROVED | `Evm.Byzantium.Spec.Refinement.revert_sound` |
 | `Evm.Cancun.Spec.IsBlobAffordable` | PROVED | `Evm.Cancun.Spec.Refinement.blobAffordable_sound` |
-| `Evm.Cancun.Spec.IsBlobCountValid` | SHAPE | `Evm.Cancun.Spec.Refinement.blobCountValid_sound_shape` |
+| `Evm.Cancun.Spec.IsBlobCountValid` | PROVED | `Evm.Cancun.Spec.Refinement.blobCountValid_sound` |
 | `Evm.Cancun.Spec.IsBlobFeeBidSufficient` | PROVED | `Evm.Cancun.Spec.Refinement.blobFeeBidSufficient_sound` |
 | `Evm.Cancun.Spec.IsBlobbasefeeStep` | PROVED | `Evm.Cancun.Spec.Refinement.blobbasefee_sound` |
 | `Evm.Cancun.Spec.IsBlobhashStep` | PROVED | `Evm.Cancun.Spec.Refinement.blobhash_sound` |
-| `Evm.Cancun.Spec.IsKzgPrecompileFailure` | SHAPE | `Evm.Cancun.Spec.Refinement.kzg_failure_sound_shape` |
-| `Evm.Cancun.Spec.IsKzgPrecompileSuccess` | SHAPE | `Evm.Cancun.Spec.Refinement.kzg_success_sound_shape` |
+| `Evm.Cancun.Spec.IsKzgPrecompileFailure` | PROVED | `Evm.Cancun.Spec.Refinement.kzg_failure_sound` |
+| `Evm.Cancun.Spec.IsKzgPrecompileSuccess` | PROVED | `Evm.Cancun.Spec.Refinement.kzg_success_sound` |
 | `Evm.Cancun.Spec.IsMcopyStep` | PROVED | `Evm.Cancun.Spec.Refinement.mcopy_sound` |
-| `Evm.Cancun.Spec.IsSelfdestructStep` | SHAPE | `Evm.Cancun.Spec.Refinement.selfdestruct_sound_shape` |
+| `Evm.Cancun.Spec.IsSelfdestructStep` | PROVED | `Evm.Cancun.Spec.Refinement.selfdestruct_sound` |
 | `Evm.Cancun.Spec.IsTloadStep` | PROVED | `Evm.Cancun.Spec.Refinement.tload_sound` |
 | `Evm.Cancun.Spec.IsTstoreStep` | PROVED | `Evm.Cancun.Spec.Refinement.tstore_sound` |
 | `Evm.Constantinople.Spec.IsCreate2EntryCollision` | MISSING | — |
@@ -440,24 +440,24 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 | `Evm.London.Spec.IsRefundCapped` | PROVED | `Evm.London.Spec.Refinement.refundCap_sound` |
 | `Evm.London.Spec.IsSelfdestructRefundDelta` | PROVED | `Evm.London.Spec.Refinement.selfdestructRefundDelta_sound` |
 | `Evm.London.Spec.IsValidDeployedCode`<br>instance/spec facts (do not discharge the general obligation): `Evm.London.Spec.empty_code_valid` | PROVED (+1 more) | `Evm.London.Spec.Refinement.validDeployedCode_tx_sound` |
-| `Evm.Osaka.Spec.IsClzStep` | SHAPE | `Evm.Osaka.Spec.Refinement.clz_sound_shape` |
+| `Evm.Osaka.Spec.IsClzStep` | PROVED | `Evm.Osaka.Spec.Refinement.clz_sound` |
 | `Evm.Osaka.Spec.IsP256VerifyStep` | SHAPE | `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` |
 | `Evm.Osaka.Spec.IsValidBlobCount` | PROVED | `Evm.Osaka.Spec.Refinement.validBlobCount_sound` |
 | `Evm.Osaka.Spec.IsValidModexpInput` | PROVED | `Evm.Osaka.Spec.Refinement.validModexpInput_sound` |
 | `Evm.Osaka.Spec.IsValidTxGasCap` | PROVED | `Evm.Osaka.Spec.Refinement.validTxGasCap_sound` |
 | `Evm.Paris.Spec.IsParisBlockReward`<br>instance/spec facts (do not discharge the general obligation): `Evm.Paris.Spec.block_reward_identity` | PROVED | `Evm.Paris.Spec.Refinement.parisBlockReward_sound` |
 | `Evm.Paris.Spec.IsParisDifficultyValid` | MISSING | — |
-| `Evm.Paris.Spec.IsParisHeaderInvariants` | SHAPE | `Evm.Paris.Spec.Refinement.parisHeaderInvariants_sound_shape` |
+| `Evm.Paris.Spec.IsParisHeaderInvariants` | PROVED | `Evm.Paris.Spec.Refinement.parisHeaderInvariants_sound` |
 | `Evm.Paris.Spec.IsParisNonceValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisOmmersBodyValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisOmmersHashValid` | MISSING | — |
 | `Evm.Paris.Spec.IsPrevrandaoStep` | PROVED | `Evm.Paris.Spec.Refinement.prevrandao_sound` |
 | `Evm.Petersburg.Spec.IsSstoreStep` | PROVED | `Evm.Petersburg.Spec.Refinement.sstore_sound` |
-| `Evm.Prague.Spec.IsApplyAuthorization` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorization_sound_shape` |
-| `Evm.Prague.Spec.IsApplyAuthorizations` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorizations_sound_shape` |
+| `Evm.Prague.Spec.IsApplyAuthorization` | PROVED | `Evm.Prague.Spec.Refinement.applyAuthorization_sound` |
+| `Evm.Prague.Spec.IsApplyAuthorizations` | PROVED | `Evm.Prague.Spec.Refinement.applyAuthorizations_sound` |
 | `Evm.Prague.Spec.IsDelegationAccessCharge` | MISSING | — |
 | `Evm.Prague.Spec.IsDelegationDesignator` | MISSING | — |
-| `Evm.Prague.Spec.IsEffectiveCallCode` | SHAPE | `Evm.Prague.Spec.Refinement.effectiveCallCode_sound_shape` |
+| `Evm.Prague.Spec.IsEffectiveCallCode` | PROVED | `Evm.Prague.Spec.Refinement.effectiveCallCode_sound` |
 | `Evm.Prague.Spec.IsEffectiveTxCode` | MISSING | — |
 | `Evm.Prague.Spec.IsG1AddInputValid` | MISSING | — |
 | `Evm.Prague.Spec.IsG1AddSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g1Add_sound_shape` |
@@ -467,24 +467,22 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 | `Evm.Prague.Spec.IsG2AddSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g2Add_sound_shape` |
 | `Evm.Prague.Spec.IsG2MsmInputValid` | MISSING | — |
 | `Evm.Prague.Spec.IsG2MsmSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g2Msm_sound_shape` |
-| `Evm.Prague.Spec.IsIntrinsicGasSufficient` | SHAPE | `Evm.Prague.Spec.Refinement.intrinsicGasSufficient_sound_shape` |
+| `Evm.Prague.Spec.IsIntrinsicGasSufficient` | PROVED | `Evm.Prague.Spec.Refinement.intrinsicGasSufficient_sound` |
 | `Evm.Prague.Spec.IsMapFp2ToG2InputValid` | MISSING | — |
 | `Evm.Prague.Spec.IsMapFp2ToG2Success` | SHAPE | `Evm.Prague.Spec.Refinement.mapFp2ToG2_sound_shape` |
 | `Evm.Prague.Spec.IsMapFpToG1InputValid` | MISSING | — |
 | `Evm.Prague.Spec.IsMapFpToG1Success` | SHAPE | `Evm.Prague.Spec.Refinement.mapFpToG1_sound_shape` |
 | `Evm.Prague.Spec.IsPairingCheckSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.pairingCheck_sound_shape` |
 | `Evm.Prague.Spec.IsPairingInputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsRequestsHashValid` | SHAPE | `Evm.Prague.Spec.Refinement.requestsHashValid_sound_shape` |
+| `Evm.Prague.Spec.IsRequestsHashValid` | PROVED | `Evm.Prague.Spec.Refinement.requestsHashValid_sound` |
 | `Evm.Shanghai.Spec.InitcodeWithinCap` | PROVED (+1 more) | `Evm.Shanghai.Spec.Refinement.initcodeWithinCap_tx_sound` |
 | `Evm.Shanghai.Spec.IsPush0Step` | PROVED | `Evm.Shanghai.Spec.Refinement.push0_sound` |
 | `Evm.Shanghai.Spec.IsWarmCoinbaseInit` | PROVED | `Evm.Shanghai.Spec.Refinement.warmCoinbaseInit_sound` |
 | `Evm.SpuriousDragon.Spec.IsCodeSizeAllowed`<br>only instance/spec facts conclude this relation; the general implementation obligation is unproved: `Evm.SpuriousDragon.Spec.empty_output_allowed`, `Evm.SpuriousDragon.Spec.cap_monotone` | FACTS-ONLY | — |
-| `Evm.SpuriousDragon.Spec.IsCreateCodeSizeRevertStep` | SHAPE | `Evm.SpuriousDragon.Spec.Refinement.createCodeSizeRevert_sound_shape` |
+| `Evm.SpuriousDragon.Spec.IsCreateCodeSizeRevertStep` | PROVED | `Evm.SpuriousDragon.Spec.Refinement.createCodeSizeRevert_sound` |
 | `Evm.SpuriousDragon.Spec.IsEip155Signed` | MISSING | — |
 | `Evm.SpuriousDragon.Spec.IsLegacySigned` | MISSING | — |
-| `Evm.SpuriousDragon.Spec.IsRecoverSenderEip155` | MISSING | — |
-| `Evm.SpuriousDragon.Spec.IsRecoverSenderLegacy` | MISSING | — |
-| `Evm.SpuriousDragon.Spec.IsRecoverSenderStep`<br>SPEC-IS-IMPL: this relation is defined as the implementation's own equation — a discharge here is circular and nothing independent is proved; the independent obligation lives at clause level | SHAPE | `Evm.SpuriousDragon.Spec.Refinement.recoverSender_sound_shape` |
+| `Evm.SpuriousDragon.Spec.IsRecoverSenderStep` | PROVED | `Evm.SpuriousDragon.Spec.Refinement.recoverSender_sound` |
 | `Evm.SpuriousDragon.Spec.IsSweepEmptyStep` | PROVED (+1 more) | `Evm.SpuriousDragon.Spec.Refinement.sweepEmptyAccounts_sound` |
 | `Evm.SpuriousDragon.Spec.IsSweepOneStep`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.SpuriousDragon.Spec.IsSweepable` | MISSING | — |

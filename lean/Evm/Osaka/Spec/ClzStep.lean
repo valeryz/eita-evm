@@ -16,24 +16,28 @@
   here only.
 
   The relation reuses the `IsUnaryStep` shape from
-  `Evm.Frontier.Spec.StepShapes`, with `op = clzU256`. The
-  implementation in `Evm.Osaka.Vm.Effect.doClz` computes the same
-  function (`Evm.Osaka.Vm.Effect.clzU256`); both encode the standard
-  bit-length-by-shift loop.
+  `Evm.Frontier.Spec.StepShapes`, with `op = clzU256` stated through
+  `Nat.size` (Python's `bit_length`). The implementation
+  (`Evm.Osaka.Vm.Effect.clzU256`, a shift loop) is proved equal in
+  `Evm.Osaka.Spec.Refinement.clzU256_eq`.
 -/
 
 import Evm.Frontier.Spec.StepShapes
-import Evm.Osaka.Vm.Effect
+import Mathlib.Data.Nat.Size
 
 namespace Evm.Osaka.Spec
 
 open Evm.Frontier.Vm
 open Evm.Frontier.Spec (IsUnaryStep)
 
-/-- Count leading zero bits in a 256-bit word. Lifts the loop in
-    `Evm.Osaka.Vm.Effect.clzU256`. `CLZ(0) = 256` by the empty-loop
-    base case (no bits set ⇒ `bit_length = 0`). -/
-def clzU256 : Evm.U256 → Evm.U256 := Evm.Osaka.Vm.Effect.clzU256
+/-- Count leading zero bits in a 256-bit word: `256 - bit_length(x)`, with
+    `bit_length` Python's `int.bit_length` — the least `k` with `x < 2^k`, i.e.
+    Mathlib's `Nat.size`. EELS `forks/osaka/vm/instructions/bitwise.py::
+    count_leading_zeros` 268-269 (`bit_length = U256(x.bit_length())`;
+    `result = U256(256) - bit_length`). Restated 2026-11-09: this used to be the
+    implementation's own shift loop (`Evm.Osaka.Vm.Effect.clzU256`), so the
+    refinement was circular. -/
+def clzU256 (x : Evm.U256) : Evm.U256 := Evm.U256.ofNat (256 - Nat.size x.toNat)
 
 /-- 0x1E CLZ. EELS `count_leading_zeros`; gas tier LOW. -/
 abbrev IsClzStep : Evm → Evm → Prop :=

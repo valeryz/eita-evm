@@ -23,13 +23,14 @@
 
   Mainnet (and the test fixtures the impl runs) use chainId = 1.
 
-  Implementation reference: `Evm.SpuriousDragon.Utils.Signature.
-  recoverSender` (lines 53-63) and `signingHashEIP155` (lines 32-48).
+  Implementation: `Evm.SpuriousDragon.Utils.recoverSender`, proved
+  against `IsRecoverSenderStep` in `Refinement.recoverSender_sound`.
 -/
 
 import Evm.Frontier.Vm
 import Evm.Frontier.Transactions
 import Evm.SpuriousDragon.Utils.Signature
+import Evm.Frontier.Vm.Tx
 
 namespace Evm.SpuriousDragon.Spec
 
@@ -52,49 +53,59 @@ def IsEip155Signed (tx : Transaction) : Prop :=
 def IsLegacySigned (tx : Transaction) : Prop :=
   tx.v.toNat = 27 ∨ tx.v.toNat = 28
 
-/-! ## Signing hash
+/-! ## Signing hashes (EELS `forks/spurious_dragon/transactions.py`)
 
-    The two hash forms differ only in the RLP payload's tail:
-    EIP-155 appends `[chainId, 0, 0]`. We re-use the impl-side
-    function for the EIP-155 hash to avoid duplicating the RLP
-    construction in the spec. -/
+    `signing_hash_pre155` 201-221: `keccak256(rlp((nonce, gas_price, gas, to,
+    value, data)))`; `signing_hash_155` 224-249: the same list followed by
+    `chain_id, 0, 0`. An RLP integer is its minimal big-endian bytes
+    (`Rlp.natToBytes`), `0` the empty string; a contract creation's `to` is the
+    empty string. -/
 
-/-- The signing hash under EIP-155 (re-exported from the impl). -/
-def signingHashEIP155 (tx : Transaction) : Evm.Hash32 :=
-  Evm.SpuriousDragon.Utils.signingHashEIP155 tx
+/-- RLP item of the `to` field (EELS `Bytes0` for a creation). -/
+def toItem (tx : Transaction) : Evm.Rlp.Item :=
+  match tx.to with
+  | some a => .bytes (Evm.Address.toBytesBE a)
+  | none   => .bytes Evm.Bytes.empty
 
-/-! ## IsRecoverSenderStep — the recovery relation
+/-- EELS `signing_hash_pre155`. -/
+def signingHashPre155 (tx : Transaction) : Evm.Hash32 :=
+  Evm.Crypto.keccak256 (Evm.Rlp.encode (.list
+    [ .bytes (Evm.Rlp.natToBytes tx.nonce.toNat), .bytes (Evm.Rlp.natToBytes tx.gasPrice.toNat),
+      .bytes (Evm.Rlp.natToBytes tx.gas.toNat), toItem tx,
+      .bytes (Evm.Rlp.natToBytes tx.value.toNat), .bytes tx.data ]))
 
-    `IsRecoverSenderStep tx sender` holds iff `sender` is the
-    address that signed `tx` under SD's combined rule. The
-    relation just lifts the impl's `recoverSender` (which is an
-    `Option`) into a `Prop` so it can be composed with other tx-
-    level specs without committing to either signing scheme. -/
-def IsRecoverSenderStep (tx : Transaction) (sender : Evm.Address) : Prop :=
-  Evm.SpuriousDragon.Utils.recoverSender tx = some sender
+/-- EELS `signing_hash_155 (tx, chain_id)`. -/
+def signingHash155 (tx : Transaction) (cid : Nat) : Evm.Hash32 :=
+  Evm.Crypto.keccak256 (Evm.Rlp.encode (.list
+    [ .bytes (Evm.Rlp.natToBytes tx.nonce.toNat), .bytes (Evm.Rlp.natToBytes tx.gasPrice.toNat),
+      .bytes (Evm.Rlp.natToBytes tx.gas.toNat), toItem tx,
+      .bytes (Evm.Rlp.natToBytes tx.value.toNat), .bytes tx.data,
+      .bytes (Evm.Rlp.natToBytes cid), .bytes Evm.Bytes.empty, .bytes Evm.Bytes.empty ]))
 
-/-! ## EIP-155 path: low-s and chainId-aware recovery
+/-! ## IsRecoverSenderStep — EELS `recover_sender` 166-198, clause by clause
 
-    Sub-relations that pin down each clause separately. Useful for
-    refinement proofs that case-split on the signing form. -/
+    The curve recovery `secp256k1_recover` is a trusted oracle, a parameter
+    `ecrecover hash v r s` in the precompile's convention (`v ∈ {27, 28}` is
+    the recovery id + 27; the address is the low 20 bytes of the key's
+    keccak). The clauses EELS itself states are explicit:
 
-/-- The EIP-155 path. Decomposed:
-      1. `v` is in the chainId-augmented range,
-      2. `s` ≤ secp256k1.n / 2 (low-s; Homestead carry-over),
-      3. ecrecover on the EIP-155 hash with v normalised to {27,28}
-         returns `sender`. -/
-def IsRecoverSenderEip155 (tx : Transaction) (sender : Evm.Address) : Prop :=
-  IsEip155Signed tx ∧
-  tx.s.toNat ≤ Evm.Homestead.Utils.secp256k1nHalf ∧
-  let recoverV := Evm.U256.ofNat (tx.v.toNat - chainId * 2 - 35 + 27)
-  Evm.Crypto.recover (signingHashEIP155 tx) recoverV tx.r tx.s = some sender
+      * `0 < r < SECP256K1N` ("bad r"), `0 < s ≤ SECP256K1N // 2` ("bad s");
+      * `v ∈ {27, 28}`: recover over `signing_hash_pre155` with `v`;
+      * otherwise the EIP-155 form, `chain_id = (v - 35) >> 1` and recovery
+        id `(v - 35) & 1`, over `signing_hash_155(tx, chain_id)`. The chain id
+        must be the block's (`check_transaction` 390-395, `chain_id != block
+        chain_id` raises), here mainnet's `chainId = 1`, so `v ∈ {37, 38}`.
 
-/-- The legacy (Homestead-form) path. Inherited unchanged from
-    Homestead's recoverSender — restated here just to label the
-    branch. -/
-def IsRecoverSenderLegacy (tx : Transaction) (sender : Evm.Address) : Prop :=
-  IsLegacySigned tx ∧
-  Evm.Homestead.Utils.recoverSender tx = some sender
+    Restated 2026-11-09: this relation used to be `recoverSender tx = some
+    sender` — the implementation itself. -/
+def IsRecoverSenderStep (ecrecover : Evm.Hash32 → Evm.U256 → Evm.U256 → Evm.U256 → Option Evm.Address)
+    (tx : Transaction) (sender : Evm.Address) : Prop :=
+  0 < tx.r.toNat ∧ tx.r.toNat < Evm.Frontier.Vm.Tx.secp256k1n ∧
+  0 < tx.s.toNat ∧ tx.s.toNat ≤ Evm.Frontier.Vm.Tx.secp256k1n / 2 ∧
+  ((IsLegacySigned tx ∧ ecrecover (signingHashPre155 tx) tx.v tx.r tx.s = some sender) ∨
+   (IsEip155Signed tx ∧
+    ecrecover (signingHash155 tx chainId) (Evm.U256.ofNat ((tx.v.toNat - 35) % 2 + 27))
+      tx.r tx.s = some sender))
 
 /-! ## Structural fact: recovery is at most one of the two paths -/
 

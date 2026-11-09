@@ -136,7 +136,7 @@ def applyBlockTyped
   let (state, gasUsed, logs) ← Evm.Frontier.Vm.Tx.runAll 10
     (Evm.Frontier.Vm.Tx.blockEnv header.coinbase header.number header.difficulty header.gasLimit
       header.timestamp blockHashes)
-    (Evm.Frontier.Vm.Tx.table 10) Vm.Effect.trampoline (fun _ => none) state txsWithSender 0 []
+    (Evm.Frontier.Vm.Tx.table 10) Vm.Effect.trampoline (fun _ => none) state txsWithSender 0 0 []
   let state := Evm.Frontier.Vm.Block.payRewards 10 state header.coinbase header.number
     (ommers.map fun o => (o.coinbase, o.number))
   return { state := state, gasUsed := gasUsed, logs := logs }

@@ -47,7 +47,7 @@ open Evm.Byzantium.Vm.Effect (StepResult Step CallKind YieldEffect liftPure
 -- See note in Constantinople/Vm/Effect.lean: `Byzantium.Vm.Effect.maxCallDepth`
 -- collides with `Frontier.Vm.Effect.maxCallDepth`; qualify at use sites.
 
-private def u256ToAddrL (x : Evm.U256) : Evm.Address := Evm.Address.ofNat x.toNat
+def u256ToAddrL (x : Evm.U256) : Evm.Address := Evm.Address.ofNat x.toNat
 
 /-! ## EIP-6780 SELFDESTRUCT
 

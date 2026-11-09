@@ -102,6 +102,22 @@ private partial def processAll
     processAll r.state header prevRandao blockHashes txs'
       (gasAcc + r.gasUsed) (logsAcc ++ r.logs)
 
+/-- EIP-3675 post-Merge block checks, the one place both block entry points run them:
+    no ommers (EELS `forks/paris/fork.py::state_transition` 159, `if block.ommers !=
+    (): raise InvalidBlock`), and the header's `difficulty == 0`, `ommers_hash ==
+    EMPTY_OMMER_HASH`, `nonce == b"\x00" * 8` (`validate_header` 330-335; EELS types
+    the nonce `Bytes8`, so its length is checked here). -/
+def checkMergeHeader {α : Type} (header : Evm.Frontier.Header) (ommers : List α) :
+    Except String Unit := do
+  if ¬ ommers.isEmpty then
+    .error "EIP-3675: post-Merge blocks must have empty ommers"
+  if header.difficulty ≠ 0 then
+    .error "EIP-3675: post-Merge header.difficulty must be 0"
+  if header.ommersHash ≠ EMPTY_OMMER_HASH then
+    .error "EIP-3675: post-Merge header.ommersHash must be EMPTY_OMMER_HASH"
+  if header.nonce.size ≠ 8 ∨ (List.range 8).any (fun i => header.nonce.get! i ≠ (0 : UInt8)) then
+    .error "EIP-3675: post-Merge header.nonce must be 0x0000000000000000"
+
 /-! ## Block transition
 
   EELS `forks/paris/fork.py` `state_transition` (lines 142–225).
@@ -114,21 +130,7 @@ def applyBlock
     (block       : Block)
     (blockHashes : List Evm.Hash32) :
     Except String Evm.Frontier.BlockResult := do
-  -- EIP-3675 ommer-elimination check. EELS `state_transition` line
-  -- 159: `if block.ommers != (): raise InvalidBlock`. We mirror that
-  -- here as an early-error in the applyBlock pipeline.
-  if block.ommers.length ≠ 0 then
-    .error "EIP-3675: post-Merge blocks must have empty ommers"
-  -- EIP-3675 header-level checks. EELS `validate_header` lines 330–335.
-  -- Mainnet replay only ever hands us valid headers, but the rules
-  -- belong to the spec.
-  if block.header.difficulty ≠ 0 then
-    .error "EIP-3675: post-Merge header.difficulty must be 0"
-  if block.header.ommersHash ≠ EMPTY_OMMER_HASH then
-    .error "EIP-3675: post-Merge header.ommersHash must be EMPTY_OMMER_HASH"
-  -- header.nonce is 8 bytes; check it's all zero.
-  if block.header.nonce.toList.any (fun b => b ≠ (0 : UInt8)) then
-    .error "EIP-3675: post-Merge header.nonce must be 0x0000000000000000"
+  checkMergeHeader block.header block.ommers
   -- EIP-4399: the value formerly in mixDigest is now prev_randao.
   let prevRandao : Evm.Hash32 := block.header.mixDigest
   let (state, gasUsed, logs) ← processAll state block.header prevRandao
@@ -153,9 +155,7 @@ def applyBlockTyped
     (txsWithSender : List (Evm.Frontier.Vm.Tx.Tx × Evm.Address))
     (blockHashes   : List Evm.Hash32) :
     Except String Evm.Frontier.BlockResult := do
-  -- EIP-3675: ommers MUST be empty.
-  if ¬ ommers.isEmpty then
-    .error "Paris block has ommers (forbidden post-merge)"
+  checkMergeHeader header ommers
   -- Per-tx via London (typed, fee-market correct). Note that London's
   -- block reward / uncle bonus run only in London.applyBlockTyped —
   -- here we drive the tx loop directly so no reward is added.

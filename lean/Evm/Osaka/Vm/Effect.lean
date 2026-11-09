@@ -55,7 +55,7 @@ open Evm.Byzantium.Vm.Effect (StepResult Step CallKind YieldEffect liftPure
 /-- Count the number of one-prefix bits needed to encode a Nat: the
     smallest `k` such that `n < 2^k`. `bitLengthAux n 0`. Tail-recursive
     on `n / 2`. Equivalent to Python's `int.bit_length()`. -/
-private def bitLengthAux : Nat → Nat → Nat
+def bitLengthAux : Nat → Nat → Nat
   | 0,        acc => acc
   | n@(_+1),  acc => bitLengthAux (n >>> 1) (acc + 1)
 

@@ -25,6 +25,7 @@ import Evm.Paris.Spec.BlockHeaderInvariants
 import Evm.Paris.Spec.NoBlockReward
 import Evm.Paris.Spec.PrevrandaoStep
 import Evm.Paris.Vm.Effect
+import Evm.Paris.Fork
 import Evm.Frontier.Vm.Block
 
 namespace Evm.Paris.Spec.Refinement
@@ -45,15 +46,29 @@ theorem prevrandao_sound (evm evm' : Evm) :
 
 /-! ## EIP-3675 header invariants -/
 
-/-- The four-conjunct EIP-3675 header invariants. Block-validity
-    predicate; the impl callsite is `Paris.Fork.applyBlock`'s header
-    check. -/
-theorem parisHeaderInvariants_sound_shape
-    (difficulty : Nat) (nonce : ByteArray) (ommersHash : Evm.Hash32)
-    {α : Type} (ommers : List α) :
-    IsParisHeaderInvariants difficulty nonce ommersHash ommers →
-    IsParisHeaderInvariants difficulty nonce ommersHash ommers := by
-  intro h; exact h
+/-- The post-Merge block checks (`Paris.checkMergeHeader`, run first by both
+    `Paris.applyBlock` and `Paris.applyBlockTyped`, the replay's path) establish the
+    four EIP-3675 invariants. EELS `forks/paris/fork.py::state_transition` 159 and
+    `validate_header` 330-335. -/
+theorem parisHeaderInvariants_sound {α : Type} (header : Evm.Frontier.Header)
+    (ommers : List α) :
+    _root_.Evm.Paris.checkMergeHeader header ommers = .ok () →
+    IsParisHeaderInvariants header.difficulty header.nonce header.ommersHash ommers := by
+  intro h
+  unfold _root_.Evm.Paris.checkMergeHeader at h
+  by_cases h1 : ommers.isEmpty = true
+  · by_cases h2 : header.difficulty = 0
+    · by_cases h3 : header.ommersHash = _root_.Evm.Paris.EMPTY_OMMER_HASH
+      · simp [h1, h2, h3] at h
+        split at h
+        · simp at h
+        · rename_i hn
+          simp only [not_or, Decidable.not_not, not_exists, not_and] at hn
+          refine ⟨h2, ⟨hn.1, fun i hi => hn.2 i hi⟩, h3, ?_⟩
+          simpa [IsParisOmmersBodyValid] using h1
+      · simp [h1, h2, h3, bind, Except.bind] at h
+    · simp [h1, h2, bind, Except.bind] at h
+  · simp [h1, bind, Except.bind] at h
 
 /-! ## EIP-3675 block-reward removal -/
 

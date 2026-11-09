@@ -193,7 +193,7 @@ def applyBlockTyped
     (blockHashes   : List Evm.Hash32) :
     Except String Evm.Frontier.BlockResult := do
   let (state, gasUsed, logs) ← Evm.Frontier.Vm.Tx.runAll 15 (blockEnv header blockHashes)
-    (Evm.Frontier.Vm.Tx.table 15) Vm.Effect.trampoline (fun _ => none) state txsWithSender 0 []
+    (Evm.Frontier.Vm.Tx.table 15) Vm.Effect.trampoline (fun _ => none) state txsWithSender 0 0 []
   let state := Evm.Frontier.Vm.Block.processWithdrawals 15 state (withdrawalPairs withdrawals)
   return { state := state, gasUsed := gasUsed, logs := logs }
 

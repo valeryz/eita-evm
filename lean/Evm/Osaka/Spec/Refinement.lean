@@ -18,6 +18,7 @@
 
 import Evm.Frontier.Spec.Refinement
 import Evm.Osaka.Spec.ClzStep
+import Mathlib.Data.Nat.Size
 import Evm.Osaka.Spec.GasCap
 import Evm.Osaka.Spec.ModexpGas
 import Evm.Osaka.Spec.P256VerifyStep
@@ -31,14 +32,50 @@ open Evm.Osaka.Spec
 
 /-! ## EIP-7939 CLZ (0x1e) -/
 
-/-- CLZ is a unary op with `op = clzU256`. The impl dispatches via
-    `Osaka.Vm.Effect.doClz` (StepResult-yielding), not via a pure
-    Handler — so we can't apply `runUnary_sound` directly. State the
-    obligation; closing it requires extracting the pure-Except form. -/
-theorem clz_sound_shape (evm evm' : Evm) :
-    IsClzStep evm evm' →
+/-- The implementation's shift loop counts `Nat.size`. -/
+theorem bitLengthAux_eq (n acc : Nat) :
+    Evm.Osaka.Vm.Effect.bitLengthAux n acc = acc + Nat.size n := by
+  induction n using Nat.strongRecOn generalizing acc with
+  | _ n ih =>
+    rcases n with _ | m
+    · simp [Evm.Osaka.Vm.Effect.bitLengthAux]
+    · rw [Evm.Osaka.Vm.Effect.bitLengthAux, ih _ (by rw [Nat.shiftRight_one]; omega)]
+      have h := Nat.size_bit (b := (m+1).testBit 0) (n := (m+1) >>> 1)
+        (by rw [Nat.bit_testBit_zero_shiftRight_one]; omega)
+      rw [Nat.bit_testBit_zero_shiftRight_one] at h
+      rw [h]; simp only [Nat.succ_eq_add_one] at *; omega
+
+/-- The implementation's CLZ word function is EELS's `256 - bit_length`. -/
+theorem clzU256_eq (x : Evm.U256) :
+    Evm.Osaka.Vm.Effect.clzU256 x = Evm.Osaka.Spec.clzU256 x := by
+  unfold Evm.Osaka.Vm.Effect.clzU256 Evm.Osaka.Spec.clzU256
+  rw [bitLengthAux_eq, Nat.zero_add]
+
+/-- 0x1E CLZ refines `IsClzStep`: pop `x`, charge `GAS_LOW` (`OPCODE_CLZ`), push
+    `256 - bit_length(x)`. EELS `forks/osaka/vm/instructions/bitwise.py::
+    count_leading_zeros` 248-274. Stated on `doClz`, the handler Osaka's `step1`
+    dispatches 0x1E to. -/
+theorem clz_sound (evm evm' : Evm) :
+    Evm.Osaka.Vm.Effect.doClz evm = .continue evm' →
     IsClzStep evm evm' := by
-  intro h; exact h
+  intro h
+  unfold Evm.Osaka.Vm.Effect.doClz at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i x rest hp
+    split at h
+    · exact absurd h (by simp)
+    · rename_i g hg
+      split at h
+      · exact absurd h (by simp)
+      · rename_i s hs
+        obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop_eq_ok_iff _ _ _).mp hp
+        obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+        obtain ⟨hlt, rfl⟩ := (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hs
+        simp only [Evm.Byzantium.Vm.Effect.StepResult.continue.injEq] at h
+        subst h
+        refine ⟨x, rest, hStack, hlt, hle, ?_⟩
+        rw [clzU256_eq]
 
 /-! ## EIP-7825 / EIP-7892 tx validity caps -/
 

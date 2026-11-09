@@ -49,146 +49,98 @@ namespace Evm.Cancun.Spec
 open Evm.Frontier (State)
 open Evm.Frontier.Vm
 
-/-! ## Gas cost
+/-! ## Gas cost (EELS `forks/cancun/vm/instructions/system.py::selfdestruct` 521-536)
 
-    Cancun SELFDESTRUCT cost is unchanged from Berlin:
-        5000 + cold-access (2600 if beneficiary is cold) +
-        new-account-cost (25000 if beneficiary doesn't exist and
-        self has non-zero balance).
-    The EIP-3529 (London) refund-removal still applies — no refund.
+        OPCODE_SELFDESTRUCT_BASE (5000)
+      + COLD_ACCOUNT_ACCESS (2600)          if the beneficiary is cold (then warmed)
+      + OPCODE_SELFDESTRUCT_NEW_ACCOUNT (25000)
+                                            if the beneficiary is not alive
+                                            (EIP-161: absent or empty) and the
+                                            originator's balance is non-zero.
 
-    We don't re-state the full gas formula here; the predicate just
-    pins `gas ≥ gasMin` for the static minimum and lets the impl
-    add the cold-access / new-account dynamics.
+    No refund (EIP-3529, London). -/
 
-    EELS: `forks/cancun/vm/gas.py::GAS_SELF_DESTRUCT = 5000`. -/
 def gasSelfdestructBase : Nat := 5000
+def gasColdAccountAccess : Nat := 2600
+def gasSelfdestructNewAccount : Nat := 25000
 
 /-! ## The relation
 
-    SELFDESTRUCT pops the beneficiary address from the stack and
-    halts the frame. We spec the four observable effects (balance
-    transfer, optional account deletion, selfDestructSet update,
-    halt flag) directly. -/
+    EELS `selfdestruct` 508-564: pop the beneficiary (`to_address_masked`), charge,
+    static check, `move_ether(originator → beneficiary, balance)`, and only if the
+    originator was created in this tx (EIP-6780): zero its balance (burning it when it
+    is its own beneficiary) and add it to `accounts_to_delete` — the deletion itself
+    happens at the end of the tx (here `selfDestructSet`, swept by the tx epilogue).
+    `move_ether`'s `modify_state` destroys an account it leaves empty; a zero-value
+    transfer to an absent beneficiary therefore leaves the world as it was, and the
+    beneficiary is touched (`touched`, EIP-161's end-of-tx sweep). The frame halts.
 
-/-- The Cancun SELFDESTRUCT step relation. `evm.message.isStatic = false`
-    is a precondition (write-in-static-context check happens first). -/
+    Restated 2026-11-09: this relation charged only the 5000 base (no cold surcharge,
+    no new-account cost, no warming), deleted the account immediately instead of
+    queueing it, and moved zero value into absent beneficiaries. -/
+
+/-- The Cancun SELFDESTRUCT step relation. -/
 def IsSelfdestructStep (evm evm' : Evm) : Prop :=
   ∃ benWord rest,
     evm.stack = benWord :: rest ∧
     evm.message.isStatic = false ∧
-    evm.gasLeft ≥ gasSelfdestructBase ∧
     let beneficiary : Evm.Address := Evm.Address.ofNat benWord.toNat
     let self     := evm.message.currentTarget
-    let selfBal  := evm.env.state.getBalance self
+    let st       := evm.env.state
+    let selfBal  := st.getBalance self
     let createdHere := evm.env.createdAccounts.contains self
-    -- Effect-1: balance transfer.
-    --
-    -- Three sub-cases:
-    --   (a) createdHere → standard "add to beneficiary, zero self"
-    --       (self might be the beneficiary; balance is then BURNT because
-    --       the account is deleted in Effect-2).
-    --   (b) ¬createdHere ∧ self = beneficiary → NO-OP. EIP-6780
-    --       preserves self.balance because EELS effectively does
-    --       "set originator 0 then add to beneficiary"; when those
-    --       are the same account, the addition follows the zeroing
-    --       so balance is preserved. Reentrant SELFDESTRUCT-to-self
-    --       (`reentrencySuicide`) relies on this.
-    --   (c) ¬createdHere ∧ self ≠ beneficiary → "add to beneficiary,
-    --       zero self".
-    let stCleared :=
-      if ¬ createdHere ∧ beneficiary = self then
-        evm.env.state
-      else
-        let stAfterTransfer := evm.env.state.addBalance beneficiary selfBal
-        stAfterTransfer.setAccount self
-          { (stAfterTransfer.getAccount self) with balance := 0 }
-    -- Effect-2: EIP-6780 branch — full delete only if CREATEd this tx.
+    let cold     := ¬ evm.env.accessedAddresses.contains beneficiary
+    let alive    := st.accountExists beneficiary ∧ ¬ (st.getAccount beneficiary).isEmpty
+    let cost     := gasSelfdestructBase + (if selfBal ≠ 0 ∧ ¬ alive then gasSelfdestructNewAccount else 0)
+                    + (if cold then gasColdAccountAccess else 0)
+    evm.gasLeft ≥ cost ∧
+    -- move_ether, then (created only) zero the originator: the originator ends at
+    -- balance 0 except when it is its own beneficiary and survives.
     let stFinal :=
-      if createdHere then stCleared.deleteAccount self
-      else stCleared
-    -- Effect-3: track in selfDestructSet (idempotent; first-time only).
-    let firstTime := ¬ evm.env.selfDestructSet.contains self
-    let sdSet :=
-      if firstTime then evm.env.selfDestructSet ++ [self]
-      else evm.env.selfDestructSet
+      if ¬ createdHere ∧ beneficiary = self then st
+      else
+        let moved := if selfBal = 0 ∧ ¬ st.accountExists beneficiary then st
+                     else st.addBalance beneficiary selfBal
+        moved.setAccount self { (moved.getAccount self) with balance := 0 }
     evm' = { evm with
       stack          := rest,
-      gasLeft        := evm.gasLeft - gasSelfdestructBase,
+      gasLeft        := evm.gasLeft - cost,
       halted         := true,
       env            := { evm.env with
-        state           := stFinal,
-        selfDestructSet := sdSet },
-      pc             := evm.pc }
+        state             := stFinal,
+        accessedAddresses :=
+          if cold then evm.env.accessedAddresses ++ [beneficiary] else evm.env.accessedAddresses,
+        touched           :=
+          if evm.env.touched.contains beneficiary then evm.env.touched
+          else evm.env.touched ++ [beneficiary],
+        selfDestructSet   :=
+          if createdHere ∧ ¬ evm.env.selfDestructSet.contains self
+          then evm.env.selfDestructSet ++ [self] else evm.env.selfDestructSet } }
 
-/-! ## Invariants
+/-! ## Invariants -/
 
-    The most important EIP-6780 property: an address that was NOT
-    CREATEd in this transaction RETAINS its code and storage after
-    SELFDESTRUCT — only the balance moves. -/
-
-/-- EIP-6780 core property: if self was not CREATEd this tx, its
-    account is not deleted from state. -/
-theorem selfdestruct_preserves_account_when_not_created
+/-- EIP-6780: a SELFDESTRUCT of an account not created in this tx never queues it for
+    deletion. -/
+theorem selfdestruct_not_queued_when_not_created
     (evm evm' : Evm) (h : IsSelfdestructStep evm evm')
     (notCreated : ¬ evm.env.createdAccounts.contains evm.message.currentTarget) :
-    evm'.env.state.accountExists evm.message.currentTarget = true ∨
-    -- The case where the account was already absent (so accountExists
-    -- was false to begin with) — we don't *create* anything either.
-    evm.env.state.accountExists evm.message.currentTarget = false := by
+    evm'.env.selfDestructSet = evm.env.selfDestructSet := by
   obtain ⟨_, _, _, _, _, hEvm⟩ := h
-  -- With `notCreated`, `stFinal = stCleared` (no deleteAccount), and
-  -- `stCleared` is either `evm.env.state` (the self=beneficiary
-  -- no-op branch) or `(state.addBalance ben _).setAccount self {..}`
-  -- (every other case). In every branch, the resulting state's
-  -- accountExists on self is `true` iff it was `true` before — the
-  -- only operations are addBalance (preserves accountExists) and
-  -- setAccount self (FORCES accountExists self = true by prepending
-  -- self to the accounts list). So:
-  --   * if pre-state had self, post-state has self  → left disjunct
-  --   * if pre-state lacked self:
-  --       - same-beneficiary branch: post-state also lacks self → right
-  --       - other branch: setAccount inserts self → left
-  -- The two-disjunct form lets us avoid casing further.
-  by_cases hExists : evm.env.state.accountExists evm.message.currentTarget = true
-  · left
-    -- Pre-state has self. Show post-state has self too.
-    rw [hEvm]
-    have hNot : evm.env.createdAccounts.contains evm.message.currentTarget = false := by
-      simpa using notCreated
-    simp only [hNot, Bool.false_eq_true, ite_false]
-    -- Inside stCleared: split on the inner branch.
-    split
-    · -- Branch where stCleared = evm.env.state (the same-beneficiary
-      -- self-no-op case). Accounts list unchanged → existence preserved.
-      exact hExists
-    · -- Branch where stCleared = (addBalance _).setAccount self {…}.
-      -- `setAccount self _` prepends `(self, _)` to the accounts list,
-      -- forcing `accountExists self = true`.
-      unfold Evm.Frontier.State.accountExists Evm.Frontier.State.setAccount
-      simp
-  · right
-    -- accountExists was already false.
-    simpa using hExists
+  subst hEvm
+  have nc : evm.message.currentTarget ∉ evm.env.createdAccounts := by simpa using notCreated
+  simp [nc]
 
-/-- Pre-Cancun behaviour (full destroy on every SELFDESTRUCT) is
-    recovered when `evm.env.createdAccounts` happens to contain
-    `self`. This means: importing Pre-Cancun's `IsSelfdestructStep`
-    is a STRICT specialisation of this one. -/
-theorem selfdestruct_full_destroy_when_created
+/-- A SELFDESTRUCT of an account created in this tx queues it for the end-of-tx
+    deletion (EELS `evm.accounts_to_delete.add(originator)`). -/
+theorem selfdestruct_queued_when_created
     (evm evm' : Evm) (h : IsSelfdestructStep evm evm')
     (created : evm.env.createdAccounts.contains evm.message.currentTarget) :
-    evm'.env.state.accountExists evm.message.currentTarget = false := by
+    evm.message.currentTarget ∈ evm'.env.selfDestructSet := by
   obtain ⟨_, _, _, _, _, hEvm⟩ := h
-  rw [hEvm]
-  -- `stFinal` is built by the `if createdHere then stCleared.deleteAccount
-  -- self else stCleared`. With `created : createdAccounts.contains self`,
-  -- we're in the `then` branch ⇒ `stFinal = _ .deleteAccount self`.
-  simp only [created, ite_true]
-  -- Now goal: (something.deleteAccount self).accountExists self = false.
-  -- After deleteAccount, accounts has been filtered (≠ self), so the
-  -- find? for self returns none, and isSome → false.
-  unfold Evm.Frontier.State.accountExists Evm.Frontier.State.deleteAccount
-  simp [List.find?_filter]
+  subst hEvm
+  have c : evm.message.currentTarget ∈ evm.env.createdAccounts := by simpa using created
+  by_cases hm : evm.message.currentTarget ∈ evm.env.selfDestructSet
+  · simp [c, hm]
+  · simp [c, hm]
 
 end Evm.Cancun.Spec
