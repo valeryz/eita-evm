@@ -139,9 +139,10 @@
      :frame-init-log #'arc-value-transfer-log!    ; EIP-7708 transfer logs
      :selfdestruct #'arc-selfdestruct-check
      :p256verify t                                ; EIP-7951 at 0x100 (block 1888235 = first use)
-     ;; Arc's records predate call frames: adding them is a deliberate migration for an
-     ;; observer (its records start at the switch block), not a side effect of a restart.
-     :observe-kinds '(:storage_diff :account_diff :transfer :log :tx :block))))
+     ;; Call frames on (owner, 2026-11-09: the execution-gas views). A deliberate migration: a
+     ;; live replay records them from its switch block on; full history comes from a re-replay
+     ;; from genesis in its own directory, swapped in at the tip (docs/eth-protocol-views.md §7.3).
+     :observe-kinds '(:storage_diff :account_diff :transfer :log :tx :block :call))))
 
 (register-chain-spec "arc-mainnet" (lambda () (arc-chain-spec "mainnet")))
 (register-chain-spec "arc-testnet" (lambda () (arc-chain-spec "testnet")))
