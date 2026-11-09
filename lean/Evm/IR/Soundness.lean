@@ -33,82 +33,6 @@ import Mathlib.Tactic.ByContra
 import Mathlib.Tactic.IntervalCases
 
 
-/-! ## `chargeMemory`'s success form (moved from the deleted `Frontier.Spec.CallRefinement`,
-    superseded by `Evm.CL.EffectCallProof`; the memory-expansion lemmas below use it). -/
-namespace Evm.Frontier.Spec
-open Evm.Frontier.Vm
-open Evm.Frontier.Vm.Instructions (chargeMemory)
-
-@[simp] theorem memoryExpansionCost_self (a : Nat) :
-    Gas.memoryExpansionCost a a = 0 := by
-  simp [Gas.memoryExpansionCost]
-
-theorem memoryExpansionCost_max (a b : Nat) :
-    Gas.memoryExpansionCost a (max a b) = Gas.memoryExpansionCost a b := by
-  unfold Gas.memoryExpansionCost
-  rcases Nat.le_total b a with h | h
-  · simp [h]
-  · rw [Nat.max_eq_right h]
-
-theorem words_extend (m : Memory) (n : Nat) :
-    Memory.words (Memory.extend m n)
-      = max (Memory.words m) ((n + 31) / 32) := by
-  simp only [Memory.extend, Memory.words]
-  split
-  · next h => omega
-  · next h =>
-    simp only [ByteArray.size_append]
-    simp only [ByteArray.size, Array.size_replicate]
-    omega
-
-theorem charge_ok {g n g' : Nat} (h : Gas.charge g n = .ok g') :
-    n ≤ g ∧ g' = g - n := by
-  unfold Gas.charge at h
-  by_cases hlt : g < n
-  · rw [ite_eq_left hlt] at h; exact absurd h (by simp)
-  · rw [ite_eq_right hlt] at h
-    injection h with h
-    exact ⟨Nat.not_lt.mp hlt, h.symm⟩
-
-/-- Success characterization of `chargeMemory`: the charged cost is
-    the expansion to `max oldWords rangeWords` (0 when the range is
-    empty or already covered), and the returned memory's word count
-    is exactly that max. -/
-theorem chargeMemory_ok {g : Nat} {m : Memory} {off size : Nat}
-    {g' : Nat} {m' : Memory}
-    (h : chargeMemory g m off size = .ok (g', m')) :
-    Gas.memoryExpansionCost (Memory.words m)
-      (if size = 0 then Memory.words m
-       else max (Memory.words m) ((off + size + 31) / 32)) ≤ g ∧
-    g' = g - Gas.memoryExpansionCost (Memory.words m)
-      (if size = 0 then Memory.words m
-       else max (Memory.words m) ((off + size + 31) / 32)) ∧
-    Memory.words m'
-      = (if size = 0 then Memory.words m
-         else max (Memory.words m) ((off + size + 31) / 32)) ∧
-    m' = (if size = 0 then m else Memory.extend m (off + size)) := by
-  by_cases hsz : size = 0
-  · subst hsz
-    simp only [chargeMemory] at h
-    simp only [ite_true, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at h
-    obtain ⟨h1, h2⟩ := h
-    subst h1; subst h2
-    simp [Gas.memoryExpansionCost]
-  · simp only [chargeMemory, hsz, reduceIte, bind, Except.bind, pure,
-      Except.pure] at h
-    split at h
-    · simp at h
-    · next g1 hch =>
-      simp only [Except.ok.injEq, Prod.mk.injEq] at h
-      obtain ⟨h1, h2⟩ := h
-      subst h1; subst h2
-      have hc := charge_ok hch
-      simp only [hsz, reduceIte]
-      rw [memoryExpansionCost_max]
-      exact ⟨hc.1, hc.2, words_extend m (off + size), trivial⟩
-
-
-end Evm.Frontier.Spec
 
 namespace Evm.IR.Soundness
 
@@ -4582,29 +4506,6 @@ private theorem bytes_getElem?_eq_get! (code : Evm.Bytes) (pc : Nat)
   rw [getElem!_pos code.data pc h]
   rfl
 
-/-- `chargeMemory` success in the spec's vocabulary: the cost is
-    `memExpansionGas` and the resulting memory is `memAfterExpand`.
-    Wraps `chargeMemory_ok`, folding away its `max`-form via
-    `memoryExpansionCost_max`. -/
-private theorem chargeMemory_spec {g : Nat} {m : Memory} {off size g' : Nat}
-    {m' : Memory}
-    (h : Instructions.chargeMemory g m off size = .ok (g', m')) :
-    Evm.Frontier.Spec.memExpansionGas m off size ≤ g ∧
-    g' = g - Evm.Frontier.Spec.memExpansionGas m off size ∧
-    m' = Evm.Frontier.Spec.memAfterExpand m off size := by
-  obtain ⟨hle, hg, _, hm⟩ := Evm.Frontier.Spec.chargeMemory_ok h
-  by_cases hsz : size = 0
-  · subst hsz
-    simp only [reduceIte, Evm.Frontier.Spec.memoryExpansionCost_self] at hg hm
-    simp only [Evm.Frontier.Spec.memExpansionGas,
-               Evm.Frontier.Spec.memAfterExpand, reduceIte]
-    exact ⟨Nat.zero_le _, by omega, hm⟩
-  · simp only [ite_eq_right hsz] at hle hg hm
-    rw [Evm.Frontier.Spec.memoryExpansionCost_max] at hle hg
-    simp only [Evm.Frontier.Spec.memExpansionGas,
-               Evm.Frontier.Spec.memAfterExpand, ite_eq_right hsz]
-    exact ⟨hle, hg, hm⟩
-
 /-- `popTopicsAux` success splits the stack: the popped topics are a
     prefix of length `n` and the leftover is the suffix. Connects the
     Effect/IR-side topic popping to `IsLogStep`'s
@@ -5349,7 +5250,7 @@ theorem spec_mload_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hlt, hsEq⟩ :=
     (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hpush
   subst hsEq
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_mload _ _ hSize hCode ?_
   refine ⟨off, s, hStack, hlt, nat_le_add_mid2 _ _ _ _ hcle, ?_⟩
@@ -5378,7 +5279,7 @@ theorem spec_mstore_shifted (i i2 : Evm) (g pcv : Nat)
   refine ⟨?_, rfl, rfl⟩
   have hStack :=
     (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp2
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_mstore _ _ hSize hCode ?_
   refine ⟨off, value, s, hStack, nat_le_add_mid2 _ _ _ _ hcle, ?_⟩
@@ -5892,7 +5793,7 @@ theorem spec_keccak256_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨hlt, hsEq⟩ :=
     (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hpush
   subst hsEq
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_keccak256 _ _ hSize hCode ?_
   refine ⟨offset, len, rest, hStack, hlt,
@@ -5929,7 +5830,7 @@ theorem spec_calldatacopy_shifted (i i2 : Evm) (g pcv : Nat)
   refine ⟨?_, rfl, rfl⟩
   have hStack :=
     (Evm.Frontier.Vm.Spec.Stack.pop3_eq_ok_iff _ _ _ _ _).mp hp3
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_calldatacopy _ _ hSize hCode ?_
   refine ⟨dest, off, len, rest, hStack,
@@ -5966,7 +5867,7 @@ theorem spec_codecopy_shifted (i i2 : Evm) (g pcv : Nat)
   refine ⟨?_, rfl, rfl⟩
   have hStack :=
     (Evm.Frontier.Vm.Spec.Stack.pop3_eq_ok_iff _ _ _ _ _).mp hp3
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_codecopy _ _ hSize hCode ?_
   refine ⟨dest, off, len, rest, hStack,
@@ -6040,7 +5941,7 @@ theorem spec_extcodecopy_shifted (i i2 : Evm) (g pcv : Nat)
   obtain ⟨gl, hch, hIR⟩ := hIR
   simp only [pure, Except.pure, Except.ok.injEq] at hIR
   subst hIR
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
@@ -6158,7 +6059,7 @@ theorem spec_log_shifted (i i2 : Evm) (g pcv nop : Nat)
   subst hIR
   obtain ⟨hdle, rfl⟩ :=
     (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hch
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   obtain ⟨hsplit, hlen⟩ := popTopicsAux_eq_ok _ _ _ _ hpt
   refine ⟨?_, rfl, rfl⟩
@@ -6469,7 +6370,7 @@ theorem spec_mstore8_shifted (i i2 : Evm) (g pcv : Nat)
   refine ⟨?_, rfl, rfl⟩
   have hStack :=
     (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp2
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine anyStep_mstore8 _ _ hSize hCode ?_
   refine ⟨off, value, s, hStack, nat_le_add_mid2 _ _ _ _ hcle, ?_⟩
@@ -6512,7 +6413,7 @@ theorem spec_ret_step (i i' : Evm) (pcv : Nat)
   subst hTerm
   have hStack :=
     (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp2
-  obtain ⟨hcle, hgl, hmem⟩ := chargeMemory_spec hcm
+  obtain ⟨hcle, hgl, hmem⟩ := Evm.Frontier.Spec.chargeMemory_spec hcm
   subst hgl; subst hmem
   refine ⟨?_, rfl⟩
   refine anyStep_ret _ _ hSize hCode ?_

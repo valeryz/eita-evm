@@ -183,7 +183,17 @@ class SpecFile:
                 dkind, name, name_end = arg
                 next_pos = events[i + 1][0] if i + 1 < n else len(self.code)
                 seg = self.code[name_end:next_pos]
-                sig_at = seg.find(":=")
+                # the signature ends at the first `:=` outside brackets (a
+                # record update `{ e with f := v }` in the statement is not it)
+                sig_at, depth = -1, 0
+                for j, ch in enumerate(seg):
+                    if ch in "([{":
+                        depth += 1
+                    elif ch in ")]}":
+                        depth = max(0, depth - 1)
+                    elif depth == 0 and seg.startswith(":=", j):
+                        sig_at = j
+                        break
                 if sig_at != -1:
                     statement = seg[:sig_at]
                     body = seg[sig_at + 2:]
@@ -244,6 +254,7 @@ EXEC_HEAD = re.compile(
     r"(?:[A-Z][\w']*\.){2,}[\w']+))\s+[^\s:=]")
 
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_']*")
+PROJ_RE = re.compile(r"(?<=[\w')])\.[A-Za-z_][\w']*")
 SHAPE_KW = {"with", "fun", "if", "then", "else", "let", "in", "match",
             "where", "by", "forall", "exists"}
 
@@ -305,13 +316,18 @@ def args_general(argstr, bound, pinned=frozenset()):
         return False, False
     if re.search(r"(?<![\w'])\d", argstr) or "[]" in argstr:
         return False, False
-    s = re.sub(r"\bwith\b[^{}]*", "", argstr)  # record-update field tails
+    s = re.sub(r"\s+", " ", argstr)  # a multi-line argument is one term
+    s = re.sub(r"\bwith\b[^{}]*", "", s)  # record-update field tails
     saw_impl = False
     for term in split_top_level(s, sep=" "):
         term = term.strip()
         if not term:
             continue
-        ids = IDENT_RE.findall(term)
+        # a field projection of a bound variable (`tx.data.size`) is as
+        # general as the variable: drop the `.field` tails before the
+        # bound-name test (a qualified constant `Evm.Bytes.empty` keeps
+        # its head `Evm`, which is never bound)
+        ids = IDENT_RE.findall(PROJ_RE.sub("", term))
         if all(i in bound or i in SHAPE_KW for i in ids):
             if any(i in pinned for i in ids):
                 return False, saw_impl
@@ -469,8 +485,17 @@ def main():
             if "." not in d.name:
                 declared_in_spec.setdefault(d.name, (d.qual, f.fork, f.base, d))
     for f, d in all_decls:
-        if d.kind == "theorem" and d.name.endswith("_sound_shape"):
+        if d.kind != "theorem":
+            continue
+        if d.name.endswith("_sound_shape"):
             bare, _ = mentions(d)
+        elif d.name.endswith("_sound"):
+            # a proved obligation registers its target the same way (once
+            # the placeholder is gone) — conclusion mentions only
+            bare = set(BARE_MENTION_RE.findall(conclusion_of(d.prop)))
+        else:
+            continue
+        if True:
             for b in bare:
                 if b in declared_in_spec and b not in definers:
                     q, fork, base, dcl = declared_in_spec[b]
@@ -625,15 +650,22 @@ def main():
     out.append("statement mention + namespace (open/import), never bare-name")
     out.append("matching across forks.")
     out.append("")
-    out.append("Reconciliation with the repo-wide 19 sorries: Section A counts")
-    out.append("spec-relation theorems in `Evm/*/Spec/*.lean` plus the curated")
-    out.append("composition layer in `Evm/IR/Soundness.lean` — 12 of the 13")
-    out.append("`Spec/Refinement` sorries are relation theorems counted here;")
-    out.append("the 13th is Frontier's `runFrame_gas_monotonic`, a frame-level")
-    out.append("lemma that concludes no relation (not counted). The remaining")
-    out.append("sorries live in `Trie/Stack` (3), `CL/AsmCore` (1),")
-    out.append("`CL/StorageCache` (1), and `Frontier/Spec/StorageStep` (1, a")
-    out.append("relation-internal lemma, not counted here).")
+    # Reconciliation with the repo-wide `sorry` count, computed from the
+    # tree (comment-stripped, every Evm/**/*.lean): Section A's SORRY rows,
+    # then every other file that has one.
+    per_file = {}
+    for pth in sorted(glob.glob(os.path.join(lean_root, "**", "*.lean"),
+                                recursive=True)):
+        n_s = len(re.findall(r"\bsorry\b", strip_comments(open(pth).read())))
+        if n_s:
+            per_file[os.path.relpath(pth, lean_root)] = n_s
+    n_all = sum(per_file.values())
+    n_rel = tot.get("SORRY", 0)
+    rest = ", ".join(f"`{k[:-5]}` ({v})" for k, v in sorted(per_file.items()))
+    out.append(f"Reconciliation with the repo-wide {n_all} sorries: Section A")
+    out.append(f"counts {n_rel} (relation theorems in `Evm/*/Spec/*.lean` and the")
+    out.append("curated composition layer `Evm/IR/Soundness.lean`). By file,")
+    out.append(f"all of them: {rest}.")
     out.append("")
 
     # Section A
@@ -821,6 +853,14 @@ def selftest():
         ("qualified constant argument", "t",
          """ :
     IsValidDeployedCode Evm.Bytes.empty""", "IsValidDeployedCode", False),
+        ("projection of a bound variable", "t",
+         """ (k : Nat) (tx : Tx) :
+    Evm.Fake.Tx.invalid k tx = none →
+    InitcodeWithinCap tx.data.size""", "InitcodeWithinCap", True),
+        ("projection of a constant", "t",
+         """ (k : Nat) :
+    Evm.Fake.Tx.invalid k = none →
+    InitcodeWithinCap Evm.Bytes.empty.size""", "InitcodeWithinCap", False),
         ("output-equality shape (impl app in conclusion)", "sweep_sound",
          """ (state : Nat) (touched : List Nat) :
     IsSweepEmptyStep state touched

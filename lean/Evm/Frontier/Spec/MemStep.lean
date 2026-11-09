@@ -32,6 +32,112 @@ def memExpansionGas (mem : Memory) (off size : Nat) : Nat :=
 def memAfterExpand (mem : Memory) (off size : Nat) : Memory :=
   if size = 0 then mem else Memory.extend mem (off + size)
 
+/-! ## `chargeMemory`'s success form (shared by every memory-touching refinement proof;
+    moved here from `Evm.IR.Soundness` so the fork Spec layers can use it). -/
+open Evm.Frontier.Vm.Instructions (chargeMemory)
+
+@[simp] theorem memoryExpansionCost_self (a : Nat) :
+    Gas.memoryExpansionCost a a = 0 := by
+  simp [Gas.memoryExpansionCost]
+
+theorem memoryExpansionCost_max (a b : Nat) :
+    Gas.memoryExpansionCost a (max a b) = Gas.memoryExpansionCost a b := by
+  unfold Gas.memoryExpansionCost
+  rcases Nat.le_total b a with h | h
+  · simp [h]
+  · rw [Nat.max_eq_right h]
+
+theorem words_extend (m : Memory) (n : Nat) :
+    Memory.words (Memory.extend m n)
+      = max (Memory.words m) ((n + 31) / 32) := by
+  simp only [Memory.extend, Memory.words]
+  split
+  · next h => omega
+  · next h =>
+    simp only [ByteArray.size_append]
+    simp only [ByteArray.size, Array.size_replicate]
+    omega
+
+theorem charge_ok {g n g' : Nat} (h : Gas.charge g n = .ok g') :
+    n ≤ g ∧ g' = g - n := by
+  unfold Gas.charge at h
+  by_cases hlt : g < n
+  · rw [ite_eq_left hlt] at h; exact absurd h (by simp)
+  · rw [ite_eq_right hlt] at h
+    injection h with h
+    exact ⟨Nat.not_lt.mp hlt, h.symm⟩
+
+/-- Success characterization of `chargeMemory`: the charged cost is
+    the expansion to `max oldWords rangeWords` (0 when the range is
+    empty or already covered), and the returned memory's word count
+    is exactly that max. -/
+theorem chargeMemory_ok {g : Nat} {m : Memory} {off size : Nat}
+    {g' : Nat} {m' : Memory}
+    (h : chargeMemory g m off size = .ok (g', m')) :
+    Gas.memoryExpansionCost (Memory.words m)
+      (if size = 0 then Memory.words m
+       else max (Memory.words m) ((off + size + 31) / 32)) ≤ g ∧
+    g' = g - Gas.memoryExpansionCost (Memory.words m)
+      (if size = 0 then Memory.words m
+       else max (Memory.words m) ((off + size + 31) / 32)) ∧
+    Memory.words m'
+      = (if size = 0 then Memory.words m
+         else max (Memory.words m) ((off + size + 31) / 32)) ∧
+    m' = (if size = 0 then m else Memory.extend m (off + size)) := by
+  by_cases hsz : size = 0
+  · subst hsz
+    simp only [chargeMemory] at h
+    simp only [ite_true, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨h1, h2⟩ := h
+    subst h1; subst h2
+    simp [Gas.memoryExpansionCost]
+  · simp only [chargeMemory, hsz, reduceIte, bind, Except.bind, pure,
+      Except.pure] at h
+    split at h
+    · simp at h
+    · next g1 hch =>
+      simp only [Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨h1, h2⟩ := h
+      subst h1; subst h2
+      have hc := charge_ok hch
+      simp only [hsz, reduceIte]
+      rw [memoryExpansionCost_max]
+      exact ⟨hc.1, hc.2, words_extend m (off + size), trivial⟩
+
+/-- `chargeMemory` success in the spec's vocabulary: the cost is
+    `memExpansionGas` and the resulting memory is `memAfterExpand`.
+    Wraps `chargeMemory_ok`, folding away its `max`-form via
+    `memoryExpansionCost_max`. -/
+theorem chargeMemory_spec {g : Nat} {m : Memory} {off size g' : Nat}
+    {m' : Memory}
+    (h : chargeMemory g m off size = .ok (g', m')) :
+    memExpansionGas m off size ≤ g ∧
+    g' = g - memExpansionGas m off size ∧
+    m' = memAfterExpand m off size := by
+  obtain ⟨hle, hg, _, hm⟩ := chargeMemory_ok h
+  by_cases hsz : size = 0
+  · subst hsz
+    simp only [reduceIte, memoryExpansionCost_self] at hg hm
+    simp only [memExpansionGas,
+               memAfterExpand, reduceIte]
+    exact ⟨Nat.zero_le _, by omega, hm⟩
+  · simp only [ite_eq_right hsz] at hle hg hm
+    rw [memoryExpansionCost_max] at hle hg
+    simp only [memExpansionGas,
+               memAfterExpand, ite_eq_right hsz]
+    exact ⟨hle, hg, hm⟩
+
+/-- Two successive charges (memory expansion `m`, then `c`) are one charge of `c + m`.
+    A pure-`Nat` statement so callers can use it on `Gas.Gas`-typed hypotheses, which
+    `omega` does not see through. -/
+theorem charge2_nat {a m c : Nat} (h1 : m ≤ a) (h2 : c ≤ a - m) :
+    c + m ≤ a ∧ a - m - c = a - (c + m) := by omega
+
+/-- Three successive charges (`b`, then memory `m`, then `c`) are one charge of
+    `b + c + m`; pure `Nat`, like `charge2_nat`. -/
+theorem charge3_nat {a b m c : Nat} (h0 : b ≤ a) (h1 : m ≤ a - b) (h2 : c ≤ a - b - m) :
+    b + c + m ≤ a ∧ a - b - m - c = a - (b + c + m) := by omega
+
 /-! ## MLOAD (0x51)
 
     Pop offset, charge `veryLow + memExpansion(off, 32)`, expand

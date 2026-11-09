@@ -113,9 +113,8 @@ theorem sstore_only_current_storage (evm evm' : Evm)
   -- getStorage on a different address is unchanged.
   show (evm.env.state.setStorage evm.message.currentTarget _ _).getStorage addr slot
        = evm.env.state.getStorage addr slot
-  sorry  -- proof obligation on State.setStorage; left as a
-         -- placeholder. The implementation in State.lean satisfies
-         -- it because setStorage updates only the named key.
+  rw [State.getStorage_setStorage, if_neg]
+  intro he; exact hne (Prod.mk.inj he).1
 
 /-! ## Notes
 

@@ -25,36 +25,10 @@ open Evm.CL.EffectSettle (SAgree)
 
 /-! ## Lemmas -/
 
-theorem getStorage_setStorage (s : State) (a x : Evm.Address) (k j v : Evm.U256) :
-    (s.setStorage a k v).getStorage x j = if (x, j) = (a, k) then v else s.getStorage x j := by
-  unfold State.setStorage State.getStorage
-  dsimp only
-  have hp : ∀ q : Evm.Address × Evm.U256, q ≠ (a, k) →
-      (fun p : (Evm.Address × Evm.U256) × Evm.U256 => !decide (p.1 = (a, k)) && decide (p.1 = q))
-        = fun p => decide (p.1 = q) := by
-    intro q hq; funext p; by_cases hx : p.1 = q
-    · simp [hx, hq]
-    · simp [hx]
-  by_cases hv : v = 0
-  · rw [ite_eq_left hv]
-    by_cases h : (x, j) = (a, k)
-    · rw [ite_eq_left h, hv]
-      have : (s.storage.filter (fun p : (Evm.Address × Evm.U256) × Evm.U256 => decide (p.1 ≠ (a, k)))).find?
-          (fun p => decide (p.1 = (x, j))) = none := by
-        rw [List.find?_eq_none]; intro p hp'
-        simp only [List.mem_filter] at hp'
-        simp only [decide_eq_true_eq]; intro he; rw [he, h] at hp'; simp at hp'
-      simp only [this]
-    · rw [ite_eq_right h]; simp [List.find?_filter, hp (x, j) h]
-  · rw [ite_eq_right hv]
-    by_cases h : (x, j) = (a, k)
-    · rw [ite_eq_left h]; simp [h]
-    · rw [ite_eq_right h]; simp [List.find?_filter, hp (x, j) h, Ne.symm h]
-
 theorem setStorage_sagree_self (s : State) (a : Evm.Address) (k : Evm.U256) :
     SAgree (s.setStorage a k (s.getStorage a k)) s :=
   ⟨fun _ => rfl, fun _ => rfl, fun x j => by
-    rw [getStorage_setStorage]; split
+    rw [State.getStorage_setStorage]; split
     · rename_i h; simp only [Prod.mk.injEq] at h; obtain ⟨rfl, rfl⟩ := h; rfl
     · rfl⟩
 

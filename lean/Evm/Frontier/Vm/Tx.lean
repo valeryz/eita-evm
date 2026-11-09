@@ -192,6 +192,15 @@ def invalid (k : Nat) (benv : Environment) (st : State) (sender : Evm.Address) (
     Option String :=
   ((rules k benv st sender tx).find? (·.1)).map (·.2)
 
+/-- A valid tx breaks no rule: `invalid = none` makes every rule's flag `false` (the
+    shared first step of every tx-validity refinement, `Evm.*.Spec.Refinement`). -/
+theorem rules_false_of_valid {k : Nat} {benv : Environment} {st : State} {sender : Evm.Address}
+    {tx : Tx} (h : invalid k benv st sender tx = none) :
+    ∀ r ∈ rules k benv st sender tx, r.1 = false := by
+  unfold invalid at h
+  rw [Option.map_eq_none_iff, List.find?_eq_none] at h
+  intro r hr; simpa using h r hr
+
 /-! ## The prologue -/
 
 /-- Add `a` to an insertion-ordered set. -/

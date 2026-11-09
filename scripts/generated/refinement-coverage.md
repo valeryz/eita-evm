@@ -17,15 +17,10 @@ For axiom-clean verification of the derived-code layer see
 statement mention + namespace (open/import), never bare-name
 matching across forks.
 
-Reconciliation with the repo-wide 19 sorries: Section A counts
-spec-relation theorems in `Evm/*/Spec/*.lean` plus the curated
-composition layer in `Evm/IR/Soundness.lean` — 12 of the 13
-`Spec/Refinement` sorries are relation theorems counted here;
-the 13th is Frontier's `runFrame_gas_monotonic`, a frame-level
-lemma that concludes no relation (not counted). The remaining
-sorries live in `Trie/Stack` (3), `CL/AsmCore` (1),
-`CL/StorageCache` (1), and `Frontier/Spec/StorageStep` (1, a
-relation-internal lemma, not counted here).
+Reconciliation with the repo-wide 19 sorries: Section A
+counts 12 (relation theorems in `Evm/*/Spec/*.lean` and the
+curated composition layer `Evm/IR/Soundness.lean`). By file,
+all of them: `Byzantium/Spec/Refinement` (3), `CL/AsmCore` (1), `CL/StorageCache` (1), `Cancun/Spec/Refinement` (4), `Constantinople/Spec/Refinement` (3), `Frontier/Spec/Refinement` (1), `Istanbul/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Petersburg/Spec/Refinement` (1), `Trie/Stack` (3).
 
 ## A. Spec-relation theorem inventory (budget-enforced)
 
@@ -36,7 +31,7 @@ relation-internal lemma, not counted here).
 | Byzantium | 0 | 3 | 0 | 0 | 3 |
 | Cancun | 1 | 4 | 6 | 0 | 11 |
 | Constantinople | 2 | 3 | 0 | 0 | 5 |
-| Frontier | 53 | 0 | 0 | 0 | 53 |
+| Frontier | 54 | 0 | 0 | 0 | 54 |
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
 | Istanbul | 3 | 1 | 1 | 0 | 5 |
@@ -47,7 +42,7 @@ relation-internal lemma, not counted here).
 | Prague | 0 | 0 | 13 | 0 | 13 |
 | Shanghai | 0 | 0 | 3 | 0 | 3 |
 | SpuriousDragon | 4 | 0 | 3 | 0 | 7 |
-| **total** | **131** | **12** | **52** | **0** | **195** |
+| **total** | **132** | **12** | **52** | **0** | **196** |
 
 Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 
@@ -124,6 +119,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 - PROVED `mulmod_sound` (Refinement.lean)
 - PROVED `not_complete` (Refinement.lean)
 - PROVED `not_sound` (Refinement.lean)
+- PROVED `nullaryPush_sound` (Refinement.lean)
 - PROVED `or_complete` (Refinement.lean)
 - PROVED `or_sound` (Refinement.lean)
 - PROVED `runBinary_complete` (Refinement.lean)
@@ -352,10 +348,10 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 | `Evm.Frontier.Spec.IsBlockhashStep`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.Frontier.Spec.IsByteStep` | PROVED | `Evm.Frontier.Spec.Refinement.byte_sound` |
 | `Evm.Frontier.Spec.IsCallEntrySuccess`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
-| `Evm.Frontier.Spec.IsCallFailFastBalance` | MISSING | — |
-| `Evm.Frontier.Spec.IsCallFailFastDepth` | MISSING | — |
+| `Evm.Frontier.Spec.IsCallFailFastBalance`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
+| `Evm.Frontier.Spec.IsCallFailFastDepth`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.Frontier.Spec.IsCallFrame`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
-| `Evm.Frontier.Spec.IsCallMerge` | MISSING | — |
+| `Evm.Frontier.Spec.IsCallMerge`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.Frontier.Spec.IsCallcodeEntrySuccess` | MISSING | — |
 | `Evm.Frontier.Spec.IsCallcodeFailFastBalance` | MISSING | — |
 | `Evm.Frontier.Spec.IsCallcodeFailFastDepth` | MISSING | — |
@@ -399,7 +395,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 | `Evm.Frontier.Spec.IsMulStep` | PROVED | `Evm.Frontier.Spec.Refinement.mul_sound` |
 | `Evm.Frontier.Spec.IsMulmodStep` | PROVED | `Evm.Frontier.Spec.Refinement.mulmod_sound` |
 | `Evm.Frontier.Spec.IsNotStep` | PROVED | `Evm.Frontier.Spec.Refinement.not_sound` |
-| `Evm.Frontier.Spec.IsNullaryPushStep` | PROVED | `Evm.Frontier.Spec.Refinement.runNullaryPush_sound` |
+| `Evm.Frontier.Spec.IsNullaryPushStep`<br>instance/spec facts (do not discharge the general obligation): `Evm.Frontier.Spec.Refinement.nullaryPush_sound` | PROVED | `Evm.Frontier.Spec.Refinement.runNullaryPush_sound` |
 | `Evm.Frontier.Spec.IsNumberStep` | MISSING | — |
 | `Evm.Frontier.Spec.IsOrStep` | PROVED | `Evm.Frontier.Spec.Refinement.or_sound` |
 | `Evm.Frontier.Spec.IsOriginStep` | MISSING | — |
