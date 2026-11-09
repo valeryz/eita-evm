@@ -454,7 +454,8 @@ def execOp (evm : Evm) : Op → Except Exception Evm
       let destOffN := destOff.toNat
       let srcOffN  := srcOff.toNat
       let lenN     := len.toNat
-      let highEnd := Nat.max (destOffN + lenN) (srcOffN + lenN)
+      -- `len = 0` neither charges nor grows memory (EELS skips empty ranges).
+      let highEnd := if lenN = 0 then 0 else Nat.max (destOffN + lenN) (srcOffN + lenN)
       let (gasLeft, mem) ← Instructions.chargeMemory evm.gasLeft evm.memory 0 highEnd
       let gasLeft ← Gas.charge gasLeft (Evm.Cancun.Vm.Gas.mcopyWord * ((lenN + 31) / 32))
       let src := Memory.read mem srcOffN lenN

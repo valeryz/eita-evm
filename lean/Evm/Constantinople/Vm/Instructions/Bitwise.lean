@@ -46,7 +46,7 @@ def shr : Handler := runBinary Gas.veryLow fun shift value =>
 
 /-- Treat `x : U256` as signed two's-complement; return `(isNegative,
     absoluteValue)`. -/
-private def toSigned (x : Evm.U256) : Bool × Nat :=
+def toSigned (x : Evm.U256) : Bool × Nat :=
   let n := x.toNat
   let signBit := 1 <<< 255
   if n ≥ signBit then

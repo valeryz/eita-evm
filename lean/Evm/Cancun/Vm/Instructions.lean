@@ -65,10 +65,12 @@ def mcopy : Handler := fun evm => do
   -- Charge base before any dynamic cost.
   let gasLeft ← Gas.charge evm.gasLeft Evm.Cancun.Vm.Gas.mcopyBase
   -- Memory expansion: enough to cover both source-read and dest-write
-  -- ranges. EELS extends to `max(dstOff+len, srcOff+len)` then bills
-  -- the resulting expansion delta. We piggy-back on `chargeMemory`
-  -- which both charges and extends.
-  let highEnd := Nat.max (destOffN + lenN) (srcOffN + lenN)
+  -- ranges. EELS `calculate_gas_extend_memory(memory, [(src, len), (dst, len)])`
+  -- extends to `max(dstOff+len, srcOff+len)` and bills the delta — and
+  -- skips both ranges when `len = 0` (no charge, no growth). We piggy-back
+  -- on `chargeMemory`, which both charges and extends; size 0 is its no-op.
+  -- (Until 2026-11-09 `len = 0` still grew memory to `max(dst, src)`.)
+  let highEnd := if lenN = 0 then 0 else Nat.max (destOffN + lenN) (srcOffN + lenN)
   let (gasLeft, mem) ← chargeMemory gasLeft evm.memory 0 highEnd
   -- Per-word copy cost (3 · ⌈len/32⌉).
   let words := (lenN + 31) / 32

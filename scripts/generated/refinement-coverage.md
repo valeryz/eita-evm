@@ -17,10 +17,10 @@ For axiom-clean verification of the derived-code layer see
 statement mention + namespace (open/import), never bare-name
 matching across forks.
 
-Reconciliation with the repo-wide 19 sorries: Section A
-counts 12 (relation theorems in `Evm/*/Spec/*.lean` and the
+Reconciliation with the repo-wide 10 sorries: Section A
+counts 3 (relation theorems in `Evm/*/Spec/*.lean` and the
 curated composition layer `Evm/IR/Soundness.lean`). By file,
-all of them: `Byzantium/Spec/Refinement` (3), `CL/AsmCore` (1), `CL/StorageCache` (1), `Cancun/Spec/Refinement` (4), `Constantinople/Spec/Refinement` (3), `Frontier/Spec/Refinement` (1), `Istanbul/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Petersburg/Spec/Refinement` (1), `Trie/Stack` (3).
+all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refinement` (1), `Frontier/Spec/Refinement` (1), `Istanbul/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Petersburg/Spec/Refinement` (1), `Trie/Stack` (3).
 
 ## A. Spec-relation theorem inventory (budget-enforced)
 
@@ -28,9 +28,9 @@ all of them: `Byzantium/Spec/Refinement` (3), `CL/AsmCore` (1), `CL/StorageCache
 |---|---:|---:|---:|---:|---:|
 | Amsterdam | 0 | 0 | 5 | 0 | 5 |
 | Berlin | 0 | 0 | 5 | 0 | 5 |
-| Byzantium | 0 | 3 | 0 | 0 | 3 |
-| Cancun | 1 | 4 | 6 | 0 | 11 |
-| Constantinople | 2 | 3 | 0 | 0 | 5 |
+| Byzantium | 4 | 0 | 0 | 0 | 4 |
+| Cancun | 7 | 0 | 4 | 0 | 11 |
+| Constantinople | 4 | 1 | 0 | 0 | 5 |
 | Frontier | 54 | 0 | 0 | 0 | 54 |
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
@@ -42,9 +42,9 @@ all of them: `Byzantium/Spec/Refinement` (3), `CL/AsmCore` (1), `CL/StorageCache
 | Prague | 0 | 0 | 13 | 0 | 13 |
 | Shanghai | 0 | 0 | 3 | 0 | 3 |
 | SpuriousDragon | 4 | 0 | 3 | 0 | 7 |
-| **total** | **132** | **12** | **52** | **0** | **196** |
+| **total** | **144** | **3** | **50** | **0** | **197** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 
 ### Amsterdam
 
@@ -64,28 +64,29 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 
 ### Byzantium
 
-- SORRY `returndatacopy_sound` (Refinement.lean)
-- SORRY `returndatasize_sound` (Refinement.lean)
-- SORRY `revert_sound` (Refinement.lean)
+- PROVED `returndatacopy_sound` (Refinement.lean)
+- PROVED `returndatasize_sound` (Refinement.lean)
+- PROVED `revert_sound` (Refinement.lean)
+- PROVED `stepNullaryPush_sound` (Refinement.lean)
 
 ### Cancun
 
-- SHAPE `blobAffordable_sound_shape` (Refinement.lean)
+- PROVED `blobAffordable_sound` (Refinement.lean)
 - SHAPE `blobCountValid_sound_shape` (Refinement.lean)
-- SHAPE `blobFeeBidSufficient_sound_shape` (Refinement.lean)
+- PROVED `blobFeeBidSufficient_sound` (Refinement.lean)
 - PROVED `blobbasefee_sound` (Refinement.lean)
-- SORRY `blobhash_sound` (Refinement.lean)
+- PROVED `blobhash_sound` (Refinement.lean)
 - SHAPE `kzg_failure_sound_shape` (Refinement.lean)
 - SHAPE `kzg_success_sound_shape` (Refinement.lean)
-- SORRY `mcopy_sound` (Refinement.lean)
+- PROVED `mcopy_sound` (Refinement.lean)
 - SHAPE `selfdestruct_sound_shape` (Refinement.lean)
-- SORRY `tload_sound` (Refinement.lean)
-- SORRY `tstore_sound` (Refinement.lean)
+- PROVED `tload_sound` (Refinement.lean)
+- PROVED `tstore_sound` (Refinement.lean)
 
 ### Constantinople
 
-- SORRY `extcodehash_sound` (Refinement.lean)
-- SORRY `sar_sound` (Refinement.lean)
+- PROVED `extcodehash_sound` (Refinement.lean)
+- PROVED `sar_sound` (Refinement.lean)
 - PROVED `shl_sound` (Refinement.lean)
 - PROVED `shr_sound` (Refinement.lean)
 - SORRY `sstore_sound` (Refinement.lean)
@@ -292,7 +293,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 
 ## B. Relation coverage, fully qualified (informational)
 
-203 qualified relations: facts-only 3, missing 102, proved 34, shape 52, sorry 12, spec-is-impl 1.
+203 qualified relations: facts-only 3, missing 102, proved 45, shape 50, sorry 3, spec-is-impl 1.
 
 | relation | status | resolving theorem |
 |---|---|---|
@@ -317,26 +318,26 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 | `Evm.Byzantium.Spec.IsBn256PairingOk` | MISSING | — |
 | `Evm.Byzantium.Spec.IsCreateInitRevert` | MISSING | — |
 | `Evm.Byzantium.Spec.IsPrecompile` | FACTS-ONLY | — |
-| `Evm.Byzantium.Spec.IsReturndatacopyStep` | SORRY | `Evm.Byzantium.Spec.Refinement.returndatacopy_sound` |
-| `Evm.Byzantium.Spec.IsReturndatasizeStep` | SORRY | `Evm.Byzantium.Spec.Refinement.returndatasize_sound` |
-| `Evm.Byzantium.Spec.IsRevertStep` | SORRY | `Evm.Byzantium.Spec.Refinement.revert_sound` |
-| `Evm.Cancun.Spec.IsBlobAffordable` | SHAPE | `Evm.Cancun.Spec.Refinement.blobAffordable_sound_shape` |
+| `Evm.Byzantium.Spec.IsReturndatacopyStep` | PROVED | `Evm.Byzantium.Spec.Refinement.returndatacopy_sound` |
+| `Evm.Byzantium.Spec.IsReturndatasizeStep` | PROVED | `Evm.Byzantium.Spec.Refinement.returndatasize_sound` |
+| `Evm.Byzantium.Spec.IsRevertStep` | PROVED | `Evm.Byzantium.Spec.Refinement.revert_sound` |
+| `Evm.Cancun.Spec.IsBlobAffordable` | PROVED | `Evm.Cancun.Spec.Refinement.blobAffordable_sound` |
 | `Evm.Cancun.Spec.IsBlobCountValid` | SHAPE | `Evm.Cancun.Spec.Refinement.blobCountValid_sound_shape` |
-| `Evm.Cancun.Spec.IsBlobFeeBidSufficient` | SHAPE | `Evm.Cancun.Spec.Refinement.blobFeeBidSufficient_sound_shape` |
+| `Evm.Cancun.Spec.IsBlobFeeBidSufficient` | PROVED | `Evm.Cancun.Spec.Refinement.blobFeeBidSufficient_sound` |
 | `Evm.Cancun.Spec.IsBlobbasefeeStep` | PROVED | `Evm.Cancun.Spec.Refinement.blobbasefee_sound` |
-| `Evm.Cancun.Spec.IsBlobhashStep` | SORRY | `Evm.Cancun.Spec.Refinement.blobhash_sound` |
+| `Evm.Cancun.Spec.IsBlobhashStep` | PROVED | `Evm.Cancun.Spec.Refinement.blobhash_sound` |
 | `Evm.Cancun.Spec.IsKzgPrecompileFailure` | SHAPE | `Evm.Cancun.Spec.Refinement.kzg_failure_sound_shape` |
 | `Evm.Cancun.Spec.IsKzgPrecompileSuccess` | SHAPE | `Evm.Cancun.Spec.Refinement.kzg_success_sound_shape` |
-| `Evm.Cancun.Spec.IsMcopyStep` | SORRY | `Evm.Cancun.Spec.Refinement.mcopy_sound` |
+| `Evm.Cancun.Spec.IsMcopyStep` | PROVED | `Evm.Cancun.Spec.Refinement.mcopy_sound` |
 | `Evm.Cancun.Spec.IsSelfdestructStep` | SHAPE | `Evm.Cancun.Spec.Refinement.selfdestruct_sound_shape` |
-| `Evm.Cancun.Spec.IsTloadStep` | SORRY | `Evm.Cancun.Spec.Refinement.tload_sound` |
-| `Evm.Cancun.Spec.IsTstoreStep` | SORRY | `Evm.Cancun.Spec.Refinement.tstore_sound` |
+| `Evm.Cancun.Spec.IsTloadStep` | PROVED | `Evm.Cancun.Spec.Refinement.tload_sound` |
+| `Evm.Cancun.Spec.IsTstoreStep` | PROVED | `Evm.Cancun.Spec.Refinement.tstore_sound` |
 | `Evm.Constantinople.Spec.IsCreate2EntryCollision` | MISSING | — |
 | `Evm.Constantinople.Spec.IsCreate2EntrySuccess` | MISSING | — |
 | `Evm.Constantinople.Spec.IsCreate2FailFastBalance` | MISSING | — |
 | `Evm.Constantinople.Spec.IsCreate2FailFastDepth` | MISSING | — |
-| `Evm.Constantinople.Spec.IsExtcodehashStep` | SORRY | `Evm.Constantinople.Spec.Refinement.extcodehash_sound` |
-| `Evm.Constantinople.Spec.IsSarStep` | SORRY | `Evm.Constantinople.Spec.Refinement.sar_sound` |
+| `Evm.Constantinople.Spec.IsExtcodehashStep` | PROVED | `Evm.Constantinople.Spec.Refinement.extcodehash_sound` |
+| `Evm.Constantinople.Spec.IsSarStep` | PROVED | `Evm.Constantinople.Spec.Refinement.sar_sound` |
 | `Evm.Constantinople.Spec.IsShlStep` | PROVED | `Evm.Constantinople.Spec.Refinement.shl_sound` |
 | `Evm.Constantinople.Spec.IsShrStep` | PROVED | `Evm.Constantinople.Spec.Refinement.shr_sound` |
 | `Evm.Constantinople.Spec.IsSstoreStep` | SORRY | `Evm.Constantinople.Spec.Refinement.sstore_sound` |
@@ -395,7 +396,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 64.
 | `Evm.Frontier.Spec.IsMulStep` | PROVED | `Evm.Frontier.Spec.Refinement.mul_sound` |
 | `Evm.Frontier.Spec.IsMulmodStep` | PROVED | `Evm.Frontier.Spec.Refinement.mulmod_sound` |
 | `Evm.Frontier.Spec.IsNotStep` | PROVED | `Evm.Frontier.Spec.Refinement.not_sound` |
-| `Evm.Frontier.Spec.IsNullaryPushStep`<br>instance/spec facts (do not discharge the general obligation): `Evm.Frontier.Spec.Refinement.nullaryPush_sound` | PROVED | `Evm.Frontier.Spec.Refinement.runNullaryPush_sound` |
+| `Evm.Frontier.Spec.IsNullaryPushStep`<br>instance/spec facts (do not discharge the general obligation): `Evm.Frontier.Spec.Refinement.nullaryPush_sound` | PROVED (+1 more) | `Evm.Byzantium.Spec.Refinement.stepNullaryPush_sound` |
 | `Evm.Frontier.Spec.IsNumberStep` | MISSING | — |
 | `Evm.Frontier.Spec.IsOrStep` | PROVED | `Evm.Frontier.Spec.Refinement.or_sound` |
 | `Evm.Frontier.Spec.IsOriginStep` | MISSING | — |

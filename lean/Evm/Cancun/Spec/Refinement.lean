@@ -32,6 +32,7 @@ import Evm.Cancun.Spec.KzgStep
 import Evm.Cancun.Spec.Selfdestruct
 import Evm.Cancun.Vm.Instructions
 import Evm.Cancun.Vm.Effect
+import Evm.Frontier.Vm.Tx
 
 namespace Evm.Cancun.Spec.Refinement
 
@@ -41,37 +42,100 @@ open Evm.Cancun.Spec
 
 /-! ## EIP-1153 TLOAD (0x5c) / TSTORE (0x5d) -/
 
-/-- TLOAD reads transient storage. State-touching obligation. -/
+/-- 0x5c TLOAD: pop the key, charge `GAS_WARM_ACCESS` (100), push the transient value of
+    `(current_target, key)` (0 if unset). EELS `forks/cancun/vm/instructions/storage.py::
+    tload`. -/
 theorem tload_sound (evm evm' : Evm) :
-    Evm.Cancun.Vm.Instructions.tload evm = .ok evm' →
-    IsTloadStep evm evm' := by
-  intro _; sorry
+    Evm.Cancun.Vm.Instructions.tload evm = .ok evm' → IsTloadStep evm evm' := by
+  intro h
+  unfold Evm.Cancun.Vm.Instructions.tload at h
+  simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at h
+  rcases h with ⟨g, hg, ⟨a, rest⟩, hp, s', hpush, h⟩
+  obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+  obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop_eq_ok_iff _ _ _).mp hp
+  obtain ⟨hlt, rfl⟩ := (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hpush
+  simp only [pure, Except.pure, Except.ok.injEq] at h
+  subst h
+  exact ⟨a, rest, hStack, hlt, hle, rfl⟩
 
-/-- TSTORE writes transient storage. State-touching obligation
-    (mutates `env.transientStorage`); static-context check. -/
+/-- 0x5d TSTORE: static-context check, charge `GAS_WARM_ACCESS`, pop key and value, write
+    `transient_storage[(current_target, key)]`. EELS `forks/cancun/vm/instructions/
+    storage.py::tstore` (`if evm.message.is_static: raise WriteInStaticContext`). -/
 theorem tstore_sound (evm evm' : Evm) :
-    Evm.Cancun.Vm.Instructions.tstore evm = .ok evm' →
-    IsTstoreStep evm evm' := by
-  intro _; sorry
+    Evm.Cancun.Vm.Instructions.tstore evm = .ok evm' → IsTstoreStep evm evm' := by
+  intro h
+  unfold Evm.Cancun.Vm.Instructions.tstore at h
+  by_cases hs : evm.message.isStatic = true
+  · simp [hs, bind, Except.bind] at h
+  · have hs' : evm.message.isStatic = false := by simpa using hs
+    simp only [hs', Bool.false_eq_true, ite_false, bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at h
+    rcases h with ⟨u, hu, ⟨a, b, rest⟩, hp, h⟩
+    obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hu
+    obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp
+    simp only [pure, Except.pure, Except.ok.injEq] at h
+    subst h
+    exact ⟨a, b, rest, hStack, hs', hle, rfl⟩
 
 /-! ## EIP-5656 MCOPY (0x5e) -/
 
-/-- MCOPY copies bytes within memory, with overlap safety. Memory-
-    expansion + multi-word copy obligation. -/
+/-- 0x5e MCOPY refines `IsMcopyStep`: charge `GAS_VERY_LOW + GAS_COPY · words +
+    extend_memory.cost` with the expansion over both windows (none when `len = 0`), read
+    the source from the expanded memory, write it at the destination. EELS
+    `forks/cancun/vm/instructions/memory.py::mcopy` (141-174). -/
 theorem mcopy_sound (evm evm' : Evm) :
     Evm.Cancun.Vm.Instructions.mcopy evm = .ok evm' →
     IsMcopyStep evm evm' := by
-  intro _; sorry
+  intro h
+  unfold Evm.Cancun.Vm.Instructions.mcopy at h
+  simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at h
+  rcases h with ⟨⟨d, sr, l, rest⟩, hp, g0, hg0, ⟨g1, m⟩, hc, g2, hg2, h⟩
+  obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop3_eq_ok_iff _ _ _ _ _).mp hp
+  obtain ⟨hle0, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg0
+  obtain ⟨hle1, rfl, rfl⟩ := Evm.Frontier.Spec.chargeMemory_spec hc
+  obtain ⟨hle2, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg2
+  simp only [pure, Except.pure, Except.ok.injEq] at h
+  subst h
+  simp only at hle1 hle2 ⊢
+  have hE : Evm.Frontier.Spec.memExpansionGas evm.memory 0
+      (if l.toNat = 0 then 0 else Nat.max (d.toNat + l.toNat) (sr.toNat + l.toNat))
+      = mcopyExpansionGas evm.memory d.toNat sr.toNat l.toNat := by
+    unfold Evm.Frontier.Spec.memExpansionGas mcopyExpansionGas
+    by_cases hl : l.toNat = 0
+    · simp [hl]
+    · simp [hl]
+  have hX : Evm.Frontier.Spec.memAfterExpand evm.memory 0
+      (if l.toNat = 0 then 0 else Nat.max (d.toNat + l.toNat) (sr.toNat + l.toNat))
+      = mcopyExpand evm.memory d.toNat sr.toNat l.toNat := by
+    unfold Evm.Frontier.Spec.memAfterExpand mcopyExpand
+    by_cases hl : l.toNat = 0
+    · simp [hl]
+    · simp [hl]
+  rw [hE] at hle1 hle2 ⊢
+  rw [hX]
+  obtain ⟨hA, hB⟩ := Evm.Frontier.Spec.charge3_nat hle0 hle1 hle2
+  exact ⟨d, sr, l, rest, hStack, hA, by rw [hB]; rfl⟩
 
 /-! ## EIP-4844 BLOBHASH (0x49) -/
 
-/-- BLOBHASH pops index, pushes `env.blobVersionedHashes[index]` or
-    0 OOB. State-reading; refinement needs `runUnary`-shape
-    extension to consult `env`. -/
+/-- 0x49 BLOBHASH: charge `GAS_BLOBHASH_OPCODE` (3), pop the index, push
+    `blob_versioned_hashes[index]` or 0 out of range. EELS `forks/cancun/vm/instructions/
+    environment.py::blob_hash`. -/
 theorem blobhash_sound (evm evm' : Evm) :
-    Evm.Cancun.Vm.Instructions.blobhash evm = .ok evm' →
-    IsBlobhashStep evm evm' := by
-  intro _; sorry
+    Evm.Cancun.Vm.Instructions.blobhash evm = .ok evm' → IsBlobhashStep evm evm' := by
+  intro h
+  unfold Evm.Cancun.Vm.Instructions.blobhash at h
+  simp only [bind, Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at h
+  rcases h with ⟨g, hg, ⟨a, rest⟩, hp, s', hpush, h⟩
+  obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+  obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop_eq_ok_iff _ _ _).mp hp
+  obtain ⟨hlt, rfl⟩ := (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hpush
+  simp only [pure, Except.pure, Except.ok.injEq] at h
+  subst h
+  refine ⟨a, rest, hStack, hlt, hle, ?_⟩
+  simp only [blobHashAt]
+  split <;> rename_i hh
+  · simp_all; rfl
+  · simp_all; rfl
 
 /-! ## EIP-7516 BLOBBASEFEE (0x4a) -/
 
@@ -92,23 +156,42 @@ theorem blobCountValid_sound_shape (numBlobs : Nat) :
     IsBlobCountValid numBlobs := by
   intro h; exact h
 
-/-- `IsBlobAffordable` — sender balance covers value + gas-fee +
-    blob-fee. -/
-theorem blobAffordable_sound_shape
-    (senderBalance value gasLimit maxFeePerGas
-     maxFeePerBlobGas numBlobs : Nat) :
-    IsBlobAffordable senderBalance value gasLimit maxFeePerGas
-                     maxFeePerBlobGas numBlobs →
-    IsBlobAffordable senderBalance value gasLimit maxFeePerGas
-                     maxFeePerBlobGas numBlobs := by
-  intro h; exact h
+/-- `IsBlobAffordable`: a blob tx (type 3) the tx layer accepts (`Tx.invalid = none`) has a
+    sender whose balance covers `value + gas · max_fee_per_gas + blob_gas ·
+    max_fee_per_blob_gas`. EELS `forks/cancun/fork.py::check_transaction` 462-497
+    (`max_gas_fee = tx.gas * tx.max_fee_per_gas`, `+= calculate_total_blob_gas(tx) *
+    tx.max_fee_per_blob_gas`, `if balance < max_gas_fee + tx.value: raise
+    InsufficientBalanceError`). -/
+theorem blobAffordable_sound (k : Nat) (benv : Environment) (st : State)
+    (sender : Evm.Address) (tx : Evm.Frontier.Vm.Tx.Tx) :
+    Evm.Frontier.Vm.Tx.invalid k benv st sender tx = none → tx.type = 3 →
+    IsBlobAffordable (st.getAccount sender).balance.toNat tx.value.toNat tx.gas tx.maxFee
+      tx.maxFeePerBlobGas tx.blobHashes.length := by
+  intro h h3
+  have hr := Evm.Frontier.Vm.Tx.rules_false_of_valid h
+    (decide ((st.getAccount sender).balance.toNat <
+      Evm.Frontier.Vm.Tx.maxGasFee tx + tx.value.toNat), "insufficient balance")
+    (by simp [Evm.Frontier.Vm.Tx.rules])
+  simp only [decide_eq_false_iff_not, Nat.not_lt] at hr
+  simp only [Evm.Frontier.Vm.Tx.maxGasFee, Evm.Frontier.Vm.Tx.blobGas, h3] at hr
+  unfold IsBlobAffordable txBlobGas gasPerBlob
+  simp at hr
+  rw [Nat.mul_comm tx.maxFeePerBlobGas]
+  omega
 
-/-- `IsBlobFeeBidSufficient` — tx's max_fee_per_blob_gas ≥ block's
-    blob_base_fee. -/
-theorem blobFeeBidSufficient_sound_shape (maxFeePerBlobGas blobBaseFee : Nat) :
-    IsBlobFeeBidSufficient maxFeePerBlobGas blobBaseFee →
-    IsBlobFeeBidSufficient maxFeePerBlobGas blobBaseFee := by
-  intro h; exact h
+/-- `IsBlobFeeBidSufficient`: a blob tx the tx layer accepts bids at least the block's
+    blob base fee. EELS `forks/cancun/fork.py::check_transaction` 480-484
+    (`if tx.max_fee_per_blob_gas < blob_gas_price: raise InsufficientMaxFeePerBlobGasError`). -/
+theorem blobFeeBidSufficient_sound (k : Nat) (benv : Environment) (st : State)
+    (sender : Evm.Address) (tx : Evm.Frontier.Vm.Tx.Tx) :
+    Evm.Frontier.Vm.Tx.invalid k benv st sender tx = none → tx.type = 3 →
+    IsBlobFeeBidSufficient tx.maxFeePerBlobGas benv.blobBaseFee := by
+  intro h h3
+  have hr := Evm.Frontier.Vm.Tx.rules_false_of_valid h
+    (decide (tx.type = 3 ∧ tx.maxFeePerBlobGas < benv.blobBaseFee),
+      "max blob fee below blob base fee") (by simp [Evm.Frontier.Vm.Tx.rules])
+  simp [h3] at hr
+  exact hr
 
 /-! ## EIP-4844 KZG point-evaluation precompile (0x0a) -/
 
