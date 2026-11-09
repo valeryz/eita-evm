@@ -34,17 +34,17 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Frontier/Spec/Refinement`
 | Frontier | 54 | 0 | 0 | 0 | 54 |
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
-| Istanbul | 4 | 0 | 1 | 0 | 5 |
+| Istanbul | 6 | 0 | 0 | 0 | 6 |
 | London | 8 | 0 | 0 | 0 | 8 |
-| Osaka | 4 | 0 | 1 | 0 | 5 |
+| Osaka | 6 | 0 | 0 | 0 | 6 |
 | Paris | 4 | 0 | 0 | 0 | 4 |
 | Petersburg | 1 | 0 | 0 | 0 | 1 |
-| Prague | 5 | 0 | 7 | 0 | 12 |
+| Prague | 19 | 0 | 0 | 0 | 19 |
 | Shanghai | 4 | 0 | 0 | 0 | 4 |
 | SpuriousDragon | 7 | 0 | 0 | 0 | 7 |
-| **total** | **184** | **0** | **10** | **0** | **194** |
+| **total** | **202** | **0** | **1** | **0** | **203** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 1.
 
 ### Amsterdam
 
@@ -221,7 +221,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 ### Istanbul
 
 - PROVED `extends_byzantium` (PrecompileTable.lean)
-- SHAPE `blake2f_sound_shape` (Refinement.lean)
+- PROVED `blake2f_failure_sound` (Refinement.lean)
+- PROVED `blake2f_sound` (Refinement.lean)
 - PROVED `chainid_sound` (Refinement.lean)
 - PROVED `selfbalance_sound` (Refinement.lean)
 - PROVED `sstore_sound` (Refinement.lean)
@@ -240,7 +241,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 ### Osaka
 
 - PROVED `clz_sound` (Refinement.lean)
-- SHAPE `p256Verify_sound_shape` (Refinement.lean)
+- PROVED `p256Verify_failure_sound` (Refinement.lean)
+- PROVED `p256Verify_sound` (Refinement.lean)
 - PROVED `validBlobCount_sound` (Refinement.lean)
 - PROVED `validModexpInput_sound` (Refinement.lean)
 - PROVED `validTxGasCap_sound` (Refinement.lean)
@@ -261,14 +263,21 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 - PROVED `applyAuthorization_sound` (Refinement.lean)
 - PROVED `applyAuthorizations_sound` (Refinement.lean)
 - PROVED `effectiveCallCode_sound` (Refinement.lean)
-- SHAPE `g1Add_sound_shape` (Refinement.lean)
-- SHAPE `g1Msm_sound_shape` (Refinement.lean)
-- SHAPE `g2Add_sound_shape` (Refinement.lean)
-- SHAPE `g2Msm_sound_shape` (Refinement.lean)
+- PROVED `g1Add_failure_sound` (Refinement.lean)
+- PROVED `g1Add_sound` (Refinement.lean)
+- PROVED `g1Msm_failure_sound` (Refinement.lean)
+- PROVED `g1Msm_sound` (Refinement.lean)
+- PROVED `g2Add_failure_sound` (Refinement.lean)
+- PROVED `g2Add_sound` (Refinement.lean)
+- PROVED `g2Msm_failure_sound` (Refinement.lean)
+- PROVED `g2Msm_sound` (Refinement.lean)
 - PROVED `intrinsicGasSufficient_sound` (Refinement.lean)
-- SHAPE `mapFp2ToG2_sound_shape` (Refinement.lean)
-- SHAPE `mapFpToG1_sound_shape` (Refinement.lean)
-- SHAPE `pairingCheck_sound_shape` (Refinement.lean)
+- PROVED `mapFp2ToG2_failure_sound` (Refinement.lean)
+- PROVED `mapFp2ToG2_sound` (Refinement.lean)
+- PROVED `mapFpToG1_failure_sound` (Refinement.lean)
+- PROVED `mapFpToG1_sound` (Refinement.lean)
+- PROVED `pairingCheck_failure_sound` (Refinement.lean)
+- PROVED `pairingCheck_sound` (Refinement.lean)
 - PROVED `requestsHashValid_sound` (Refinement.lean)
 
 ### Shanghai
@@ -290,7 +299,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 
 ## B. Relation coverage, fully qualified (informational)
 
-193 qualified relations: facts-only 3, missing 97, proved 83, shape 10, spec-is-impl 0.
+195 qualified relations: facts-only 3, missing 90, proved 101, shape 1, spec-is-impl 0.
 
 | relation | status | resolving theorem |
 |---|---|---|
@@ -429,7 +438,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 | `Evm.Frontier.Spec.IsXorStep` | PROVED | `Evm.Frontier.Spec.Refinement.xor_sound` |
 | `Evm.Homestead.Spec.IsCreateDepositOk` | PROVED | `Evm.Homestead.Spec.Refinement.createDepositOk_sound` |
 | `Evm.Homestead.Spec.IsCreateDepositRevert` | PROVED | `Evm.Homestead.Spec.Refinement.createDepositRevert_sound` |
-| `Evm.Istanbul.Spec.IsBlake2fStep` | SHAPE | `Evm.Istanbul.Spec.Refinement.blake2f_sound_shape` |
+| `Evm.Istanbul.Spec.IsBlake2fFailure` | PROVED | `Evm.Istanbul.Spec.Refinement.blake2f_failure_sound` |
+| `Evm.Istanbul.Spec.IsBlake2fStep` | PROVED | `Evm.Istanbul.Spec.Refinement.blake2f_sound` |
 | `Evm.Istanbul.Spec.IsChainidStep` | PROVED | `Evm.Istanbul.Spec.Refinement.chainid_sound` |
 | `Evm.Istanbul.Spec.IsPrecompile`<br>only instance/spec facts conclude this relation; the general implementation obligation is unproved: `Evm.Istanbul.Spec.extends_byzantium` | FACTS-ONLY | — |
 | `Evm.Istanbul.Spec.IsSelfbalanceStep` | PROVED | `Evm.Istanbul.Spec.Refinement.selfbalance_sound` |
@@ -441,7 +451,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 | `Evm.London.Spec.IsSelfdestructRefundDelta` | PROVED | `Evm.London.Spec.Refinement.selfdestructRefundDelta_sound` |
 | `Evm.London.Spec.IsValidDeployedCode`<br>instance/spec facts (do not discharge the general obligation): `Evm.London.Spec.empty_code_valid` | PROVED (+1 more) | `Evm.London.Spec.Refinement.validDeployedCode_tx_sound` |
 | `Evm.Osaka.Spec.IsClzStep` | PROVED | `Evm.Osaka.Spec.Refinement.clz_sound` |
-| `Evm.Osaka.Spec.IsP256VerifyStep` | SHAPE | `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` |
+| `Evm.Osaka.Spec.IsP256VerifyFailure` | PROVED | `Evm.Osaka.Spec.Refinement.p256Verify_failure_sound` |
+| `Evm.Osaka.Spec.IsP256VerifyStep` | PROVED | `Evm.Osaka.Spec.Refinement.p256Verify_sound` |
 | `Evm.Osaka.Spec.IsValidBlobCount` | PROVED | `Evm.Osaka.Spec.Refinement.validBlobCount_sound` |
 | `Evm.Osaka.Spec.IsValidModexpInput` | PROVED | `Evm.Osaka.Spec.Refinement.validModexpInput_sound` |
 | `Evm.Osaka.Spec.IsValidTxGasCap` | PROVED | `Evm.Osaka.Spec.Refinement.validTxGasCap_sound` |
@@ -459,21 +470,21 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 10.
 | `Evm.Prague.Spec.IsDelegationDesignator` | MISSING | — |
 | `Evm.Prague.Spec.IsEffectiveCallCode` | PROVED | `Evm.Prague.Spec.Refinement.effectiveCallCode_sound` |
 | `Evm.Prague.Spec.IsEffectiveTxCode` | MISSING | — |
-| `Evm.Prague.Spec.IsG1AddInputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsG1AddSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g1Add_sound_shape` |
-| `Evm.Prague.Spec.IsG1MsmInputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsG1MsmSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g1Msm_sound_shape` |
-| `Evm.Prague.Spec.IsG2AddInputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsG2AddSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g2Add_sound_shape` |
-| `Evm.Prague.Spec.IsG2MsmInputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsG2MsmSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.g2Msm_sound_shape` |
+| `Evm.Prague.Spec.IsG1AddFailure` | PROVED | `Evm.Prague.Spec.Refinement.g1Add_failure_sound` |
+| `Evm.Prague.Spec.IsG1AddSuccess` | PROVED | `Evm.Prague.Spec.Refinement.g1Add_sound` |
+| `Evm.Prague.Spec.IsG1MsmFailure` | PROVED | `Evm.Prague.Spec.Refinement.g1Msm_failure_sound` |
+| `Evm.Prague.Spec.IsG1MsmSuccess` | PROVED | `Evm.Prague.Spec.Refinement.g1Msm_sound` |
+| `Evm.Prague.Spec.IsG2AddFailure` | PROVED | `Evm.Prague.Spec.Refinement.g2Add_failure_sound` |
+| `Evm.Prague.Spec.IsG2AddSuccess` | PROVED | `Evm.Prague.Spec.Refinement.g2Add_sound` |
+| `Evm.Prague.Spec.IsG2MsmFailure` | PROVED | `Evm.Prague.Spec.Refinement.g2Msm_failure_sound` |
+| `Evm.Prague.Spec.IsG2MsmSuccess` | PROVED | `Evm.Prague.Spec.Refinement.g2Msm_sound` |
 | `Evm.Prague.Spec.IsIntrinsicGasSufficient` | PROVED | `Evm.Prague.Spec.Refinement.intrinsicGasSufficient_sound` |
-| `Evm.Prague.Spec.IsMapFp2ToG2InputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsMapFp2ToG2Success` | SHAPE | `Evm.Prague.Spec.Refinement.mapFp2ToG2_sound_shape` |
-| `Evm.Prague.Spec.IsMapFpToG1InputValid` | MISSING | — |
-| `Evm.Prague.Spec.IsMapFpToG1Success` | SHAPE | `Evm.Prague.Spec.Refinement.mapFpToG1_sound_shape` |
-| `Evm.Prague.Spec.IsPairingCheckSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.pairingCheck_sound_shape` |
-| `Evm.Prague.Spec.IsPairingInputValid` | MISSING | — |
+| `Evm.Prague.Spec.IsMapFp2ToG2Failure` | PROVED | `Evm.Prague.Spec.Refinement.mapFp2ToG2_failure_sound` |
+| `Evm.Prague.Spec.IsMapFp2ToG2Success` | PROVED | `Evm.Prague.Spec.Refinement.mapFp2ToG2_sound` |
+| `Evm.Prague.Spec.IsMapFpToG1Failure` | PROVED | `Evm.Prague.Spec.Refinement.mapFpToG1_failure_sound` |
+| `Evm.Prague.Spec.IsMapFpToG1Success` | PROVED | `Evm.Prague.Spec.Refinement.mapFpToG1_sound` |
+| `Evm.Prague.Spec.IsPairingCheckFailure` | PROVED | `Evm.Prague.Spec.Refinement.pairingCheck_failure_sound` |
+| `Evm.Prague.Spec.IsPairingCheckSuccess` | PROVED | `Evm.Prague.Spec.Refinement.pairingCheck_sound` |
 | `Evm.Prague.Spec.IsRequestsHashValid` | PROVED | `Evm.Prague.Spec.Refinement.requestsHashValid_sound` |
 | `Evm.Shanghai.Spec.InitcodeWithinCap` | PROVED (+1 more) | `Evm.Shanghai.Spec.Refinement.initcodeWithinCap_tx_sound` |
 | `Evm.Shanghai.Spec.IsPush0Step` | PROVED | `Evm.Shanghai.Spec.Refinement.push0_sound` |

@@ -79,6 +79,9 @@ jobs:
       - name: Axiom-closure audit
         run: scripts/verify-axioms.sh
 
+      - name: Crypto oracles against blst / OpenSSL, BLAKE2F Lean = C (property + differential tests)
+        run: cd lean && lake exe cryptoTests
+
       - name: Refinement-coverage ratchet
         run: scripts/verify-coverage.sh
 

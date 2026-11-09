@@ -4,7 +4,9 @@
 # or if a banned axiom reappears (trust_smt: SMT-solver discharge, from
 # the removed loom dependency), or if a native_decide proof runs one of the
 # spec's @[extern] / @[implemented_by] constants (the extern rule at the end
-# of AxiomAudit.lean: it errors, naming theorem and path). Run in CI / pre-commit.
+# of AxiomAudit.lean: it errors, naming theorem and path), or if an @[extern] in Evm.*
+# is not in the enumerated extern inventory (AxiomAudit.ExternInventory.trusted, with
+# the library each one trusts). Run in CI / pre-commit.
 #
 # Every fallible command prints its captured log on failure — a red gate
 # must show a diagnosis (the silent-exit class fixed in
@@ -36,7 +38,9 @@ if [ "$rc" -ne 0 ]; then
 fi
 # the extern rule's verdict is not part of the baseline (its count moves with every new native_decide)
 grep '^extern rule OK' /tmp/_axiom_audit.out || { echo "FAIL: no extern rule verdict"; exit 1; }
-grep -v '^extern rule OK' /tmp/_axiom_audit.out > /tmp/_axiom_audit.txt
+# the extern inventory (every Evm @[extern], enumerated with its library, end of AxiomAudit.lean)
+grep '^extern inventory OK' /tmp/_axiom_audit.out || { echo "FAIL: no extern inventory verdict"; exit 1; }
+grep -v '^extern rule OK' /tmp/_axiom_audit.out | grep -v '^extern inventory OK' > /tmp/_axiom_audit.txt
 
 if grep -q 'trust_smt' /tmp/_axiom_audit.txt; then
   echo "FAIL: trust_smt (SMT-solver discharge) in an audited theorem's axiom closure"
@@ -47,6 +51,6 @@ if diff -q ../scripts/generated/axiom-audit.txt /tmp/_axiom_audit.txt >/dev/null
 else
   echo "DRIFT: the axiom closure of an audited theorem changed"
   diff ../scripts/generated/axiom-audit.txt /tmp/_axiom_audit.txt | head -20
-  echo "  if intended: (cd lean && lake env lean AxiomAudit.lean | sed 's/^info: //' | grep -v '^extern rule OK' > ../scripts/generated/axiom-audit.txt)"
+  echo "  if intended: (cd lean && lake env lean AxiomAudit.lean | sed 's/^info: //' | grep -v '^extern rule OK' | grep -v '^extern inventory OK' > ../scripts/generated/axiom-audit.txt)"
   exit 1
 fi

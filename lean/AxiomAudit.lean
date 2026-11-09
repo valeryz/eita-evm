@@ -7,7 +7,8 @@
   since-removed loom dependency). Regenerate after an intended change:
 
     (cd lean && lake env lean AxiomAudit.lean | sed 's/^info: //' \
-      | grep -v '^extern rule OK' > ../scripts/generated/axiom-audit.txt)
+      | grep -v '^extern rule OK' | grep -v '^extern inventory OK' \
+      > ../scripts/generated/axiom-audit.txt)
 
   Coverage (per review on PR #44): every effect-layer `*_refines`
   entry point, every emitted `*_eq_spec` / `*_is_spec` theorem, plus
@@ -63,6 +64,20 @@ import Evm.CL.X86Items
 import Evm.CL.X86JIT
 import Evm.CL.X86Run
 import Evm.CL.ARM64.SstoreGasSem
+-- the precompile wrappers over a crypto oracle (Phase F) and the oracle contracts
+import Evm.Istanbul.Spec.Refinement
+import Evm.Prague.Spec.Refinement
+import Evm.Osaka.Spec.Refinement
+import Evm.Crypto.Contracts
+-- every module that declares an @[extern] (the extern inventory, at the end)
+import Evm.Crypto.Hash
+import Evm.Crypto.Sha256
+import Evm.Crypto.Ripemd160
+import Evm.Crypto.EcRecover
+import Evm.Crypto.Bn254
+import Evm.Crypto.P256Verify
+import Evm.Crypto.Bls12381
+import Evm.Cancun.Vm.PrecompiledContracts
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect
@@ -138,6 +153,21 @@ import Evm.CL.ARM64.SstoreGasSem
 #print axioms Evm.CL.X86CacheSound.xcacheIncoherent_sound
 #print axioms Evm.CL.X86CacheSound.xrun_ret_coherent
 #print axioms Evm.CL.X86CacheSound.x86_handler_runs_cache_coherent
+
+-- Precompile wrappers = EELS for every crypto oracle (no axiom beyond Lean's three).
+#print axioms Evm.Istanbul.Spec.Refinement.blake2f_sound
+#print axioms Evm.Istanbul.Spec.Refinement.blake2f_failure_sound
+#print axioms Evm.Prague.Spec.Refinement.g1Add_sound
+#print axioms Evm.Prague.Spec.Refinement.g1Msm_sound
+#print axioms Evm.Prague.Spec.Refinement.g2Add_sound
+#print axioms Evm.Prague.Spec.Refinement.g2Msm_sound
+#print axioms Evm.Prague.Spec.Refinement.pairingCheck_sound
+#print axioms Evm.Prague.Spec.Refinement.mapFpToG1_sound
+#print axioms Evm.Prague.Spec.Refinement.mapFp2ToG2_sound
+#print axioms Evm.Prague.Spec.Refinement.pairingCheck_failure_sound
+#print axioms Evm.Osaka.Spec.Refinement.p256Verify_sound
+#print axioms Evm.Osaka.Spec.Refinement.p256Verify_failure_sound
+#print axioms Evm.Crypto.Contracts.Bls12381.g1MsmSum_contract
 
 /-! ## native_decide never runs an `@[extern]` / `@[implemented_by]` of ours
 
@@ -243,3 +273,68 @@ open Lean Elab Command AxiomAudit.ExternRule in
     IO.eprintln s!"extern rule OK: {checked} native_decide / ofReduceBool proofs in Evm.*, none runs an Evm @[extern] / @[implemented_by] (allowed: {externAllowed.length} reviewed (theorem, constant) pairs)"
   else
     throwError "extern rule: {bad.size} native_decide proofs run an @[extern] / @[implemented_by]:\n{"\n".intercalate (bad.qsort (· < ·)).toList}"
+
+/-! ## The extern inventory: every `@[extern]` in `Evm.*`, enumerated
+
+Each `@[extern]` constant is C the Lean semantics trusts (the replay runs it; no proof
+looks inside it). The list below is the complete set, each with the code and library it
+binds and its role; a new `@[extern]` in any `Evm/**.lean` file fails this check until it
+is listed here (and in docs/trusted-surface.md). Every file declaring one must be imported
+above (checked). Oracle externs (BLS12-381, P-256) instantiate an oracle parameter: the
+wrapper theorems hold for every oracle, so these bind only what the replay computes. -/
+
+namespace AxiomAudit.ExternInventory
+open Lean
+
+def blst := "blst v0.3.17 (vendor/blst) via lean/c/bls12381.cpp"
+
+/-- (constant, what it trusts). -/
+def trusted : List (Name × String) :=
+  [ (``Evm.Crypto.keccak256Bytes, "Keccak-256, own C (lean/c/keccak.c)"),
+    (``Evm.Crypto.sha256, "SHA2-256, own C (lean/c/sha256.c)"),
+    (``Evm.Crypto.ripemd160, "RIPEMD-160, own C (lean/c/ripemd160.c)"),
+    (``Evm.Crypto.ecrecoverRaw, "secp256k1 recovery, libsecp256k1 v0.8.0 (vendor/secp256k1) via lean/c/ecrecover.c"),
+    (``Evm.Crypto.bn254Add, "alt_bn128 add, mcl via lean/c/bn254.cpp"),
+    (``Evm.Crypto.bn254Mul, "alt_bn128 mul, mcl via lean/c/bn254.cpp"),
+    (``Evm.Crypto.bn254Pairing, "alt_bn128 pairing, mcl via lean/c/bn254.cpp"),
+    (``Evm.Cancun.Vm.PrecompiledContracts.pointEvaluationRaw,
+      "EIP-4844 point evaluation, blst v0.3.17 via lean/c/point_evaluation.c"),
+    -- 2026-11-09 (Phase F): the P-256 and BLS12-381 oracle instances
+    (``Evm.Crypto.verifyRaw,
+      "P-256 oracle (Evm.Crypto.isValidP256Signature): OpenSSL libcrypto ECDSA_do_verify via lean/c/p256verify.c"),
+    (``Evm.Crypto.Bls12381.g1AddRaw, s!"BLS12-381 oracle (native.g1Add): {blst}"),
+    (``Evm.Crypto.Bls12381.g1MulRaw, s!"BLS12-381 oracle (native.g1Mul): {blst}"),
+    (``Evm.Crypto.Bls12381.g1InG1Raw, s!"BLS12-381 oracle (native.g1InSubgroup): {blst}"),
+    (``Evm.Crypto.Bls12381.g2AddRaw, s!"BLS12-381 oracle (native.g2Add): {blst}"),
+    (``Evm.Crypto.Bls12381.g2MulRaw, s!"BLS12-381 oracle (native.g2Mul): {blst}"),
+    (``Evm.Crypto.Bls12381.g2InG2Raw, s!"BLS12-381 oracle (native.g2InSubgroup): {blst}"),
+    (``Evm.Crypto.Bls12381.mapFpToG1Raw, s!"BLS12-381 oracle (native.mapFpToG1): {blst}"),
+    (``Evm.Crypto.Bls12381.mapFp2ToG2Raw, s!"BLS12-381 oracle (native.mapFp2ToG2): {blst}"),
+    (``Evm.Crypto.Bls12381.pairingCheckRaw, s!"BLS12-381 oracle (native.pairingCheck): {blst}") ]
+
+/-- `Evm/**.lean` files with an `@[extern` attribute line, as module names. -/
+partial def externModules (dir : System.FilePath) (mod : Name) : IO (Array Name) := do
+  let mut out := #[]
+  for e in ← dir.readDir do
+    if ← e.path.isDir then out := out ++ (← externModules e.path (mod ++ .mkSimple e.fileName))
+    else if e.path.extension == some "lean" then
+      let lines := (← IO.FS.readFile e.path).splitOn "\n"
+      if lines.any (·.trimAscii.startsWith "@[extern") then
+        out := out.push (mod ++ .mkSimple (e.path.fileStem.getD e.fileName))
+  return out
+
+end AxiomAudit.ExternInventory
+
+open Lean Elab Command AxiomAudit.ExternRule AxiomAudit.ExternInventory in
+#eval show CommandElabM Unit from do
+  let env ← getEnv
+  let missing := (← externModules "Evm" `Evm).filter (env.getModuleIdx? · |>.isNone)
+  unless missing.isEmpty do
+    throwError "extern inventory: these modules declare an @[extern] but AxiomAudit.lean does not import them: {missing.qsort Name.lt}"
+  let found := env.constants.map₁.toList.filterMap fun (n, _) =>
+    if ours env n && isExtern env n && !n.isInternal then some n else none
+  let unlisted := found.filter fun n => !trusted.any (·.1 == n)
+  let stale := trusted.filter fun (n, _) => !found.contains n
+  unless unlisted.isEmpty && stale.isEmpty do
+    throwError "extern inventory: unlisted @[extern]s {unlisted.toArray.qsort Name.lt}; listed but absent {stale.map (·.1)}"
+  IO.eprintln s!"extern inventory OK: {found.length} @[extern] constants in Evm.*, each enumerated with the library it trusts"

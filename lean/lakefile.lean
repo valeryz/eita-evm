@@ -189,6 +189,13 @@ target p256verify.o pkg : FilePath := do
   let srcJob ← inputTextFile <| pkg.dir / "c" / "p256verify.c"
   buildO oFile srcJob (← cFlags) #[] "cc"
 
+/-- Build c/blake2f.c → blake2f.o (EIP-152 F in C; bound only by the cryptoTests
+    differential test — the Lean replay runs the pure-Lean `Evm.Crypto.Blake2f`). -/
+target blake2f.o pkg : FilePath := do
+  let oFile  := pkg.buildDir / "c" / "blake2f.o"
+  let srcJob ← inputTextFile <| pkg.dir / "c" / "blake2f.c"
+  buildO oFile srcJob (← cFlags) #[] "cc"
+
 /-- Build c/uds.c → uds.o (Unix-domain-socket FFI for the emit server, #235). -/
 target uds.o pkg : FilePath := do
   let oFile  := pkg.buildDir / "c" / "uds.o"
@@ -205,7 +212,7 @@ target csu_shim.o pkg : FilePath := do
   let srcJob ← inputTextFile <| pkg.dir / "c" / "csu_shim.c"
   buildO oFile srcJob (← cFlags) #[] "cc"
 
-/-- Bundle all four C objects into one static library that Lake links
+/-- Bundle the C objects into one static library that Lake links
     into anything pulling our `@[extern]` bindings. The static lib does
     NOT include libsecp256k1 itself — that's resolved via the package's
     `moreLinkArgs`. -/
@@ -219,11 +226,19 @@ extern_lib libevmc pkg := do
   let bls    ← bls12381.o.fetch
   let p256   ← p256verify.o.fetch
   let kzg    ← point_evaluation.o.fetch
+  let b2f    ← blake2f.o.fetch
   let uds    ← uds.o.fetch
   let csu    ← csu_shim.o.fetch
   let name := nameToStaticLib "evmc"
-  buildStaticLib (pkg.staticLibDir / name) #[keccak, sha, rmd, ecr, bn, mclc, bls, p256, kzg, uds, csu]
+  buildStaticLib (pkg.staticLibDir / name) #[keccak, sha, rmd, ecr, bn, mclc, bls, p256, kzg, b2f, uds, csu]
 
 lean_exe recoveryVectors where
   root := `RecoveryVectors
+
+/-- The crypto oracles against the native libraries (CI): the BLS12-381 and P-256
+    contracts of `Evm.Crypto.Contracts` as property tests over blst / OpenSSL, the EIP-2537
+    precompiles (Lean wrapper over `native`) against the production C entries and the
+    chain's vectors, and the pure-Lean BLAKE2b F against lean/c/blake2f.c. -/
+lean_exe cryptoTests where
+  root := `CryptoTests
 

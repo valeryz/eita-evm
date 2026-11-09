@@ -42,15 +42,37 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `ecrecover.c` (87) | precompile 0x01 and sender recovery | libsecp256k1 |
 | `modexp.c` (134) | precompile 0x05 (its gas is computed in Lean) | GMP `mpz_powm` for moduli ≤ 64 bytes, OpenSSL `BN_mod_exp` above; the two are cross-checked by `c/test_modexp.c` |
 | `bn254.cpp` (250), `mcl_curve.cpp` (42) | precompiles 0x06–0x08 (alt_bn128 add, mul, pairing) | mcl |
-| `blake2f.c` (96) | precompile 0x09 | own implementation |
+| `blake2f.c` (122) | precompile 0x09 | own implementation; checked against the pure-Lean RFC 7693 F (`Evm.Crypto.Blake2f`, which the Lean replay runs) by `lake exe cryptoTests` |
 | `point_evaluation.c` (134) | precompile 0x0a, EIP-4844 KZG point evaluation | blst (vendored) |
-| `bls12381.cpp` (280) | precompiles 0x0b–0x11, EIP-2537 BLS12-381 | blst (vendored) |
-| `p256verify.c` (114) | secp256r1 verify (RIP-7212 / EIP-7951) | OpenSSL libcrypto |
+| `bls12381.cpp` (415) | precompiles 0x0b–0x11, EIP-2537 BLS12-381; and the Lean oracle `lean_bls_oracle_*` (the same blst calls) | blst (vendored) |
+| `p256verify.c` (124) | secp256r1 verify (RIP-7212 / EIP-7951) | OpenSSL libcrypto |
 | `rust/pq` (separate `libeita_pq`) | Arc's post-quantum precompile: SLH-DSA-SHA2-128s verify | the `slh-dsa` crate at the version arc-node pins |
 
 **How they are checked:** the ethereum/tests precompile fixtures on both tiers, the EIP test
-vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), and mainnet
-replay with state-root checks. Gas for every precompile is computed in Lean, not here.
+vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), `lake exe
+cryptoTests` (below), and mainnet replay with state-root checks. Gas for every precompile is computed in Lean, not here.
+
+## Crypto oracles of the Lean semantics
+
+The EIP-2537 and P256VERIFY precompiles are proved against EELS's wrappers (lengths, field
+ranges, curve equation, subgroup-check placement, gas, failure modes, output encoding) for
+EVERY crypto oracle (`Evm.Prague.Spec.Refinement.*_sound`, `Evm.Osaka.Spec.Refinement.
+p256Verify_sound`). The Lean replay instantiates one oracle per library; that is what is
+trusted, and `lean/AxiomAudit.lean`'s extern inventory enumerates its `@[extern]`s:
+
+- BLS12-381 operations (G1/G2 addition, scalar multiplication, subgroup test, map-to-curve,
+  pairing check) as computed by blst v0.3.17 (vendor/blst), via `lean/c/bls12381.cpp`
+  (`Evm.Crypto.Bls12381.native`).
+- P-256 ECDSA verification as computed by OpenSSL libcrypto 3.x `ECDSA_do_verify` (Homebrew
+  openssl@3 on macOS, the distribution's libssl on Linux), via `lean/c/p256verify.c`
+  (`Evm.Crypto.isValidP256Signature`).
+
+What each oracle is assumed to compute is stated in Mathlib terms in
+`lean/Evm/Crypto/Contracts.lean` (the Weierstrass group law over Fp / Fp2, `n • P` on the
+order-r subgroup, the subgroup as `r • P = 0`, map-to-curve into the subgroup, an abstract
+bilinear non-degenerate pairing, FIPS 186-5 ECDSA over Mathlib's P-256 curve) — assumptions,
+not axioms. `lake exe cryptoTests` checks them on random inputs against the libraries (and
+the Lean wrappers against the production C entries). BLAKE2F needs no oracle: F is pure Lean.
 
 ## Assumptions of the interpreter's stack-cache proof (ARM64, x86-64)
 

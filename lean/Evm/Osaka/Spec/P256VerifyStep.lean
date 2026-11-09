@@ -32,16 +32,17 @@
   The 32-byte success output is `0x00..0001` (big-endian one),
   matching the on-chain convention for "verification succeeded".
 
-  This file states the relation; the implementation in
-  `Evm/Osaka/Vm/PrecompiledContracts.lean::p256verify` currently stubs
-  the cryptographic verification (always returns empty output), so the
-  refinement obligation is open for the success branch. The gas-charge
-  and malformed-input branches are correct.
+  The checks are stated here from EELS, over the curve constants of
+  `Evm.Crypto.P256Verify` (EELS `elliptic_curve.py` 79-90, 134-169); the signature check
+  `secp256r1_verify` is the parameter `verify`, as EELS imports it as a black box.
+  `Evm.Osaka.Spec.Refinement.p256Verify_sound` proves the precompile refines it for every
+  `verify`; the replay's instance is OpenSSL (`Evm.Crypto.isValidP256Signature`).
 -/
 
 import Evm.BaseTypes
 import Evm.Frontier.Vm.Exceptions
 import Evm.Osaka.Vm.PrecompiledContracts
+import Evm.Crypto.P256Verify
 
 namespace Evm.Osaka.Spec
 
@@ -54,33 +55,44 @@ abbrev p256VerifyAddress : Evm.Address :=
 /-- Gas charged by P256VERIFY (EELS `PRECOMPILE_P256VERIFY = 6900`). -/
 abbrev gasP256Verify : Nat := Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify
 
-/-- The 32-byte success output: big-endian `0x00…0001`. EELS:
-    `left_pad_zero_bytes(b"\\x01", 32)`. -/
-def p256VerifySuccessOutput : Evm.Bytes := Id.run do
-  let mut acc : Evm.Bytes := ByteArray.empty
-  for _ in [0:31] do
-    acc := acc.push (0 : UInt8)
-  acc := acc.push (1 : UInt8)
-  return acc
+/-- The 32-byte success output: big-endian `0x00…0001`, EELS 90
+    `left_pad_zero_bytes(b"\\x01", 32)` (`Evm.Crypto.p256SuccessOutput`). -/
+abbrev p256VerifySuccessOutput : Evm.Bytes := Evm.Crypto.p256SuccessOutput
 
-/-- Predicate capturing the abstract result of P256VERIFY on
-    `(input, gasIn)`. Existential on the cryptographic verifier
-    `verify` — for the spec layer we don't axiomatise SECP256R1
-    arithmetic; we just say the precompile's externally observable
-    behaviour is parametric in whether the curve verifier accepts the
-    signature. EELS makes the same factoring: `secp256r1_verify` is
-    an imported black-box. -/
+/-- The 32-byte big-endian word at `off` (EELS 50-59, `U256.from_be_bytes(buffer_read(…))`). -/
+def word (input : Evm.Bytes) (off : Nat) : Nat :=
+  (Evm.U256.ofBytesBE (Evm.Bytes.sliceZeroPad input off 32)).toNat
+
+/-- EELS 46-88, clause by clause: the input is 160 bytes; 0 < r < n, 0 < s < n (63-66);
+    qx, qy < p (71-74); (qx, qy) ≠ (0, 0) (77-78); qy² ≡ qx³ + a·qx + b mod p (82-83);
+    `secp256r1_verify` accepts (85-88). -/
+def P256Accepts (verify : Nat → Nat → Nat → Nat → Nat → Bool) (input : Evm.Bytes) : Prop :=
+  let r := word input 32
+  let s := word input 64
+  let qx := word input 96
+  let qy := word input 128
+  input.size = 160 ∧
+  0 < r ∧ r < Evm.Crypto.p256N ∧ 0 < s ∧ s < Evm.Crypto.p256N ∧
+  qx < Evm.Crypto.p256P ∧ qy < Evm.Crypto.p256P ∧
+  ¬ (qx = 0 ∧ qy = 0) ∧
+  qy * qy % Evm.Crypto.p256P =
+    (qx * qx * qx % Evm.Crypto.p256P + Evm.Crypto.p256A * qx % Evm.Crypto.p256P +
+      Evm.Crypto.p256B) % Evm.Crypto.p256P ∧
+  verify (word input 0) r s qx qy = true
+
+/-- P256VERIFY on `(input, gasIn)` (EELS `p256verify` 41-90): the 6900 gas is charged (44;
+    too little is the out-of-gas halt, which this relation excludes), then the output is
+    the 32-byte one exactly when `P256Accepts`, else empty. -/
 def IsP256VerifyStep
-    (verify : Evm.Bytes → Bool)
+    (verify : Nat → Nat → Nat → Nat → Nat → Bool)
     (input : Evm.Bytes) (gasIn : Nat)
     (output : Evm.Bytes) (gasOut : Nat) : Prop :=
   gasIn ≥ gasP256Verify ∧
   gasOut = gasIn - gasP256Verify ∧
-  (if input.size ≠ 160 then
-     output = Evm.Bytes.empty
-   else if verify input then
-     output = p256VerifySuccessOutput
-   else
-     output = Evm.Bytes.empty)
+  (P256Accepts verify input → output = p256VerifySuccessOutput) ∧
+  (¬ P256Accepts verify input → output = Evm.Bytes.empty)
+
+/-- P256VERIFY's only exceptional halt: too little gas (44). -/
+def IsP256VerifyFailure (gasIn : Nat) : Prop := gasIn < gasP256Verify
 
 end Evm.Osaka.Spec

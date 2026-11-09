@@ -1,17 +1,19 @@
 /-
-  Evm.Crypto.P256Verify — RIP-7212 secp256r1 signature verification.
+  Evm.Crypto.P256Verify — the secp256r1 (NIST P-256) signature-verification precompile
+  at 0x100: EIP-7951 (Osaka, 6900 gas) and RIP-7212 (OP Fjord..Isthmus, 3450 gas), one
+  wrapper with the gas a parameter.
 
-  Used by OP-stack Fjord+ to implement the P256VERIFY precompile at
-  0x100. Lives in `Evm/Crypto/` (not `Evm/Optimism/`) so the Cancun
-  trampoline can call it without circular imports.
+  EELS reference: `forks/osaka/vm/precompiled_contracts/p256verify.py::p256verify` 31-90,
+  with the curve constants and `is_on_curve_secp256r1` from
+  `ethereum/crypto/elliptic_curve.py` 79-90 and 134-169.
 
-  Current state: `isValidP256Signature` is `opaque` with a `false`
-  default body — the SAFE default (rejects all signatures rather
-  than accepting some wrongly). The opaque is the named trust
-  boundary; a future PR replaces the body with one of:
-    (a) FFI to OpenSSL's `EC_KEY_verify` against NIST P-256;
-    (b) FFI to libsecp256r1 / mbedtls;
-    (c) pure-Lean P-256 verifier (slow but axiom-free).
+  `p256VerifyWithOracle verify` is EELS's wrapper (gas, the 160-byte length, the bounds on
+  r, s, qx, qy, the infinity and curve-equation checks, the 32-byte output) over an oracle
+  `verify` — EELS's own black box `secp256r1_verify(r, s, x, y, msg_hash)` (93-131, which
+  calls the `cryptography` package). The replay instantiates it with `isValidP256Signature`,
+  OpenSSL libcrypto's `ECDSA_do_verify` via `lean/c/p256verify.c` — the same function the
+  production precompile calls. What `verify` is assumed to compute (ECDSA verification over
+  Mathlib's Weierstrass curve) is `Evm.Crypto.Contracts.P256VerifyContract`.
 -/
 
 import Evm.BaseTypes
@@ -19,84 +21,81 @@ import Evm.Frontier.Vm
 
 namespace Evm.Crypto
 
-/-- Raw FFI: takes the 160-byte RIP-7212 input
-    (`msgHash || r || s || qx || qy`) and returns `1` (valid) or
-    `0` (invalid). Bound to `c/p256verify.c`, which links against
-    OpenSSL libcrypto. -/
+/-! ## Curve constants (EELS `elliptic_curve.py` 79-90) -/
+
+/-- `SECP256R1N`, the group order. -/
+def p256N : Nat := 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+/-- `SECP256R1P`, the field modulus. -/
+def p256P : Nat := 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+/-- `SECP256R1A` (= p − 3). -/
+def p256A : Nat := 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC
+/-- `SECP256R1B`. -/
+def p256B : Nat := 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+
+/-- The base point G (SEC 2 §2.4.2; not in EELS, which delegates to `cryptography`). -/
+def p256Gx : Nat := 0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296
+def p256Gy : Nat := 0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5
+
+/-- `is_on_curve_secp256r1` (134-169): y² ≡ x³ + a·x + b (mod p). -/
+def p256OnCurve (x y : Nat) : Bool :=
+  y * y % p256P == (x * x * x % p256P + p256A * x % p256P + p256B) % p256P
+
+/-! ## The oracle -/
+
+/-- `secp256r1_verify(r, s, x, y, msg_hash)` as a predicate (EELS raises
+    `InvalidSignatureError` where this is `false`): arguments `msgHash r s qx qy`. -/
+abbrev P256Verifier := Nat → Nat → Nat → Nat → Nat → Bool
+
+/-- Raw FFI: the 160-byte input `msgHash ‖ r ‖ s ‖ qx ‖ qy` → `1` (valid) / `0`. Bound to
+    `lean/c/p256verify.c`'s `lean_p256_verify` (OpenSSL libcrypto `ECDSA_do_verify`). -/
 @[extern "lean_p256_verify"]
 opaque verifyRaw (input : @& ByteArray) : UInt8
 
-/-- Convert a `U256` to its 32-byte big-endian representation. -/
-private def u256ToBytesBE (x : Evm.U256) : ByteArray := Id.run do
-  let n := x.toNat
-  let mut buf : ByteArray := ByteArray.empty
-  let mut i := 32
-  while i > 0 do
-    i := i - 1
-    let b := (n >>> (i * 8)) &&& 0xff
-    buf := buf.push (UInt8.ofNat b)
-  return buf
+/-- TRUST BOUNDARY: secp256r1 ECDSA verification as computed by OpenSSL libcrypto. -/
+def isValidP256Signature : P256Verifier := fun msgHash r s qx qy =>
+  let be (n : Nat) := Evm.U256.toBytesBE (Evm.U256.ofNat n)
+  verifyRaw (be msgHash ++ be r ++ be s ++ be qx ++ be qy) = 1
 
-/-- TRUST BOUNDARY: secp256r1 signature verification. Returns `true`
-    iff `(r, s)` is a valid ECDSA-P256 signature on `msgHash` under
-    the public key `(qx, qy)`.
+/-! ## The wrapper -/
 
-    Implemented via FFI to OpenSSL's `ECDSA_do_verify`. The trust
-    boundary is now narrow: it sits at the FFI / OpenSSL boundary
-    rather than inside Lean. (Replacing OpenSSL with a pure-Lean
-    P-256 verifier would make the chain axiom-free.) -/
-def isValidP256Signature
-    (msgHash r s qx qy : Evm.U256) : Bool :=
-  let buf :=
-    u256ToBytesBE msgHash ++ u256ToBytesBE r ++ u256ToBytesBE s
-                ++ u256ToBytesBE qx ++ u256ToBytesBE qy
-  verifyRaw buf = 1
+/-- The 32 big-endian bytes at `off` (`U256.from_be_bytes(buffer_read(data, off, 32))`). -/
+def p256Word (input : Evm.Bytes) (off : Nat) : Nat :=
+  (Evm.U256.ofBytesBE (Evm.Bytes.sliceZeroPad input off 32)).toNat
 
-/-- Read 32 big-endian bytes from `input` starting at offset `off`.
-    Bytes past the end of input are treated as zero. -/
-private def readU256BE (input : Evm.Bytes) (off : Nat) : Evm.U256 :=
-  let acc : Nat := Id.run do
-    let mut a : Nat := 0
-    for k in [0:32] do
-      let b := if off + k < input.size then input.get! (off + k) else (0 : UInt8)
-      a := a * 256 + b.toNat
-    return a
-  Evm.U256.ofNat acc
+/-- EELS 46-88: the input passes every check and `verify` accepts. -/
+def p256Accepts (verify : P256Verifier) (input : Evm.Bytes) : Bool :=
+  let z := p256Word input 0
+  let r := p256Word input 32
+  let s := p256Word input 64
+  let qx := p256Word input 96
+  let qy := p256Word input 128
+  input.size == 160 &&
+  -- 63-66: 0 < r < n and 0 < s < n
+  decide (0 < r ∧ r < p256N ∧ 0 < s ∧ s < p256N) &&
+  -- 71-74: qx < p and qy < p
+  decide (qx < p256P ∧ qy < p256P) &&
+  -- 77-78: not the point at infinity (0, 0)
+  !(qx == 0 && qy == 0) &&
+  -- 82-83: on the curve
+  p256OnCurve qx qy &&
+  -- 85-88
+  verify z r s qx qy
 
-/-- The canonical 32-byte big-endian `1` returned on successful verify. -/
-private def trueReturn : Evm.Bytes := Id.run do
-  let mut buf : ByteArray := ByteArray.empty
-  for _ in [0:31] do
-    buf := buf.push 0
-  buf := buf.push 1
-  return buf
+/-- The 32-byte success output `left_pad_zero_bytes(b"\x01", 32)` (EELS 90). -/
+def p256SuccessOutput : Evm.Bytes := Evm.U256.toBytesBE (Evm.U256.ofNat 1)
 
-/-- RIP-7212 P256VERIFY precompile. Signature follows the same shape
-    as `Evm.Frontier.Vm.PrecompiledContracts.Precompile`:
-        `Bytes → Nat → Except Exception (Bytes × Nat)`.
+/-- EELS `p256verify` 41-90 over the oracle `verify`, with the gas `gasCost` (EIP-7951
+    6900; RIP-7212 3450): charge (44, an out-of-gas exceptional halt), then the 32-byte one
+    when every check passes, else empty output. -/
+def p256VerifyWithOracle (verify : P256Verifier) (gasCost : Nat) (input : Evm.Bytes)
+    (gasLeft : Nat) : Except Evm.Frontier.Vm.Exception (Evm.Bytes × Nat) :=
+  if gasLeft < gasCost then .error Evm.Frontier.Vm.Exception.outOfGas
+  else if p256Accepts verify input then .ok (p256SuccessOutput, gasLeft - gasCost)
+  else .ok (Evm.Bytes.empty, gasLeft - gasCost)
 
-    ABI:
-        input (160 bytes): msgHash || r || s || qx || qy (32 each)
-        output:            32-byte 0x...01 on valid signature
-                           empty on invalid input / verify-fail
-        gas:               GASCOST, constant per fork — the OP fork's
-                           `Evm.Optimism.Fjord.Spec.p256VerifyGas`
-                           (RIP-7212 3450 until Azul, then 6900). -/
-def p256VerifyWith (gasCost : Nat) : Evm.Bytes → Nat → Except Evm.Frontier.Vm.Exception (Evm.Bytes × Nat) :=
-  fun input gasLeft =>
-    if gasLeft < gasCost then
-      .error Evm.Frontier.Vm.Exception.outOfGas
-    else if input.size ≠ 160 then
-      .ok (Evm.Bytes.empty, gasLeft - gasCost)
-    else
-      let msgHash := readU256BE input 0
-      let r       := readU256BE input 32
-      let s       := readU256BE input 64
-      let qx      := readU256BE input 96
-      let qy      := readU256BE input 128
-      if isValidP256Signature msgHash r s qx qy then
-        .ok (trueReturn, gasLeft - gasCost)
-      else
-        .ok (Evm.Bytes.empty, gasLeft - gasCost)
+/-- The precompile the replay runs: over OpenSSL. -/
+def p256VerifyWith (gasCost : Nat) :
+    Evm.Bytes → Nat → Except Evm.Frontier.Vm.Exception (Evm.Bytes × Nat) :=
+  p256VerifyWithOracle isValidP256Signature gasCost
 
 end Evm.Crypto

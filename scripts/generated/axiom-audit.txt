@@ -106,3 +106,16 @@
  Classical.choice,
  Quot.sound,
  Evm.CL.X86CacheSound.x86_handler_tos_cache_coherent._native.native_decide.ax_1_1]
+'Evm.Istanbul.Spec.Refinement.blake2f_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Istanbul.Spec.Refinement.blake2f_failure_sound' depends on axioms: [propext, Quot.sound]
+'Evm.Prague.Spec.Refinement.g1Add_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.g1Msm_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.g2Add_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.g2Msm_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.pairingCheck_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.mapFpToG1_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.mapFp2ToG2_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Prague.Spec.Refinement.pairingCheck_failure_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Osaka.Spec.Refinement.p256Verify_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Osaka.Spec.Refinement.p256Verify_failure_sound' depends on axioms: [propext, Quot.sound]
+'Evm.Crypto.Contracts.Bls12381.g1MsmSum_contract' depends on axioms: [propext, Classical.choice, Quot.sound]

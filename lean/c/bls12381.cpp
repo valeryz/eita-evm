@@ -150,6 +150,45 @@ static void g2_to_be(uint8_t *dst, const blst_p2 *g) {
     fp_to_be(dst + 3 * FP_BYTES, &aff.y.fp[1]);
 }
 
+/* The group operations the precompiles below are made of, shared with the Lean oracle
+ * (lean_bls_oracle_*, Evm.Crypto.Bls12381.native), so the Lean replay runs the same blst
+ * calls as production. [k]O = O is handled here: blst's mult is not defined on infinity.
+ * SCALAR is 32 bytes big-endian; no reduction mod r is needed or permitted to change the
+ * result for a point of order r. */
+static void g1_mul(blst_p1 *out, const blst_p1_affine *a, const uint8_t *scalar_be) {
+    memset(out, 0, sizeof *out);                         /* identity */
+    if (blst_p1_affine_is_inf(a)) return;
+    blst_scalar s;
+    blst_scalar_from_bendian(&s, scalar_be);
+    blst_p1 pa;
+    blst_p1_from_affine(&pa, a);
+    blst_p1_mult(out, &pa, s.b, SCALAR_BITS);
+}
+
+static void g2_mul(blst_p2 *out, const blst_p2_affine *a, const uint8_t *scalar_be) {
+    memset(out, 0, sizeof *out);
+    if (blst_p2_affine_is_inf(a)) return;
+    blst_scalar s;
+    blst_scalar_from_bendian(&s, scalar_be);
+    blst_p2 pa;
+    blst_p2_from_affine(&pa, a);
+    blst_p2_mult(out, &pa, s.b, SCALAR_BITS);
+}
+
+/* Whether prod e(Q_i, P_i) = 1. e(O, Q) = e(P, O) = 1, and blst's miller loop is not
+ * defined on infinity, so those pairs contribute the identity and are skipped. */
+static int pairing_is_one(const blst_p1_affine *g1, const blst_p2_affine *g2, size_t k) {
+    blst_fp12 acc = *blst_fp12_one();
+    for (size_t i = 0; i < k; i++) {
+        if (blst_p1_affine_is_inf(&g1[i]) || blst_p2_affine_is_inf(&g2[i])) continue;
+        blst_fp12 e;
+        blst_miller_loop(&e, &g2[i], &g1[i]);
+        blst_fp12_mul(&acc, &acc, &e);
+    }
+    blst_final_exp(&acc, &acc);
+    return blst_fp12_is_one(&acc) ? 1 : 0;
+}
+
 extern "C" {
 
 int eita_bls_g1add(const uint8_t *in, size_t len, uint8_t *out) {
@@ -184,21 +223,13 @@ int eita_bls_g1msm(const uint8_t *in, size_t len, uint8_t *out) {
     /* Parse everything before computing: a later invalid pair must reject the
      * whole call, not return a partial sum. */
     std::vector<blst_p1_affine> pts(k);
-    std::vector<blst_scalar> scs(k);
-    for (size_t i = 0; i < k; i++) {
-        const uint8_t *p = in + i * G1MSM_PAIR;
-        if (!g1_from_be(&pts[i], p, 1)) return 0;        /* subgroup required */
-        blst_scalar_from_bendian(&scs[i], p + G1_BYTES);
-    }
+    for (size_t i = 0; i < k; i++)
+        if (!g1_from_be(&pts[i], in + i * G1MSM_PAIR, 1)) return 0;   /* subgroup required */
     blst_p1 acc;
     memset(&acc, 0, sizeof acc);                         /* identity */
     for (size_t i = 0; i < k; i++) {
-        if (blst_p1_affine_is_inf(&pts[i])) continue;    /* [k]O = O */
-        blst_p1 p, term;
-        blst_p1_from_affine(&p, &pts[i]);
-        /* scalar is a 256-bit big-endian integer; no reduction mod r is needed
-         * or permitted to change the result, since the point has order r */
-        blst_p1_mult(&term, &p, scs[i].b, SCALAR_BITS);
+        blst_p1 term;
+        g1_mul(&term, &pts[i], in + i * G1MSM_PAIR + G1_BYTES);
         blst_p1_add_or_double(&acc, &acc, &term);
     }
     g1_to_be(out, &acc);
@@ -209,19 +240,13 @@ int eita_bls_g2msm(const uint8_t *in, size_t len, uint8_t *out) {
     if (len == 0 || len % G2MSM_PAIR != 0) return 0;
     size_t k = len / G2MSM_PAIR;
     std::vector<blst_p2_affine> pts(k);
-    std::vector<blst_scalar> scs(k);
-    for (size_t i = 0; i < k; i++) {
-        const uint8_t *p = in + i * G2MSM_PAIR;
-        if (!g2_from_be(&pts[i], p, 1)) return 0;
-        blst_scalar_from_bendian(&scs[i], p + G2_BYTES);
-    }
+    for (size_t i = 0; i < k; i++)
+        if (!g2_from_be(&pts[i], in + i * G2MSM_PAIR, 1)) return 0;
     blst_p2 acc;
     memset(&acc, 0, sizeof acc);
     for (size_t i = 0; i < k; i++) {
-        if (blst_p2_affine_is_inf(&pts[i])) continue;
-        blst_p2 p, term;
-        blst_p2_from_affine(&p, &pts[i]);
-        blst_p2_mult(&term, &p, scs[i].b, SCALAR_BITS);
+        blst_p2 term;
+        g2_mul(&term, &pts[i], in + i * G2MSM_PAIR + G2_BYTES);
         blst_p2_add_or_double(&acc, &acc, &term);
     }
     g2_to_be(out, &acc);
@@ -240,18 +265,8 @@ int eita_bls_pairing(const uint8_t *in, size_t len, uint8_t *out) {
         if (!g1_from_be(&g1[i], p, 1)) return 0;         /* subgroup required */
         if (!g2_from_be(&g2[i], p + G1_BYTES, 1)) return 0;
     }
-    blst_fp12 acc = *blst_fp12_one();
-    for (size_t i = 0; i < k; i++) {
-        /* e(O, Q) = e(P, O) = 1, and blst's miller loop is not defined on
-         * infinity, so these pairs contribute the identity and are skipped. */
-        if (blst_p1_affine_is_inf(&g1[i]) || blst_p2_affine_is_inf(&g2[i])) continue;
-        blst_fp12 e;
-        blst_miller_loop(&e, &g2[i], &g1[i]);
-        blst_fp12_mul(&acc, &acc, &e);
-    }
-    blst_final_exp(&acc, &acc);
     memset(out, 0, SCALAR_BYTES);
-    out[SCALAR_BYTES - 1] = blst_fp12_is_one(&acc) ? 1 : 0;
+    out[SCALAR_BYTES - 1] = (uint8_t) pairing_is_one(g1.data(), g2.data(), k);
     return 1;
 }
 
@@ -295,6 +310,106 @@ EITA_BLS_LEAN_WRAP(lean_bls_pairing,       eita_bls_pairing,        32)
 EITA_BLS_LEAN_WRAP(lean_bls_map_fp_to_g1,  eita_bls_map_fp_to_g1,  128)
 EITA_BLS_LEAN_WRAP(lean_bls_map_fp2_to_g2, eita_bls_map_fp2_to_g2, 256)
 #undef EITA_BLS_LEAN_WRAP
+
+/* The oracle of Evm.Crypto.Bls12381 (`native`): the group operations alone, over
+ * EIP-2537 encodings the Lean wrapper has already validated (range, curve, subgroup).
+ * Each is total: an argument that does not parse (never passed) is treated as the
+ * point at infinity. */
+static lean_obj_res bytes_out(const uint8_t *buf, size_t n) {
+    lean_obj_res o = lean_alloc_sarray(1, n, n);
+    memcpy(lean_sarray_cptr(o), buf, n);
+    return o;
+}
+static void g1_arg(blst_p1_affine *a, b_lean_obj_arg x) {
+    if (lean_sarray_size(x) != G1_BYTES || !g1_from_be(a, lean_sarray_cptr(x), 0))
+        memset(a, 0, sizeof *a);
+}
+static void g2_arg(blst_p2_affine *a, b_lean_obj_arg x) {
+    if (lean_sarray_size(x) != G2_BYTES || !g2_from_be(a, lean_sarray_cptr(x), 0))
+        memset(a, 0, sizeof *a);
+}
+static void scalar_arg(uint8_t s[SCALAR_BYTES], b_lean_obj_arg x) {
+    memset(s, 0, SCALAR_BYTES);
+    if (lean_sarray_size(x) == SCALAR_BYTES) memcpy(s, lean_sarray_cptr(x), SCALAR_BYTES);
+}
+
+LEAN_EXPORT lean_obj_res lean_bls_oracle_g1_add(b_lean_obj_arg a, b_lean_obj_arg b) {
+    blst_p1_affine x, y;
+    g1_arg(&x, a); g1_arg(&y, b);
+    blst_p1 px, py, r;
+    blst_p1_from_affine(&px, &x);
+    blst_p1_from_affine(&py, &y);
+    blst_p1_add_or_double(&r, &px, &py);                 /* as eita_bls_g1add */
+    uint8_t out[G1_BYTES];
+    g1_to_be(out, &r);
+    return bytes_out(out, G1_BYTES);
+}
+LEAN_EXPORT lean_obj_res lean_bls_oracle_g1_mul(b_lean_obj_arg a, b_lean_obj_arg s) {
+    blst_p1_affine x;
+    uint8_t sc[SCALAR_BYTES];
+    g1_arg(&x, a); scalar_arg(sc, s);
+    blst_p1 r;
+    g1_mul(&r, &x, sc);                                  /* as eita_bls_g1msm */
+    uint8_t out[G1_BYTES];
+    g1_to_be(out, &r);
+    return bytes_out(out, G1_BYTES);
+}
+LEAN_EXPORT uint8_t lean_bls_oracle_g1_in_g1(b_lean_obj_arg a) {
+    blst_p1_affine x;
+    g1_arg(&x, a);
+    return blst_p1_affine_in_g1(&x) ? 1 : 0;              /* as g1_from_be's order check */
+}
+LEAN_EXPORT lean_obj_res lean_bls_oracle_g2_add(b_lean_obj_arg a, b_lean_obj_arg b) {
+    blst_p2_affine x, y;
+    g2_arg(&x, a); g2_arg(&y, b);
+    blst_p2 px, py, r;
+    blst_p2_from_affine(&px, &x);
+    blst_p2_from_affine(&py, &y);
+    blst_p2_add_or_double(&r, &px, &py);
+    uint8_t out[G2_BYTES];
+    g2_to_be(out, &r);
+    return bytes_out(out, G2_BYTES);
+}
+LEAN_EXPORT lean_obj_res lean_bls_oracle_g2_mul(b_lean_obj_arg a, b_lean_obj_arg s) {
+    blst_p2_affine x;
+    uint8_t sc[SCALAR_BYTES];
+    g2_arg(&x, a); scalar_arg(sc, s);
+    blst_p2 r;
+    g2_mul(&r, &x, sc);
+    uint8_t out[G2_BYTES];
+    g2_to_be(out, &r);
+    return bytes_out(out, G2_BYTES);
+}
+LEAN_EXPORT uint8_t lean_bls_oracle_g2_in_g2(b_lean_obj_arg a) {
+    blst_p2_affine x;
+    g2_arg(&x, a);
+    return blst_p2_affine_in_g2(&x) ? 1 : 0;
+}
+LEAN_EXPORT lean_obj_res lean_bls_oracle_map_fp_to_g1(b_lean_obj_arg u) {
+    uint8_t out[G1_BYTES];
+    if (!eita_bls_map_fp_to_g1(lean_sarray_cptr(u), lean_sarray_size(u), out))
+        memset(out, 0, G1_BYTES);
+    return bytes_out(out, G1_BYTES);
+}
+LEAN_EXPORT lean_obj_res lean_bls_oracle_map_fp2_to_g2(b_lean_obj_arg u) {
+    uint8_t out[G2_BYTES];
+    if (!eita_bls_map_fp2_to_g2(lean_sarray_cptr(u), lean_sarray_size(u), out))
+        memset(out, 0, G2_BYTES);
+    return bytes_out(out, G2_BYTES);
+}
+LEAN_EXPORT uint8_t lean_bls_oracle_pairing_check(b_lean_obj_arg pairs) {
+    size_t len = lean_sarray_size(pairs);
+    if (len % PAIRING_PAIR != 0) return 0;
+    size_t k = len / PAIRING_PAIR;
+    const uint8_t *in = lean_sarray_cptr(pairs);
+    std::vector<blst_p1_affine> g1(k);
+    std::vector<blst_p2_affine> g2(k);
+    for (size_t i = 0; i < k; i++) {
+        if (!g1_from_be(&g1[i], in + i * PAIRING_PAIR, 0)) memset(&g1[i], 0, sizeof g1[i]);
+        if (!g2_from_be(&g2[i], in + i * PAIRING_PAIR + G1_BYTES, 0)) memset(&g2[i], 0, sizeof g2[i]);
+    }
+    return (uint8_t) pairing_is_one(g1.data(), g2.data(), k);   /* as eita_bls_pairing */
+}
 #endif
 
 } /* extern "C" */

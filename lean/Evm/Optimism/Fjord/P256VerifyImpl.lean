@@ -20,8 +20,7 @@ abbrev p256VerifyWith : Nat → Evm.Bytes → Nat →
   Evm.Crypto.p256VerifyWith
 
 /-- Re-export from `Evm.Crypto.isValidP256Signature`. -/
-abbrev isValidP256Signature : Evm.U256 → Evm.U256 → Evm.U256 →
-                              Evm.U256 → Evm.U256 → Bool :=
+abbrev isValidP256Signature : Evm.Crypto.P256Verifier :=
   Evm.Crypto.isValidP256Signature
 
 end Evm.Optimism.Fjord

@@ -12,9 +12,7 @@
 
   All four are cross-cutting state-machine deltas (precompiles,
   block-validity predicates, intrinsic-gas formulas, requests-hash,
-  tx-shape / CALL-delegation). All `sorry`-deferred per methodology.
-  NOTE: theorems suffixed `_shape` are `P → P` placeholders — the spec
-  relation is not yet linked to the interpreter (see SPEC-METHODOLOGY).
+  tx-shape / CALL-delegation).
 -/
 
 import Evm.Frontier.Spec.Refinement
@@ -34,52 +32,351 @@ open Evm.Prague.Spec
 
 /-! ## EIP-2537 BLS12-381 precompiles (0x0b..0x11)
 
-    Seven new precompiles. Each soundness theorem states the
-    precompile's `(input, gas) → (output, gas')` shape against the
-    spec relation; crypto correctness is delegated to axiomatised
-    predicates. -/
+    Each precompile `bls*With o` refines its EELS relation for EVERY oracle `o` (success
+    and failure both); the replay's instance is `Evm.Crypto.Bls12381.native` (blst). -/
 
-theorem g1Add_sound_shape
-    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsG1AddSuccess input gas output gas' →
-    IsG1AddSuccess input gas output gas' := by
-  intro h; exact h
+/-! ### The seven wrappers -/
 
-theorem g2Add_sound_shape
+/-- `blsG1AddWith` refines `IsG1AddSuccess` for every oracle `o`. -/
+theorem g1Add_sound (o : Evm.Crypto.Bls12381.Oracle)
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsG2AddSuccess input gas output gas' →
-    IsG2AddSuccess input gas output gas' := by
-  intro h; exact h
+    Evm.Prague.Vm.PrecompiledContracts.blsG1AddWith o input gas = .ok (output, gas') →
+    IsG1AddSuccess o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG1AddWith at h
+  unfold IsG1AddSuccess
+  have e0 : g1PointSize = 128 := rfl
+  have e1 : gasG1Add = Evm.Prague.Vm.PrecompiledContracts.gasG1Add := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 256
+  · simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasG1Add
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g1Decode input 0 with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    cases hb : Evm.Crypto.Bls12381.g1Decode input 128 with
+    | none => simp only [ha, hb, reduceCtorEq] at h
+    | some b =>
+      simp only [ha, hb, Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨by omega, by omega, a, b, rfl, rfl, rfl, rfl⟩
 
-theorem g1Msm_sound_shape
-    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsG1MsmSuccess input gas output gas' →
-    IsG1MsmSuccess input gas output gas' := by
-  intro h; exact h
+/-- `blsG1AddWith`'s exceptional halts are exactly `IsG1AddFailure`, for every oracle `o`. -/
+theorem g1Add_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsG1AddWith o input gas = .error e →
+    IsG1AddFailure input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG1AddWith at h
+  unfold IsG1AddFailure
+  have e0 : g1PointSize = 128 := rfl
+  have e1 : gasG1Add = Evm.Prague.Vm.PrecompiledContracts.gasG1Add := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 256
+  · omega
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasG1Add
+  · exact Or.inr (Or.inl c2)
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g1Decode input 0 with
+  | none => exact Or.inr (Or.inr (Or.inl rfl))
+  | some a =>
+    cases hb : Evm.Crypto.Bls12381.g1Decode input 128 with
+    | none => exact Or.inr (Or.inr (Or.inr rfl))
+    | some b => simp only [ha, hb, reduceCtorEq] at h
 
-theorem g2Msm_sound_shape
+/-- `blsG2AddWith` refines `IsG2AddSuccess` for every oracle `o`. -/
+theorem g2Add_sound (o : Evm.Crypto.Bls12381.Oracle)
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsG2MsmSuccess input gas output gas' →
-    IsG2MsmSuccess input gas output gas' := by
-  intro h; exact h
+    Evm.Prague.Vm.PrecompiledContracts.blsG2AddWith o input gas = .ok (output, gas') →
+    IsG2AddSuccess o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG2AddWith at h
+  unfold IsG2AddSuccess
+  have e0 : g2PointSize = 256 := rfl
+  have e1 : gasG2Add = Evm.Prague.Vm.PrecompiledContracts.gasG2Add := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 512
+  · simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasG2Add
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g2Decode input 0 with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    cases hb : Evm.Crypto.Bls12381.g2Decode input 256 with
+    | none => simp only [ha, hb, reduceCtorEq] at h
+    | some b =>
+      simp only [ha, hb, Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨by omega, by omega, a, b, rfl, rfl, rfl, rfl⟩
 
-theorem pairingCheck_sound_shape
-    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsPairingCheckSuccess input gas output gas' →
-    IsPairingCheckSuccess input gas output gas' := by
-  intro h; exact h
+/-- `blsG2AddWith`'s exceptional halts are exactly `IsG2AddFailure`, for every oracle `o`. -/
+theorem g2Add_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsG2AddWith o input gas = .error e →
+    IsG2AddFailure input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG2AddWith at h
+  unfold IsG2AddFailure
+  have e0 : g2PointSize = 256 := rfl
+  have e1 : gasG2Add = Evm.Prague.Vm.PrecompiledContracts.gasG2Add := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 512
+  · omega
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasG2Add
+  · exact Or.inr (Or.inl c2)
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g2Decode input 0 with
+  | none => exact Or.inr (Or.inr (Or.inl rfl))
+  | some a =>
+    cases hb : Evm.Crypto.Bls12381.g2Decode input 256 with
+    | none => exact Or.inr (Or.inr (Or.inr rfl))
+    | some b => simp only [ha, hb, reduceCtorEq] at h
 
-theorem mapFpToG1_sound_shape
+/-- `blsG1MsmWith` refines `IsG1MsmSuccess` for every oracle `o`. -/
+theorem g1Msm_sound (o : Evm.Crypto.Bls12381.Oracle)
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsMapFpToG1Success input gas output gas' →
-    IsMapFpToG1Success input gas output gas' := by
-  intro h; exact h
+    Evm.Prague.Vm.PrecompiledContracts.blsG1MsmWith o input gas = .ok (output, gas') →
+    IsG1MsmSuccess o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG1MsmWith at h
+  unfold IsG1MsmSuccess
+  have e0 : g1MsmGas (input.size / g1MsmPairSize) = Evm.CL.GasEmit.blsG1MsmGas input.size := rfl
+  have e1 : g1MsmPairSize = 160 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 160 ≠ 0
+  · simp only [c1, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.CL.GasEmit.blsG1MsmGas input.size
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g1MsmPairs o input (input.size / 160) with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    simp only [ha, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨by omega, by omega, by omega, a, rfl, rfl, rfl⟩
 
-theorem mapFp2ToG2_sound_shape
+/-- `blsG1MsmWith`'s exceptional halts are exactly `IsG1MsmFailure`, for every oracle `o`. -/
+theorem g1Msm_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsG1MsmWith o input gas = .error e →
+    IsG1MsmFailure o input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG1MsmWith at h
+  unfold IsG1MsmFailure
+  have e0 : g1MsmGas (input.size / g1MsmPairSize) = Evm.CL.GasEmit.blsG1MsmGas input.size := rfl
+  have e1 : g1MsmPairSize = 160 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 160 ≠ 0
+  · omega
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.CL.GasEmit.blsG1MsmGas input.size
+  · exact Or.inr (Or.inr (Or.inl c2))
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g1MsmPairs o input (input.size / 160) with
+  | none => exact Or.inr (Or.inr (Or.inr rfl))
+  | some a => simp only [ha, reduceCtorEq] at h
+
+/-- `blsG2MsmWith` refines `IsG2MsmSuccess` for every oracle `o`. -/
+theorem g2Msm_sound (o : Evm.Crypto.Bls12381.Oracle)
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
-    IsMapFp2ToG2Success input gas output gas' →
-    IsMapFp2ToG2Success input gas output gas' := by
-  intro h; exact h
+    Evm.Prague.Vm.PrecompiledContracts.blsG2MsmWith o input gas = .ok (output, gas') →
+    IsG2MsmSuccess o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG2MsmWith at h
+  unfold IsG2MsmSuccess
+  have e0 : g2MsmGas (input.size / g2MsmPairSize) = Evm.CL.GasEmit.blsG2MsmGas input.size := rfl
+  have e1 : g2MsmPairSize = 288 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 288 ≠ 0
+  · simp only [c1, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.CL.GasEmit.blsG2MsmGas input.size
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g2MsmPairs o input (input.size / 288) with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    simp only [ha, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨by omega, by omega, by omega, a, rfl, rfl, rfl⟩
+
+/-- `blsG2MsmWith`'s exceptional halts are exactly `IsG2MsmFailure`, for every oracle `o`. -/
+theorem g2Msm_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsG2MsmWith o input gas = .error e →
+    IsG2MsmFailure o input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsG2MsmWith at h
+  unfold IsG2MsmFailure
+  have e0 : g2MsmGas (input.size / g2MsmPairSize) = Evm.CL.GasEmit.blsG2MsmGas input.size := rfl
+  have e1 : g2MsmPairSize = 288 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 288 ≠ 0
+  · omega
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.CL.GasEmit.blsG2MsmGas input.size
+  · exact Or.inr (Or.inr (Or.inl c2))
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.g2MsmPairs o input (input.size / 288) with
+  | none => exact Or.inr (Or.inr (Or.inr rfl))
+  | some a => simp only [ha, reduceCtorEq] at h
+
+/-- `blsPairingWith` refines `IsPairingCheckSuccess` for every oracle `o`. -/
+theorem pairingCheck_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
+    Evm.Prague.Vm.PrecompiledContracts.blsPairingWith o input gas = .ok (output, gas') →
+    IsPairingCheckSuccess o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsPairingWith at h
+  unfold IsPairingCheckSuccess
+  have e0 : pairingGas (input.size / pairingPairSize) = Evm.Prague.Vm.PrecompiledContracts.gasPairingBase + input.size / 384 * Evm.Prague.Vm.PrecompiledContracts.gasPairingPair := rfl
+  have e1 : pairingPairSize = 384 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 384 ≠ 0
+  · simp only [c1, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasPairingBase + input.size / 384 * Evm.Prague.Vm.PrecompiledContracts.gasPairingPair
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.pairingPairs o input (input.size / 384) with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    simp only [ha, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨by omega, by omega, by omega, a, rfl, rfl, rfl⟩
+
+/-- `blsPairingWith`'s exceptional halts are exactly `IsPairingCheckFailure`, for every oracle `o`. -/
+theorem pairingCheck_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsPairingWith o input gas = .error e →
+    IsPairingCheckFailure o input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsPairingWith at h
+  unfold IsPairingCheckFailure
+  have e0 : pairingGas (input.size / pairingPairSize) = Evm.Prague.Vm.PrecompiledContracts.gasPairingBase + input.size / 384 * Evm.Prague.Vm.PrecompiledContracts.gasPairingPair := rfl
+  have e1 : pairingPairSize = 384 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size = 0 ∨ input.size % 384 ≠ 0
+  · omega
+  simp only [c1, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasPairingBase + input.size / 384 * Evm.Prague.Vm.PrecompiledContracts.gasPairingPair
+  · exact Or.inr (Or.inr (Or.inl c2))
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.pairingPairs o input (input.size / 384) with
+  | none => exact Or.inr (Or.inr (Or.inr rfl))
+  | some a => simp only [ha, reduceCtorEq] at h
+
+/-- `blsMapFpToG1With` refines `IsMapFpToG1Success` for every oracle `o`. -/
+theorem mapFpToG1_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
+    Evm.Prague.Vm.PrecompiledContracts.blsMapFpToG1With o input gas = .ok (output, gas') →
+    IsMapFpToG1Success o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsMapFpToG1With at h
+  unfold IsMapFpToG1Success
+  have e0 : fpSize = 64 := rfl
+  have e1 : gasMapFpToG1 = Evm.Prague.Vm.PrecompiledContracts.gasMapFpToG1 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 64
+  · simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasMapFpToG1
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.fpDecode input 0 with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    simp only [ha, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨by omega, by omega, a, rfl, rfl, rfl⟩
+
+/-- `blsMapFpToG1With`'s exceptional halts are exactly `IsMapFpToG1Failure`, for every oracle `o`. -/
+theorem mapFpToG1_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsMapFpToG1With o input gas = .error e →
+    IsMapFpToG1Failure input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsMapFpToG1With at h
+  unfold IsMapFpToG1Failure
+  have e0 : fpSize = 64 := rfl
+  have e1 : gasMapFpToG1 = Evm.Prague.Vm.PrecompiledContracts.gasMapFpToG1 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 64
+  · omega
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasMapFpToG1
+  · exact Or.inr (Or.inl c2)
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.fpDecode input 0 with
+  | none => exact Or.inr (Or.inr rfl)
+  | some a => simp only [ha, reduceCtorEq] at h
+
+/-- `blsMapFp2ToG2With` refines `IsMapFp2ToG2Success` for every oracle `o`. -/
+theorem mapFp2ToG2_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gas' : Nat) :
+    Evm.Prague.Vm.PrecompiledContracts.blsMapFp2ToG2With o input gas = .ok (output, gas') →
+    IsMapFp2ToG2Success o input gas output gas' := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsMapFp2ToG2With at h
+  unfold IsMapFp2ToG2Success
+  have e0 : fp2Size = 128 := rfl
+  have e1 : gasMapFp2ToG2 = Evm.Prague.Vm.PrecompiledContracts.gasMapFp2ToG2 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 128
+  · simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte, reduceCtorEq] at h
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasMapFp2ToG2
+  · simp only [c2, ↓reduceIte, reduceCtorEq] at h
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.fp2Decode input 0 with
+  | none => simp only [ha, reduceCtorEq] at h
+  | some a =>
+    simp only [ha, Except.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨by omega, by omega, a, rfl, rfl, rfl⟩
+
+/-- `blsMapFp2ToG2With`'s exceptional halts are exactly `IsMapFp2ToG2Failure`, for every oracle `o`. -/
+theorem mapFp2ToG2_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Prague.Vm.PrecompiledContracts.blsMapFp2ToG2With o input gas = .error e →
+    IsMapFp2ToG2Failure input gas := by
+  intro h
+  unfold Evm.Prague.Vm.PrecompiledContracts.blsMapFp2ToG2With at h
+  unfold IsMapFp2ToG2Failure
+  have e0 : fp2Size = 128 := rfl
+  have e1 : gasMapFp2ToG2 = Evm.Prague.Vm.PrecompiledContracts.gasMapFp2ToG2 := rfl
+  try dsimp only
+  rw [e0, e1]
+  by_cases c1 : input.size ≠ 128
+  · omega
+  simp only [c1, ne_eq, not_false_eq_true, not_true_eq_false, ↓reduceIte] at h
+  by_cases c2 : gas < Evm.Prague.Vm.PrecompiledContracts.gasMapFp2ToG2
+  · exact Or.inr (Or.inl c2)
+  simp only [c2, ↓reduceIte] at h
+  cases ha : Evm.Crypto.Bls12381.fp2Decode input 0 with
+  | none => exact Or.inr (Or.inr rfl)
+  | some a => simp only [ha, reduceCtorEq] at h
 
 /-! ## EIP-2935 (history storage)
 
@@ -306,14 +603,8 @@ theorem effectiveCallCode_sound (env : Environment) (to : Evm.Address)
 
 /-! ## Notes
 
-    - Seven BLS12-381 precompiles, two new tx-level
-      predicates, one new block-validity predicate, and three
-      EIP-7702 state-machine predicates ⇒ 13 soundness obligations
-      stated here. None closed (per methodology) but all of the
-      correct shape.
-
-    - The cryptographic predicates (`IsValidG1Point`, `IsValidKzg
-      Proof`, `RecoverAuthority`, …) are axiomatic in the spec;
-      discharging them requires linking external libraries. -/
+    - The BLS12-381 crypto (group law, subgroup test, map-to-curve, pairing) is an
+      oracle parameter of the relations, not an axiom; its assumed meaning is
+      `Evm.Crypto.Contracts`. -/
 
 end Evm.Prague.Spec.Refinement

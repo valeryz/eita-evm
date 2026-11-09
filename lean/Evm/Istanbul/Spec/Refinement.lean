@@ -12,9 +12,8 @@
 
   CHAINID and SELFBALANCE are nullary-push opcodes; refinement is a
   one-liner via `Frontier.Spec.Refinement.nullaryPush_sound`. SSTORE
-  is the heavy state-touching opcode (`sorry`-deferred). Blake2f
-  is a precompile whose body is `opaque` in the spec; the gas / size
-  obligations are statable but the cryptographic output is axiomatic.
+  is the heavy state-touching opcode. Blake2f is a precompile whose F is
+  pure Lean (RFC 7693 §3.2), refined in both directions.
   NOTE: theorems suffixed `_shape` are `P → P` placeholders — the spec
   relation is not yet linked to the interpreter (see SPEC-METHODOLOGY).
 -/
@@ -184,25 +183,42 @@ theorem sstoreStep_refundInv (evm evm' : Evm) (h : IsSstoreStep evm evm')
 
 /-! ## EIP-152 BLAKE2F precompile (0x09)
 
-    Not a step opcode but a precompile invoked via the trampoline.
-    The spec relation `IsBlake2fStep` is `(input, gas, output, gas')`
-    -shaped; the impl's `Blake2f` precompile stub returns 64 zero
-    bytes pending FFI. Soundness of the gas / size checks is
-    statable now; the cryptographic output identity awaits the
-    `blake2bCompress` binding. -/
+    Not a step opcode but a precompile invoked via the trampoline; the relation is
+    `(input, gas, output, gas')`-shaped. F is pure Lean (`Evm.Crypto.Blake2f`, RFC 7693
+    §3.2), so both directions are unconditional. -/
 
-/-- BLAKE2F (0x09): the spec's `IsBlake2fStep` uses an opaque
-    `blake2bCompress` for the output; the impl stub returns zeros.
-    State the relation; defer the cryptographic equality. -/
-theorem blake2f_sound_shape
+/-- BLAKE2F (0x09) success refines `IsBlake2fStep` (EELS `blake2f.py` 31-42). -/
+theorem blake2f_sound
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gasLeft : Nat) :
-    IsBlake2fStep input gas output gasLeft →
+    Evm.Istanbul.Vm.PrecompiledContracts.blake2f input gas = .ok (output, gasLeft) →
     IsBlake2fStep input gas output gasLeft := by
-  -- The spec relation is its own statement; refinement against the
-  -- impl precompile requires plumbing `Evm.Istanbul.Vm.Precompiled
-  -- Contracts.blake2f` through a `(input, gas) → Except Exception
-  -- (output, gas')` form.
-  intro h; exact h
+  intro h
+  unfold Evm.Istanbul.Vm.PrecompiledContracts.blake2f at h
+  unfold IsBlake2fStep blake2fCost
+  by_cases hs : input.size ≠ 213
+  · simp [hs] at h
+  · by_cases hg : gas < Evm.Istanbul.Vm.Gas.blake2fPerRound * Evm.Crypto.Blake2f.rounds input
+    · simp [hs, hg] at h
+    · by_cases hf : Evm.Crypto.Blake2f.flag input ≠ 0 ∧ Evm.Crypto.Blake2f.flag input ≠ 1
+      · simp [hs, hg, hf] at h
+      · simp only [hs, hg, hf, if_false, Except.ok.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        refine ⟨by omega, by omega, by omega, rfl, rfl⟩
+
+/-- BLAKE2F (0x09) failure is exactly `IsBlake2fFailure` (EELS 32-40, exceptional halts). -/
+theorem blake2f_failure_sound (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Istanbul.Vm.PrecompiledContracts.blake2f input gas = .error e →
+    IsBlake2fFailure input gas := by
+  intro h
+  unfold Evm.Istanbul.Vm.PrecompiledContracts.blake2f at h
+  unfold IsBlake2fFailure blake2fCost
+  by_cases hs : input.size ≠ 213
+  · exact Or.inl hs
+  · by_cases hg : gas < Evm.Istanbul.Vm.Gas.blake2fPerRound * Evm.Crypto.Blake2f.rounds input
+    · exact Or.inr (Or.inl hg)
+    · by_cases hf : Evm.Crypto.Blake2f.flag input ≠ 0 ∧ Evm.Crypto.Blake2f.flag input ≠ 1
+      · exact Or.inr (Or.inr hf)
+      · simp [hs, hg, hf] at h
 
 /-! ## Notes
 

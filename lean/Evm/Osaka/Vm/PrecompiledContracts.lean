@@ -9,7 +9,8 @@
     * EIP-7951 (`p256verify.py`): adds a new precompile at address
       `0x100` that verifies a SECP256R1 signature. Input is 160 bytes
       `(msg_hash, r, s, qx, qy)`; output is 32 bytes (left-padded
-      `0x01` on success, empty on failure). Gas: 6900 (flat).
+      `0x01` on success, empty on failure). Gas: 6900 (flat). The table entry
+      is `Evm.Frontier.Vm.Call.osakaTable`.
       EELS: `forks/osaka/vm/precompiled_contracts/p256verify.py`;
       address constant `P256VERIFY_ADDRESS = hex_to_address("0x100")`
       in `forks/osaka/vm/precompiled_contracts/__init__.py`.
@@ -23,16 +24,11 @@
     * EIP-7883 (`modexp.py` lines 95-175): MODEXP gas formula changes
       (`max(500, cost)` floor instead of `max(200, cost) / 3`,
       `complexity = 16` for `max_length ≤ 32` else `2 * words²`, etc.).
-      Since the Prague spec doesn't yet implement MODEXP itself (it's
-      currently stubbed out of the precompile registry — see
-      `Prague/Vm/PrecompiledContracts.lean` line 187 "TODO"), Osaka
-      inherits the same stub status; the Osaka-distinctive formulas
-      are documented here so that when MODEXP is implemented for
-      Prague, the Osaka delta is a single-file edit. -/
+      Implemented below as `modexp7883`. -/
 
 import Evm.BaseTypes
 import Evm.Frontier.Vm.Exceptions
-import Evm.Prague.Vm.PrecompiledContracts
+import Evm.Crypto.P256Verify
 import Evm.Berlin.Vm.PrecompiledContracts.Modexp
 import Evm.Byzantium.Vm.PrecompiledContracts.Modexp
 
@@ -40,7 +36,8 @@ namespace Evm.Osaka.Vm.PrecompiledContracts
 
 open Evm.Frontier.Vm (Exception)
 
-abbrev Precompile := Evm.Prague.Vm.PrecompiledContracts.Precompile
+abbrev Precompile :=
+  Evm.Bytes → Nat → Except Exception (Evm.Bytes × Nat)
 
 /-! ## EIP-7951 P256VERIFY -/
 
@@ -52,55 +49,11 @@ def p256verifyAddress : Evm.Address := Evm.Address.ofNat 0x100
     `forks/osaka/vm/gas.py::PRECOMPILE_P256VERIFY = Uint(6900)`. -/
 def gasP256Verify : Nat := 6900
 
-/-- EIP-7951 P256VERIFY precompile.
-
-    EELS `forks/osaka/vm/precompiled_contracts/p256verify.py`
-    `p256verify(evm)`:
-
-      data := evm.message.data
-      charge_gas(evm, PRECOMPILE_P256VERIFY)
-      if len(data) != 160: return                  -- empty output
-      (msg_hash, r, s, qx, qy) := slice(data, ...)
-      if r out-of-range, s out-of-range,
-         qx ≥ p, qy ≥ p, (qx, qy) = (0, 0),
-         not on curve, or signature invalid: return
-      evm.output := left_pad_zero_bytes(b"\\x01", 32)
-
-    For the spec layer we faithfully reproduce the gas charge and the
-    output shape; the cryptographic SECP256R1 verification is stubbed
-    (returns the failure case = empty output) because Lean has no
-    SECP256R1 FFI yet. EVM observers see the right gas cost; tx-side
-    correctness on the success path requires a real impl. Marked
-    TODO with the EELS function name so the substitution is one
-    edit. -/
-def p256verify (input : Evm.Bytes) (gas : Nat) :
-    Except Exception (Evm.Bytes × Nat) := do
-  if gas < gasP256Verify then .error .outOfGas
-  let gas' := gas - gasP256Verify
-  -- Per EELS: malformed input length returns gas-consumed + empty output.
-  if input.size ≠ 160 then
-    return (Evm.Bytes.empty, gas')
-  -- KNOWN GAP (stated as `p256verify_stub_rejects` below): no SECP256R1
-  -- verification in Lean yet — every signature is rejected (empty output).
-  -- EELS reference: `ethereum.crypto.elliptic_curve.secp256r1_verify`. The
-  -- host (Lisp/C) implements the real check; this Lean table entry does not.
-  return (Evm.Bytes.empty, gas')
-
-/-- The visible form of the P256VERIFY gap: the Lean precompile never verifies — every
-    successful run returns empty output, valid signature or not (EELS returns
-    `left_pad_zero_bytes(b"\x01", 32)` for a valid one). So
-    `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` stays open: proving the spec
-    against this stub would certify the stub. -/
-theorem p256verify_stub_rejects (input : Evm.Bytes) (gas : Nat) (out : Evm.Bytes × Nat) :
-    p256verify input gas = .ok out → out.1 = Evm.Bytes.empty := by
-  unfold p256verify
-  by_cases hg : gas < gasP256Verify
-  · simp [hg, bind, Except.bind]
-  · by_cases hs : input.size ≠ 160
-    · simp [hg, hs, bind, Except.bind, pure, Except.pure]
-      intro h; rw [← h]
-    · simp [hg, hs, bind, Except.bind, pure, Except.pure]
-      intro h; rw [← h]
+/-- EIP-7951 P256VERIFY precompile: EELS `forks/osaka/vm/precompiled_contracts/
+    p256verify.py::p256verify` 31-90, the one wrapper `Evm.Crypto.p256VerifyWithOracle`
+    (shared with OP's RIP-7212) over OpenSSL's verifier, at 6900 gas. The relation is
+    `Evm.Osaka.Spec.IsP256VerifyStep`. -/
+def p256verify : Precompile := Evm.Crypto.p256VerifyWith gasP256Verify
 
 /-! ## EIP-7883 / EIP-7823 MODEXP (documented; not yet wired)
 
@@ -190,20 +143,5 @@ def modexp7883 : Precompile := fun input gasLeft => do
                     else Evm.Byzantium.Vm.PrecompiledContracts.powMod base exp_ modN
       let output := Evm.Byzantium.Vm.PrecompiledContracts.natToBytesBE result modLen
       .ok (output, gasLeft - cost)
-
-/-! ## Registry
-
-    Inherits Prague's registry verbatim and appends the P256VERIFY
-    entry at address 0x100. -/
-
-/-- Prague's existing entries plus 0x100 → P256VERIFY. EELS:
-    `forks/osaka/vm/precompiled_contracts/mapping.py` line 77 adds
-    `P256VERIFY_ADDRESS: p256verify` to the previous-fork mapping. -/
-def registry : List (Evm.Address × Precompile) :=
-  Evm.Prague.Vm.PrecompiledContracts.registry ++
-    [ (p256verifyAddress, p256verify) ]
-
-def lookup (a : Evm.Address) : Option Precompile :=
-  (registry.find? (fun (k, _) => k = a)).map Prod.snd
 
 end Evm.Osaka.Vm.PrecompiledContracts

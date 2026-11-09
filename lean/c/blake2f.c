@@ -107,3 +107,16 @@ int eita_blake2f(const uint8_t *src, size_t src_len, uint8_t out[64]) {
     }
     return 1;
 }
+
+#ifndef EITA_NO_LEAN_WRAPPER
+/* Lean binding for the cryptoTests differential test (this C against the pure-Lean
+ * RFC 7693 F, Evm.Crypto.Blake2f). Empty ByteArray on invalid input. */
+LEAN_EXPORT lean_obj_res lean_blake2f(b_lean_obj_arg input) {
+    uint8_t out[64];
+    if (!eita_blake2f(lean_sarray_cptr(input), lean_sarray_size(input), out))
+        return lean_alloc_sarray(1, 0, 0);
+    lean_obj_res o = lean_alloc_sarray(1, 64, 64);
+    memcpy(lean_sarray_cptr(o), out, 64);
+    return o;
+}
+#endif

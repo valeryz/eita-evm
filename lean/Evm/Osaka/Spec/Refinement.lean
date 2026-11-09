@@ -136,19 +136,66 @@ theorem validModexpInput_sound (input : Evm.Bytes) (gas : Nat) (out : Evm.Bytes 
 
 /-! ## EIP-7951 P256VERIFY precompile (0x100) -/
 
-/-- P256VERIFY precompile success / failure both encoded in
-    `IsP256VerifyStep verify input gas output gasOut`. The crypto
-    verifier `verify` is a `Bytes → Bool` external parameter; the
-    spec captures the gas / output-shape obligations. OPEN on purpose: the Lean
-    precompile is a stub that rejects every signature
-    (`Evm.Osaka.Vm.PrecompiledContracts.p256verify_stub_rejects`); a proof against it
-    would certify the stub. Closes when Lean has SECP256R1 verification. -/
-theorem p256Verify_sound_shape
-    (verify : Evm.Bytes → Bool)
+/-- The wrapper's check chain is EELS's (46-88), clause by clause. -/
+theorem p256Accepts_iff (verify : Nat → Nat → Nat → Nat → Nat → Bool) (input : Evm.Bytes) :
+    Evm.Crypto.p256Accepts verify input = true ↔ P256Accepts verify input := by
+  unfold Evm.Crypto.p256Accepts P256Accepts Evm.Crypto.p256OnCurve
+  simp only [word, Evm.Crypto.p256Word, Bool.and_eq_true, beq_iff_eq, decide_eq_true_iff,
+    Bool.not_eq_true', Bool.and_eq_false_iff, beq_eq_false_iff_ne, ne_eq]
+  constructor
+  · rintro ⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩
+    have h2 := of_decide_eq_true h2
+    have h3 := of_decide_eq_true h3
+    refine ⟨h1, h2.1, h2.2.1, h2.2.2.1, h2.2.2.2, h3.1, h3.2, ?_, h5, h6⟩
+    rintro ⟨hx, hy⟩
+    rcases h4 with h | h <;> contradiction
+  · rintro ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
+    refine ⟨⟨⟨⟨⟨h1, decide_eq_true ⟨h2, h3, h4, h5⟩⟩, decide_eq_true ⟨h6, h7⟩⟩, ?_⟩, h9⟩, h10⟩
+    exact (Classical.em _).elim (fun hx => Or.inr fun hy => h8 ⟨hx, hy⟩) Or.inl
+
+/-- EIP-7951 P256VERIFY (0x100) refines `IsP256VerifyStep` for EVERY verifier `verify`
+    (EELS `p256verify.py` 41-90); the replay's verifier is OpenSSL. -/
+theorem p256Verify_sound
+    (verify : Nat → Nat → Nat → Nat → Nat → Bool)
     (input : Evm.Bytes) (gas : Nat) (output : Evm.Bytes) (gasOut : Nat) :
-    IsP256VerifyStep verify input gas output gasOut →
+    Evm.Crypto.p256VerifyWithOracle verify Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify
+      input gas = .ok (output, gasOut) →
     IsP256VerifyStep verify input gas output gasOut := by
-  intro h; exact h
+  intro h
+  unfold Evm.Crypto.p256VerifyWithOracle at h
+  unfold IsP256VerifyStep
+  by_cases hg : gas < Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify
+  · simp [hg] at h
+  · simp only [hg, ite_false] at h
+    by_cases ha : Evm.Crypto.p256Accepts verify input = true
+    · simp only [ha, ite_true, Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      refine ⟨by simp [gasP256Verify]; omega, rfl, fun _ => rfl, fun hn => ?_⟩
+      exact absurd ((p256Accepts_iff verify input).1 ha) hn
+    · simp only [ha, Bool.false_eq_true, ite_false, Except.ok.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      refine ⟨by simp [gasP256Verify]; omega, rfl, fun hp => ?_, fun _ => rfl⟩
+      exact absurd ((p256Accepts_iff verify input).2 hp) ha
+
+/-- P256VERIFY's exceptional halt is exactly too little gas (EELS 44). -/
+theorem p256Verify_failure_sound
+    (verify : Nat → Nat → Nat → Nat → Nat → Bool)
+    (input : Evm.Bytes) (gas : Nat) (e : Evm.Frontier.Vm.Exception) :
+    Evm.Crypto.p256VerifyWithOracle verify Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify
+      input gas = .error e →
+    IsP256VerifyFailure gas := by
+  intro h
+  unfold Evm.Crypto.p256VerifyWithOracle at h
+  unfold IsP256VerifyFailure
+  by_cases hg : gas < Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify
+  · exact hg
+  · by_cases ha : Evm.Crypto.p256Accepts verify input = true <;> simp [hg, ha] at h
+
+/-- The Osaka table entry is the wrapper at 6900 over OpenSSL. -/
+theorem p256verify_eq :
+    Evm.Osaka.Vm.PrecompiledContracts.p256verify =
+      Evm.Crypto.p256VerifyWithOracle Evm.Crypto.isValidP256Signature
+        Evm.Osaka.Vm.PrecompiledContracts.gasP256Verify := rfl
 
 /-! ## Notes
 
@@ -156,11 +203,6 @@ theorem p256Verify_sound_shape
       `modexpExpLengthPart`, `modexpGasFinal`) but no `IsXxx`
       predicate — they're consumed by an EIP-7883 MODEXP refinement
       that lives wherever the Osaka MODEXP impl lands. We state no
-      theorem here; the file's content is constants + helpers.
-
-    - The P256VERIFY impl currently stubs the cryptographic
-      verifier (returns empty output; `p256verify_stub_rejects`).
-      Its obligation stays open rather than being proved with
-      `verify _ = false`. -/
+      theorem here; the file's content is constants + helpers. -/
 
 end Evm.Osaka.Spec.Refinement
