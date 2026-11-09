@@ -26,6 +26,32 @@ from peers or follow a consensus client. Blocks come from you, through a documen
 block-source interface (`docs/block-input.md`); this repository ships a reader for
 per-block JSON files you produce with your own node or tools.
 
+## See it running: [eita.run](https://eita.run)
+
+This engine is not a demo. It runs in production at **[eita.run](https://eita.run)**:
+
+- **Ethereum mainnet, every block since genesis (2015)**, re-executed and checked, and now
+  following the chain tip as new blocks arrive. Each block's header, gas, receipts and logs
+  are checked against the chain, and the state root at every anchor.
+- **Arc** (Circle's stablecoin L1), from its genesis, the same way: its native-USDC
+  precompiles and system rules are part of the Lean spec.
+- **Speed: 2.12 Ggas/s** re-executing recent mainnet blocks on one Google Cloud VM, **1.22×
+  revm** (the EVM inside reth) measured on the same machines with the same inputs, at about
+  two cents per teragas on a spot VM. Method, every run and the caveats:
+  [eita.run/benchmark](https://eita.run/benchmark/).
+- **Verified metrics, live.** Re-execution produces facts (state changes, value moves, logs,
+  calls), and metrics are incremental *folds* over them, updated the moment a block lands and
+  served with their provenance: the anchor whose state root was checked, the block range,
+  the code that computed them. Because the folds see execution, not just logs, they show what
+  log-based tools can't: ERC-20 Transfer events that the token's storage contradicts, upgrades
+  and role changes made with no event, value moved inside calls that emit nothing, gas
+  attributed to the contracts that actually ran. Open a chain's page from
+  [eita.run](https://eita.run), and see what is proved, checked as it runs, or trusted at
+  [eita.run/verified](https://eita.run/verified/).
+
+The metrics service and the node scaffolding around this engine live outside this
+repository; the engine, the spec, the proofs and the emitters are all here.
+
 ## How it is built
 
 ```
