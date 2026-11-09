@@ -193,8 +193,9 @@
 (defun rp-tot (k &optional (d 1)) (incf (gethash k *rp-totals* 0) d))
 
 (defun rp-keep-top (place row key n)
-  (let ((l (merge 'list (list row) place #'> :key key)))
-    (if (> (length l) n) (subseq l 0 n) l)))
+  "PLACE with ROW added, cut back to the N largest by KEY once it holds 2N."
+  (let ((l (cons row place)))
+    (if (> (length l) (* 2 n)) (subseq (sort l #'> :key key) 0 n) l)))
 
 (defun rp-tx-end (block tx success)
   (when (and *rp-active* (integerp tx) (<= 0 tx) (< tx +postblock-tx+))
@@ -316,7 +317,8 @@
             (format o "~10A ~10D ~20:D ~20:D~%" (car h) (svref (cdr h) 0) (svref (cdr h) 1) (svref (cdr h) 2))))
         (flet ((contracts (title key pred)
                  (format o "~%~A~%~42A ~14@A ~14@A ~14@A ~8@A ~8@A~%" title "contract" "real-self" "repriced" "increase" "ratio" "frames")
-                 (dolist (r (subseq (sort (remove-if-not pred rows) #'> :key key) 0 (min top (count-if pred rows))))
+                 (dolist (r (let ((l (sort (remove-if-not pred (copy-list rows)) #'> :key key)))
+                              (subseq l 0 (min top (length l)))))
                    (let* ((v (cdr r)) (real (svref v 0)) (rep (+ real (svref v 1) (svref v 2))))
                      (format o "0x~(~40,'0x~) ~14:D ~14:D ~14:D ~8,3F ~8D~%" (car r) real rep (- rep real)
                              (if (plusp real) (/ rep real) 0) (svref v 4))))))
@@ -329,8 +331,10 @@
                  (dolist (r l)
                    (destructuring-bind (n i to gas gas2 dx st status) r
                      (format o "~10D ~4D 0x~(~40,'0x~) ~10D ~10D ~10D ~10D ~3D~%" n i (or to 0) gas gas2 dx st status)))))
-          (txs "top txs by ratio:" *rp-top-ratio*)
-          (txs "top txs by absolute increase:" *rp-top-abs*))))
+          (txs "top txs by ratio:" (let ((l (sort (copy-list *rp-top-ratio*) #'> :key (lambda (r) (/ (fifth r) (max 1 (fourth r)))))))
+                                     (subseq l 0 (min 30 (length l)))))
+          (txs "top txs by absolute increase:" (let ((l (sort (copy-list *rp-top-abs*) #'> :key (lambda (r) (- (fifth r) (fourth r))))))
+                                                 (subseq l 0 (min 30 (length l))))))))
     (when *rp-tx-out* (finish-output *rp-tx-out*))
     (format t "~&[reprice] report in ~A~%" (rp-out ""))))
 
