@@ -104,6 +104,9 @@ lean_exe emitX86Interp where
 lean_exe emitHostCL where
   root := `EmitHostCL
 
+lean_exe emitRepriceCL where
+  root := `EmitRepriceCL
+
 lean_exe emitJIT where
   root := `EmitJIT
 
