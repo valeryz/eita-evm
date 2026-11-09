@@ -9,13 +9,9 @@
       `IsAccessAddressStep`, `IsAccessStorageStep`.
     * `StorageStep.lean` — EIP-2929 SSTORE/SLOAD with EIP-2200
       net-metering on top. Relations: `IsSloadStep`, `IsSstoreStep`.
-    * `TypedTx.lean` — EIP-2718 transaction envelope discriminator.
-      Predicates: `IsLegacyTxEnvelope`, `IsTypedTxEnvelope`,
-                  `IsBerlinTxEncoding`.
 
-  Per SPEC-METHODOLOGY: all five are state-machine deltas (touching
-  Environment / State / tx encoding), so all soundness theorems are
-  stated and discharged with `sorry`.
+  The access-list helpers (`warmAddr` / `warmSlot`) are proved; SLOAD /
+  SSTORE are still open.
   NOTE: theorems suffixed `_shape` are `P → P` placeholders — the spec
   relation is not yet linked to the interpreter (see SPEC-METHODOLOGY).
 -/
@@ -23,7 +19,6 @@
 import Evm.Frontier.Spec.Refinement
 import Evm.Berlin.Spec.AccessList
 import Evm.Berlin.Spec.StorageStep
-import Evm.Berlin.Spec.TypedTx
 import Evm.Berlin.Vm.Effect
 
 namespace Evm.Berlin.Spec.Refinement
@@ -33,26 +28,42 @@ open Evm.Berlin.Spec
 
 /-! ## EIP-2929 access-list bookkeeping refinement -/
 
-/-- `IsAccessAddressStep` is the spec-level relation for "mark
-    `addr` warm". The impl's helper updating `env.accessedAddresses`
-    must satisfy this; state-touching env-update obligation. -/
-theorem accessAddress_sound_shape
-    (env : Environment) (addr : Evm.Address)
-    (env' : Environment) (wasCold : Bool) :
-    IsAccessAddressStep env addr env' wasCold →
+/-- `warmAddr` (the EIP-2929 address warm-up every Berlin+ access opcode runs) is an
+    `IsAccessAddressStep`: cold iff absent, and a cold address is added. EELS
+    `forks/berlin/vm/instructions/environment.py::balance` 65-68 (`if address in
+    evm.accessed_addresses: … else: evm.accessed_addresses.add(address)`), the same clause
+    in every account-access opcode. -/
+theorem accessAddress_sound
+    (env : Environment) (addr : Evm.Address) (env' : Environment) (wasCold : Bool) :
+    Evm.Berlin.Vm.Effect.warmAddr env addr = (env', wasCold) →
     IsAccessAddressStep env addr env' wasCold := by
-  -- Refinement is a `simp` over the record-update; the relation
-  -- already pins both `env'` and `wasCold`. Needs the impl helper
-  -- extracted as a stand-alone function.
-  intro h; exact h
+  unfold Evm.Berlin.Vm.Effect.warmAddr
+  intro h
+  by_cases hm : addr ∈ env.accessedAddresses
+  · have hc : env.accessedAddresses.contains addr = true := by simpa using hm
+    rw [ite_eq_left hc] at h; injection h with h1 h2; subst h1 h2
+    exact ⟨by simp [hm], by simp [hm]⟩
+  · have hc : ¬ env.accessedAddresses.contains addr = true := by simpa using hm
+    rw [ite_eq_right hc] at h; injection h with h1 h2; subst h1 h2
+    exact ⟨by simp [hm], by simp [hm]⟩
 
-/-- Storage-key analogue. -/
-theorem accessStorage_sound_shape
+/-- `warmSlot` (the EIP-2929 slot warm-up of SLOAD / SSTORE) is an `IsAccessStorageStep`.
+    EELS `forks/berlin/vm/instructions/storage.py::sload` 38-41 (`if (current_target, key)
+    in evm.accessed_storage_keys: … else: evm.accessed_storage_keys.add(…)`). -/
+theorem accessStorage_sound
     (env : Environment) (addr : Evm.Address) (slot : Evm.U256)
     (env' : Environment) (wasCold : Bool) :
-    IsAccessStorageStep env addr slot env' wasCold →
+    Evm.Berlin.Vm.Effect.warmSlot env addr slot = (env', wasCold) →
     IsAccessStorageStep env addr slot env' wasCold := by
-  intro h; exact h
+  unfold Evm.Berlin.Vm.Effect.warmSlot
+  intro h
+  by_cases hm : (addr, slot) ∈ env.accessedStorageKeys
+  · have hc : env.accessedStorageKeys.contains (addr, slot) = true := by simpa using hm
+    rw [ite_eq_left hc] at h; injection h with h1 h2; subst h1 h2
+    exact ⟨by simp [hm], by simp [hm]⟩
+  · have hc : ¬ env.accessedStorageKeys.contains (addr, slot) = true := by simpa using hm
+    rw [ite_eq_right hc] at h; injection h with h1 h2; subst h1 h2
+    exact ⟨by simp [hm], by simp [hm]⟩
 
 /-! ## EIP-2929 SSTORE / SLOAD refinement -/
 
@@ -76,18 +87,9 @@ theorem sstore_sound_shape (evm evm' : Evm) :
     IsSstoreStep evm evm' := by
   intro h; exact h
 
-/-! ## EIP-2718 typed-transaction envelope refinement -/
-
-/-- `IsBerlinTxEncoding` is a parse-validity predicate on a byte
-    stream. The impl's `decodeTransaction` (forthcoming) should
-    accept exactly the byte streams this predicate admits. -/
-theorem berlinTxEncoding_sound_shape (bytes : Evm.Bytes) :
-    IsBerlinTxEncoding bytes →
-    IsBerlinTxEncoding bytes := by
-  -- Refinement target: `Berlin.Transactions.decodeTransaction bytes
-  -- = .ok _ ↔ IsBerlinTxEncoding bytes`. The legacy-vs-typed
-  -- discriminator is `bytes[0] ≥ 0xc0`, decidable.
-  intro h; exact h
+/-! EIP-2718's envelope (`IsBerlinTxEncoding`) was a parse-validity predicate with no
+    Lean decoder to refine (transactions are decoded by the host); deleted 2026-11-09
+    rather than kept as a `P → P` placeholder. -/
 
 /-! ## Notes
 

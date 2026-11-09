@@ -119,15 +119,19 @@ def IsSloadStep (evm evm' : Evm) : Prop :=
         mutates the slot — even a no-op SSTORE pays it the first
         time per tx.
     (2) The "no-op / dirty slot" tier price changes from
-        `SLOAD = 800` to `WARM_ACCESS_COST = 100`. (The other two
-        prices, 20000 for clean→set and 5000 for clean→reset, are
-        unchanged.)
-    (3) The refund delta on slot-restoration: Istanbul refunded
+        `SLOAD = 800` to `WARM_ACCESS_COST = 100`, and the clean→reset
+        price drops by the cold surcharge it now includes:
+        `COLD_STORAGE_WRITE - COLD_STORAGE_ACCESS = 5000 - 2100 = 2900`
+        (clean→set stays 20000).
+    (3) The refund on slot-restoration: Istanbul refunded
         `STORAGE_SET - SLOAD = 19200` or `RESET - SLOAD = 4200`;
-        Berlin's analogous values use `WARM_ACCESS_COST` instead of
-        `SLOAD`, so the deltas widen by `SLOAD - WARM = 700`. EELS
-        uses `STORAGE_SET - WARM_ACCESS_COST` (= 19900) and
-        `COLD_STORAGE_WRITE - WARM_ACCESS_COST` (= 4900) here.
+        Berlin refunds `STORAGE_SET - WARM_ACCESS = 19900` and
+        `COLD_STORAGE_WRITE - COLD_STORAGE_ACCESS - WARM_ACCESS = 2800`.
+
+    EELS `forks/berlin/vm/instructions/storage.py::sstore` 78-115
+    (execution-specs 636b5f1). Corrected 2026-11-09: this relation
+    used to charge 5000 and refund 4900 on the reset path (the EIP-2200
+    numbers without EIP-2929's subtraction); the implementation was right.
 
     Trip-wire (`gasLeft > 2300` else `OutOfGas`) and static-context
     check are inherited from Istanbul; EELS preserves them at
@@ -176,7 +180,7 @@ def IsSstoreStep (evm evm' : Evm) : Prop :=
     -- as the no-op / dirty tier price.
     let mainCost : Nat :=
       if original = current ∧ current ≠ value then
-        if original = (0 : Evm.U256) then sstoreSet else sstoreReset
+        if original = (0 : Evm.U256) then sstoreSet else sstoreReset - coldSloadCost
       else
         warmAccessCost
     let totalCost := coldDelta + mainCost
@@ -200,7 +204,7 @@ def IsSstoreStep (evm evm' : Evm) : Prop :=
           if original = (0 : Evm.U256) then
             adjustRefund r2 ((sstoreSet - warmAccessCost : Nat) : Int)
           else
-            adjustRefund r2 ((sstoreReset - warmAccessCost : Nat) : Int)
+            adjustRefund r2 ((sstoreReset - coldSloadCost - warmAccessCost : Nat) : Int)
         else r2
       else evm.env.refundCounter
     evm' = { evm with

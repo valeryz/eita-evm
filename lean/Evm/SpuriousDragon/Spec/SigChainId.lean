@@ -127,7 +127,7 @@ theorem signing_forms_disjoint (tx : Transaction)
 
     - Berlin's typed-tx envelope (EIP-2718) introduces new tx
       shapes whose signing hashes don't go through this relation.
-      The recovery relation for typed txs lives at
-      `Evm.Berlin.Spec.TypedTx`. -/
+      Tx decoding is the host's (no Lean decoder), so no typed-tx
+      envelope relation is stated in Lean. -/
 
 end Evm.SpuriousDragon.Spec

@@ -27,7 +27,7 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refin
 | fork | proved | sorry | shape | unsuffixed | total |
 |---|---:|---:|---:|---:|---:|
 | Amsterdam | 0 | 0 | 5 | 0 | 5 |
-| Berlin | 0 | 0 | 5 | 0 | 5 |
+| Berlin | 2 | 0 | 2 | 0 | 4 |
 | Byzantium | 4 | 0 | 0 | 0 | 4 |
 | Cancun | 7 | 0 | 4 | 0 | 11 |
 | Constantinople | 4 | 1 | 0 | 0 | 5 |
@@ -35,16 +35,16 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refin
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
 | Istanbul | 3 | 1 | 1 | 0 | 5 |
-| London | 2 | 0 | 7 | 0 | 9 |
+| London | 8 | 0 | 0 | 0 | 8 |
 | Osaka | 0 | 0 | 5 | 0 | 5 |
 | Paris | 1 | 0 | 4 | 0 | 5 |
 | Petersburg | 0 | 1 | 0 | 0 | 1 |
 | Prague | 0 | 0 | 13 | 0 | 13 |
 | Shanghai | 0 | 0 | 3 | 0 | 3 |
 | SpuriousDragon | 4 | 0 | 3 | 0 | 7 |
-| **total** | **144** | **3** | **50** | **0** | **197** |
+| **total** | **152** | **3** | **40** | **0** | **195** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 
 ### Amsterdam
 
@@ -56,9 +56,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 
 ### Berlin
 
-- SHAPE `accessAddress_sound_shape` (Refinement.lean)
-- SHAPE `accessStorage_sound_shape` (Refinement.lean)
-- SHAPE `berlinTxEncoding_sound_shape` (Refinement.lean)
+- PROVED `accessAddress_sound` (Refinement.lean)
+- PROVED `accessStorage_sound` (Refinement.lean)
 - SHAPE `sload_sound_shape` (Refinement.lean)
 - SHAPE `sstore_sound_shape` (Refinement.lean)
 
@@ -230,14 +229,13 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 ### London
 
 - PROVED `empty_code_valid` (CodePrefix.lean)
-- SHAPE `baseFeeBurnt_sound_shape` (Refinement.lean)
 - PROVED `basefee_sound` (Refinement.lean)
-- SHAPE `calculateBaseFee_sound_shape` (Refinement.lean)
-- SHAPE `coinbaseCredit_sound_shape` (Refinement.lean)
-- SHAPE `refundCap_sound_shape` (Refinement.lean)
-- SHAPE `selfdestructRefundDelta_sound_shape` (Refinement.lean)
-- SHAPE `txFeeDebit_sound_shape` (Refinement.lean)
-- SHAPE `validDeployedCode_sound_shape` (Refinement.lean)
+- PROVED `calculateBaseFee_sound` (Refinement.lean)
+- PROVED `feeSettlement_sound` (Refinement.lean)
+- PROVED `refundCap_sound` (Refinement.lean)
+- PROVED `selfdestructRefundDelta_sound` (Refinement.lean)
+- PROVED `validDeployedCode_create_sound` (Refinement.lean)
+- PROVED `validDeployedCode_tx_sound` (Refinement.lean)
 
 ### Osaka
 
@@ -293,7 +291,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 
 ## B. Relation coverage, fully qualified (informational)
 
-203 qualified relations: facts-only 3, missing 102, proved 45, shape 50, sorry 3, spec-is-impl 1.
+198 qualified relations: facts-only 3, missing 100, proved 52, shape 40, sorry 3, spec-is-impl 1.
 
 | relation | status | resolving theorem |
 |---|---|---|
@@ -302,13 +300,10 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 | `Evm.Amsterdam.Spec.IsSlotNumberStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.slotNumber_sound_shape` |
 | `Evm.Amsterdam.Spec.IsSwapNStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.swapN_sound_shape` |
 | `Evm.Amsterdam.Spec.IsValidDeployedCodeSize` | SHAPE | `Evm.Amsterdam.Spec.Refinement.validDeployedCodeSize_sound_shape` |
-| `Evm.Berlin.Spec.IsAccessAddressStep` | SHAPE | `Evm.Berlin.Spec.Refinement.accessAddress_sound_shape` |
-| `Evm.Berlin.Spec.IsAccessStorageStep` | SHAPE | `Evm.Berlin.Spec.Refinement.accessStorage_sound_shape` |
-| `Evm.Berlin.Spec.IsBerlinTxEncoding` | SHAPE | `Evm.Berlin.Spec.Refinement.berlinTxEncoding_sound_shape` |
-| `Evm.Berlin.Spec.IsLegacyTxEnvelope` | MISSING | — |
+| `Evm.Berlin.Spec.IsAccessAddressStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessAddress_sound` |
+| `Evm.Berlin.Spec.IsAccessStorageStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessStorage_sound` |
 | `Evm.Berlin.Spec.IsSloadStep` | SHAPE | `Evm.Berlin.Spec.Refinement.sload_sound_shape` |
 | `Evm.Berlin.Spec.IsSstoreStep` | SHAPE | `Evm.Berlin.Spec.Refinement.sstore_sound_shape` |
-| `Evm.Berlin.Spec.IsTypedTxEnvelope` | MISSING | — |
 | `Evm.Byzantium.Spec.IsBn256AddFail` | MISSING | — |
 | `Evm.Byzantium.Spec.IsBn256AddOk` | MISSING | — |
 | `Evm.Byzantium.Spec.IsBn256MulFail` | MISSING | — |
@@ -440,14 +435,12 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 53.
 | `Evm.Istanbul.Spec.IsPrecompile`<br>only instance/spec facts conclude this relation; the general implementation obligation is unproved: `Evm.Istanbul.Spec.extends_byzantium` | FACTS-ONLY | — |
 | `Evm.Istanbul.Spec.IsSelfbalanceStep` | PROVED | `Evm.Istanbul.Spec.Refinement.selfbalance_sound` |
 | `Evm.Istanbul.Spec.IsSstoreStep` | SORRY | `Evm.Istanbul.Spec.Refinement.sstore_sound` |
-| `Evm.London.Spec.IsBaseFeeBurnt` | SHAPE | `Evm.London.Spec.Refinement.baseFeeBurnt_sound_shape` |
 | `Evm.London.Spec.IsBasefeeStep` | PROVED | `Evm.London.Spec.Refinement.basefee_sound` |
-| `Evm.London.Spec.IsCalculatedBaseFee` | SHAPE | `Evm.London.Spec.Refinement.calculateBaseFee_sound_shape` |
-| `Evm.London.Spec.IsCoinbaseCredit` | SHAPE | `Evm.London.Spec.Refinement.coinbaseCredit_sound_shape` |
-| `Evm.London.Spec.IsRefundCapped` | SHAPE | `Evm.London.Spec.Refinement.refundCap_sound_shape` |
-| `Evm.London.Spec.IsSelfdestructRefundDelta` | SHAPE | `Evm.London.Spec.Refinement.selfdestructRefundDelta_sound_shape` |
-| `Evm.London.Spec.IsTxFeeDebit` | SHAPE | `Evm.London.Spec.Refinement.txFeeDebit_sound_shape` |
-| `Evm.London.Spec.IsValidDeployedCode`<br>instance/spec facts (do not discharge the general obligation): `Evm.London.Spec.empty_code_valid` | SHAPE | `Evm.London.Spec.Refinement.validDeployedCode_sound_shape` |
+| `Evm.London.Spec.IsCalculatedBaseFee` | PROVED | `Evm.London.Spec.Refinement.calculateBaseFee_sound` |
+| `Evm.London.Spec.IsFeeSettlement` | PROVED | `Evm.London.Spec.Refinement.feeSettlement_sound` |
+| `Evm.London.Spec.IsRefundCapped` | PROVED | `Evm.London.Spec.Refinement.refundCap_sound` |
+| `Evm.London.Spec.IsSelfdestructRefundDelta` | PROVED | `Evm.London.Spec.Refinement.selfdestructRefundDelta_sound` |
+| `Evm.London.Spec.IsValidDeployedCode`<br>instance/spec facts (do not discharge the general obligation): `Evm.London.Spec.empty_code_valid` | PROVED (+1 more) | `Evm.London.Spec.Refinement.validDeployedCode_tx_sound` |
 | `Evm.Osaka.Spec.IsClzStep` | SHAPE | `Evm.Osaka.Spec.Refinement.clz_sound_shape` |
 | `Evm.Osaka.Spec.IsP256VerifyStep` | SHAPE | `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` |
 | `Evm.Osaka.Spec.IsValidBlobCount` | SHAPE | `Evm.Osaka.Spec.Refinement.validBlobCount_sound_shape` |

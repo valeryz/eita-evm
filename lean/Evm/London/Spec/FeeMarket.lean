@@ -44,17 +44,10 @@
 
   * Encoded: the `effectivePrice` and `priorityFee` formulas as
     pure functions of `(maxFee, maxPriority, baseFee)`.
-  * Encoded: the coinbase-credit relation
-    `IsCoinbaseCredit gasUsed priorityFee credit`.
-  * Encoded: the burn relation
-    `IsBaseFeeBurnt gasUsed baseFee burntWei` — declared distinct
-    from the coinbase credit to make the two-flows nature of the
-    EIP-1559 fee market a first-class spec object.
-  * Encoded: the sender-deduction invariant
-    `IsTxFeeDebit sender gasUsed effectivePrice debited` — the
-    sender pays `gasUsed * effectivePrice`, which equals
-    `(coinbaseCredit + burnt)`. We state and prove the conservation
-    lemma.
+  * Encoded: the end-of-tx settlement `IsFeeSettlement` — the sender's
+    refund of the unused gas, the coinbase's priority-fee credit, no other
+    balance move (the base-fee share is burnt) — and the conservation
+    lemma `fee_conservation` (debit = credit + burn).
   * Glossed: the LEGACY/type-1 tx path is collapsed by the
     convention `priorityFee = gasPrice - baseFee, effectivePrice =
     gasPrice`. The relation here lives at the
@@ -70,6 +63,7 @@
 -/
 
 import Evm.BaseTypes
+import Evm.Frontier.State
 
 namespace Evm.London.Spec
 
@@ -97,32 +91,29 @@ def effectivePrice (maxFee maxPriority baseFee : Nat) : Nat :=
 def priorityFee (maxFee maxPriority baseFee : Nat) : Nat :=
   effectivePrice maxFee maxPriority baseFee - baseFee
 
-/-! ## Burn / credit split
+/-! ## The end-of-tx settlement (burn / credit split)
 
-    The sender pays `gasUsed * effectivePrice`. That payment splits
-    into two streams:
-      * `gasUsed * baseFee` — BURNT (no recipient).
-      * `gasUsed * priorityFee` — credited to the block coinbase. -/
+    The sender paid `gas_limit · effective_price` up front. At the end it
+    gets back the unused gas at the effective price, the coinbase gets the
+    priority fee on the gas used, and the base fee on the gas used is
+    credited to nobody: it is BURNT (`fee_conservation` below). -/
 
-/-- `IsCoinbaseCredit gasUsed priorityFee credit` — the coinbase's
-    EIP-1559 credit for a single tx. Note the multiplier is
-    `priorityFee`, NOT `effectivePrice`. -/
-def IsCoinbaseCredit (gasUsed priorityFeePerGas credit : Nat) : Prop :=
-  credit = gasUsed * priorityFeePerGas
-
-/-- `IsBaseFeeBurnt gasUsed baseFee burnt` — the wei the network
-    eliminates per tx. Equal to `gasUsed * baseFee`. The post-state
-    contains no balance increase by this amount anywhere; it is
-    deducted from the sender as part of the upfront cost and never
-    re-deposited. -/
-def IsBaseFeeBurnt (gasUsed baseFee burnt : Nat) : Prop :=
-  burnt = gasUsed * baseFee
-
-/-- `IsTxFeeDebit gasUsed effectivePrice debited` — the wei deducted
-    from the sender (per-tx fee portion only; the `value` field
-    transfers separately). Equals `gasUsed * effectivePrice`. -/
-def IsTxFeeDebit (gasUsed effectivePricePerGas debited : Nat) : Prop :=
-  debited = gasUsed * effectivePricePerGas
+/-- `IsFeeSettlement sender coinbase gasLimit gasUsed price baseFee pre post` — the
+    balance changes of EELS `forks/london/fork.py::process_transaction` 813-835:
+    `create_ether(sender, tx_gas_left · effective_gas_price)` with `tx_gas_left =
+    tx.gas − tx_gas_used_after_refund`, then the coinbase's balance `+= tx_gas_used ·
+    priority_fee_per_gas` (`priority_fee_per_gas = effective_gas_price − base_fee`); no
+    other balance moves (the base-fee share is burnt). Replaces the separate
+    `IsCoinbaseCredit` / `IsBaseFeeBurnt` / `IsTxFeeDebit` number equations, which no
+    implementation computed as such. -/
+def IsFeeSettlement (sender coinbase : Evm.Address)
+    (gasLimit gasUsed effectivePrice baseFee : Nat) (pre post : Evm.Frontier.State) : Prop :=
+  let refunded :=
+    pre.addBalance sender (Evm.U256.ofNat ((gasLimit - gasUsed) * effectivePrice))
+  (post.getAccount coinbase).balance
+      = (refunded.getAccount coinbase).balance
+          + Evm.U256.ofNat (gasUsed * (effectivePrice - baseFee)) ∧
+  ∀ a, a ≠ coinbase → (post.getAccount a).balance = (refunded.getAccount a).balance
 
 /-! ## Conservation theorem
 
