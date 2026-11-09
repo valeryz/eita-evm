@@ -51,10 +51,24 @@
  */
 #include <stdint.h>
 #include <string.h>
-#include <vector>
+#include <stdlib.h>
+
+/* A heap array without the C++ runtime: Lean executables link this file without
+ * libstdc++, so no std::vector / operator new here (std::__throw_length_error would
+ * be undefined at link time on Linux). Allocation failure aborts, as bad_alloc did. */
+template <class T> struct HeapArr {
+    T *p;
+    explicit HeapArr(size_t k) : p((T *) malloc(k ? k * sizeof(T) : 1)) { if (!p) abort(); }
+    ~HeapArr() { free(p); }
+    HeapArr(const HeapArr &) = delete;
+    HeapArr &operator=(const HeapArr &) = delete;
+    T &operator[](size_t i) { return p[i]; }
+    T *data() { return p; }
+};
 #include "blst.h"
 #ifndef EITA_NO_LEAN_WRAPPER
 #include <lean/lean.h>
+
 #endif
 
 /* p = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f624
@@ -222,7 +236,7 @@ int eita_bls_g1msm(const uint8_t *in, size_t len, uint8_t *out) {
     size_t k = len / G1MSM_PAIR;
     /* Parse everything before computing: a later invalid pair must reject the
      * whole call, not return a partial sum. */
-    std::vector<blst_p1_affine> pts(k);
+    HeapArr<blst_p1_affine> pts(k);
     for (size_t i = 0; i < k; i++)
         if (!g1_from_be(&pts[i], in + i * G1MSM_PAIR, 1)) return 0;   /* subgroup required */
     blst_p1 acc;
@@ -239,7 +253,7 @@ int eita_bls_g1msm(const uint8_t *in, size_t len, uint8_t *out) {
 int eita_bls_g2msm(const uint8_t *in, size_t len, uint8_t *out) {
     if (len == 0 || len % G2MSM_PAIR != 0) return 0;
     size_t k = len / G2MSM_PAIR;
-    std::vector<blst_p2_affine> pts(k);
+    HeapArr<blst_p2_affine> pts(k);
     for (size_t i = 0; i < k; i++)
         if (!g2_from_be(&pts[i], in + i * G2MSM_PAIR, 1)) return 0;
     blst_p2 acc;
@@ -258,8 +272,8 @@ int eita_bls_pairing(const uint8_t *in, size_t len, uint8_t *out) {
      * empty product and returns 1. Confirmed against the chain. */
     if (len == 0 || len % PAIRING_PAIR != 0) return 0;
     size_t k = len / PAIRING_PAIR;
-    std::vector<blst_p1_affine> g1(k);
-    std::vector<blst_p2_affine> g2(k);
+    HeapArr<blst_p1_affine> g1(k);
+    HeapArr<blst_p2_affine> g2(k);
     for (size_t i = 0; i < k; i++) {
         const uint8_t *p = in + i * PAIRING_PAIR;
         if (!g1_from_be(&g1[i], p, 1)) return 0;         /* subgroup required */
@@ -402,8 +416,8 @@ LEAN_EXPORT uint8_t lean_bls_oracle_pairing_check(b_lean_obj_arg pairs) {
     if (len % PAIRING_PAIR != 0) return 0;
     size_t k = len / PAIRING_PAIR;
     const uint8_t *in = lean_sarray_cptr(pairs);
-    std::vector<blst_p1_affine> g1(k);
-    std::vector<blst_p2_affine> g2(k);
+    HeapArr<blst_p1_affine> g1(k);
+    HeapArr<blst_p2_affine> g2(k);
     for (size_t i = 0; i < k; i++) {
         if (!g1_from_be(&g1[i], in + i * PAIRING_PAIR, 0)) memset(&g1[i], 0, sizeof g1[i]);
         if (!g2_from_be(&g2[i], in + i * PAIRING_PAIR + G1_BYTES, 0)) memset(&g2[i], 0, sizeof g2[i]);
