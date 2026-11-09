@@ -343,14 +343,16 @@
 ;; write stream on now so the first block's SSTOREs are seen too. Its events go nowhere (the
 ;; two view-log functions are wrapped above), the attach below keeps it on.
 (setf *observe-calls* t *capture-reads* t)
+;; The per-tx file opens now, not at attach: attach runs after the first block, whose txs
+;; would otherwise be missing from txs.tsv (the totals were never affected).
+(when (nonempty-env "REPRICE_TX_TSV")
+  (ensure-directories-exist (rp-out "x"))
+  (setf *rp-tx-out* (open (rp-out "txs.tsv") :direction :output :if-exists :supersede))
+  (format *rp-tx-out* "block	tx	to	real_gas	repriced_gas	d_exec	state_gas	d_refund	status	type4~%"))
 (setf eita.state:*observer*
       (make-observer
        :name "reprice-8037-8038"
        :attach (lambda ()
-                 (when (nonempty-env "REPRICE_TX_TSV")
-                   (ensure-directories-exist (rp-out "x"))
-                   (setf *rp-tx-out* (open (rp-out "txs.tsv") :direction :output :if-exists :supersede))
-                   (format *rp-tx-out* "block	tx	to	real_gas	repriced_gas	d_exec	state_gas	d_refund	status	type4~%"))
                  ;; a reads subscriber turns the storage view's write stream on (SSTOREs)
                  (attach-subscriber! "reprice-reads" (lambda (ev) ev) :wants-reads t
                                                      :on-finalize #'rp-report))
