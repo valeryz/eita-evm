@@ -38,6 +38,13 @@
 'Evm.CL.BlobEnv.blobbasefee_is_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.BlobEnv.blobhash_is_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.CL.HostEmit.createCollision_eq_spec' does not depend on any axioms
+'Evm.CL.RepriceEmit.osakaSstore_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.RepriceEmit.amsSstore_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.CL.RepriceEmit.osakaCallCharge_eq_spec' depends on axioms: [propext]
+'Evm.CL.RepriceEmit.amsCall_eq_spec' depends on axioms: [propext]
+'Evm.CL.RepriceEmit.amsTxGasUsed_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.Amsterdam.Vm.Gas.credit_after_charge' depends on axioms: [propext, Quot.sound]
+'Evm.Amsterdam.Vm.Gas.allocate_split' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Arc.Spec.BlockSystem.nextBaseFeeExpr_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec' depends on axioms: [propext, Quot.sound]

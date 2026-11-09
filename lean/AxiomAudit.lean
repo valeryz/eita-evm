@@ -32,6 +32,7 @@ import Evm.CL.MemExpandSpec
 import Evm.CL.GasEmitLondon
 import Evm.CL.GasEmitCancun
 import Evm.CL.GasEmitPrague
+import Evm.CL.RepriceEmit
 import Evm.CL.Flags
 import Evm.CL.ForkEmit
 import Evm.CL.HeaderEmit
@@ -127,6 +128,16 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.BlobEnv.blobbasefee_is_spec
 #print axioms Evm.CL.BlobEnv.blobhash_is_spec
 #print axioms Evm.CL.HostEmit.createCollision_eq_spec
+
+-- The re-costing tool's prices == Osaka's schedule / EIP-8037/8038 (EELS 636b5f1); the
+-- EIP-8037 gas meter's facts.
+#print axioms Evm.CL.RepriceEmit.osakaSstore_eq_spec
+#print axioms Evm.CL.RepriceEmit.amsSstore_eq_spec
+#print axioms Evm.CL.RepriceEmit.osakaCallCharge_eq_spec
+#print axioms Evm.CL.RepriceEmit.amsCall_eq_spec
+#print axioms Evm.CL.RepriceEmit.amsTxGasUsed_eq_spec
+#print axioms Evm.Amsterdam.Vm.Gas.credit_after_charge
+#print axioms Evm.Amsterdam.Vm.Gas.allocate_split
 
 -- Arc host spec + ARM64 semantics-of-gas lemmas.
 #print axioms Evm.Arc.Spec.BlockSystem.nextBaseFeeExpr_eq_spec

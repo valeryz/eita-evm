@@ -88,8 +88,10 @@ abbrev Block      := Evm.Prague.Block
 abbrev BlockResult := Evm.Prague.BlockResult
 
 /-- Run one transaction: `Evm.Frontier.Vm.Tx.run` at Amsterdam (fork ordinal 21) with
-    Amsterdam's trampoline — Osaka's tx level (EELS Amsterdam's state-gas reservoir and block
-    access list are not in the Lean spec; recorded in `Evm.Frontier.Vm.Tx`). -/
+    Amsterdam's trampoline — Osaka's tx level. EIP-8037's two-pool gas meter and the
+    EIP-8037/8038 prices are specified in `Evm.Amsterdam.Vm.Gas` / `Evm.Amsterdam.Vm.StatePricing`
+    (EELS 636b5f1) but NOT wired in here: this still runs Osaka's single pool and schedule
+    (the block access list is likewise absent; recorded in `Evm.Frontier.Vm.Tx`). -/
 def processTransaction
     (state       : Evm.Prague.State)
     (header      : Evm.Prague.Header)

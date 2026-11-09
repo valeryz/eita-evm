@@ -49,6 +49,15 @@ else
   diff ../src/generated/host.lisp /tmp/_host_emit_check.lisp | head -20
   exit 1
 fi
+# ...the re-costing tool's prices (scripts/reprice.lisp; not loaded by the replay)...
+build /tmp/_reprice_emit_build.log emitRepriceCL
+emit /tmp/_reprice_emit_run.err /tmp/_reprice_emit_check.lisp lake env ./.lake/build/bin/emitRepriceCL
+if cmp -s ../scripts/generated/reprice-amsterdam.lisp /tmp/_reprice_emit_check.lisp; then
+  echo "scripts/generated/reprice-amsterdam.lisp up to date with the Lean emitter OK"
+else
+  echo "DRIFT: scripts/generated/reprice-amsterdam.lisp != lake exe emitRepriceCL"
+  echo "  fix: (cd lean && lake exe emitRepriceCL > ../scripts/generated/reprice-amsterdam.lisp)"; exit 1
+fi
 # ...the derived effect callbacks still carry their proofs against the fork specs (the
 # emitter builds the IR terms only; a proof that stopped checking is drift too)...
 EFFECT_PROOFS="Evm.CL.EffectSelfdestructProof Evm.CL.EffectSettleProof Evm.CL.EffectEndTxProof Evm.CL.EffectSstoreProof Evm.CL.EffectSloadProof Evm.CL.EffectCreateProof Evm.CL.EffectCallProof Evm.CL.EffectTxProof Evm.CL.EffectSystemProof Evm.CL.EffectBlockProof"
