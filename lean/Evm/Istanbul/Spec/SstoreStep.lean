@@ -73,12 +73,18 @@
     * Berlin (EIP-2929) cold/warm surcharge: layered ON TOP of EIP-2200
       one fork later, not here.
 
-  ## Refund clamping
-  EELS represents `refund` as a signed `int`. We're storing a `Nat`,
-  so subtraction clamps at 0. EELS guarantees the running counter is
-  ≥ 0 at the tx level, but per-frame it CAN attempt to go negative
-  (the "cancel earlier clear" line 89-91 can underrun). The clamp is
-  identical to Constantinople's; see the helper there.
+  ## Refund counter: EELS's integer arithmetic, no clamp
+  EELS represents `refund` as a signed `int` and adds the three deltas
+  (`storage.py` 84-104). The relation states `R' = R + delta` with
+  `0 ≤ R + delta`: the "cancel earlier clear" subtraction (89-91) never
+  goes below zero at the tx level because the earlier clear of the same
+  slot in the same tx paid it. The refinement proves this from the
+  tx-level invariant `Evm.Constantinople.Spec.RefundInv`, which the step
+  preserves. (Corrected 2026-11-09: the relation used to clamp the sum at
+  0; the implementation clamps each delta in turn. The two disagree when
+  the counter is below 15000 on the cancel branch, e.g. refund 0,
+  original ≠ 0, current = 0, new = original: clamp-in-turn 4200, clamp-
+  once 0, EELS −10800 — a state the invariant rules out.)
 -/
 
 import Evm.Frontier.Vm
@@ -91,15 +97,6 @@ namespace Evm.Istanbul.Spec
 open Evm.Frontier (State)
 open Evm.Frontier.Vm
 
-/-- Signed-counter add over `Nat`; clamps at 0 on underflow. EIP-2200
-    issues then occasionally cancels 15000-gas refunds. Identical to
-    Constantinople's helper. -/
-private def adjustRefund (n : Nat) (delta : Int) : Nat :=
-  if delta ≥ 0 then n + delta.toNat
-  else
-    let sub := (-delta).toNat
-    if n ≥ sub then n - sub else 0
-
 /-- 0x55 SSTORE under EIP-2200 (Istanbul).
 
     Pre-conditions:
@@ -109,7 +106,8 @@ private def adjustRefund (n : Nat) (delta : Int) : Nat :=
       * `evm.gasLeft ≥ cost` (cost depends on the slot's state)
 
     Post-state: stack popped twice, gas charged, storage updated,
-    refund counter adjusted (clamped at 0), pc advanced by 1.
+    refund counter moved by the integer delta (which keeps it ≥ 0), pc
+    advanced by 1.
 
     See file docstring for the full nine-case cost / refund table. -/
 def IsSstoreStep (evm evm' : Evm) : Prop :=
@@ -152,12 +150,13 @@ def IsSstoreStep (evm evm' : Evm) : Prop :=
           else 0
         dClear + dUnclear + dResetToOrig
     evm.gasLeft ≥ cost ∧
+    0 ≤ (evm.env.refundCounter : Int) + refundDelta ∧
     evm' = { evm with
       stack   := rest,
       gasLeft := evm.gasLeft - cost,
       env     := { evm.env with
         state         := evm.env.state.setStorage addr key newValue,
-        refundCounter := adjustRefund evm.env.refundCounter refundDelta },
+        refundCounter := ((evm.env.refundCounter : Int) + refundDelta).toNat },
       pc      := evm.pc + 1 }
 
 end Evm.Istanbul.Spec

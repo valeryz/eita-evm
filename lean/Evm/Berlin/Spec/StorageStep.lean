@@ -81,6 +81,28 @@ open Evm.Frontier.Vm
     SSTORE surcharge. EELS `forks/berlin/vm/gas.py` `GasCosts`. -/
 abbrev coldSloadCost : Nat := coldStorageCost
 
+/-! ## The original-value cache
+
+    EELS reads `original_value` from the tx-start snapshot
+    (`get_storage_original`, `forks/berlin/state.py`). The implementation keeps a
+    per-tx cache `env.storageOriginals` instead: the first SLOAD/SSTORE of a slot
+    records its value, and an uncached slot's original is its current value. The
+    cache means the snapshot exactly when `OrigInv` holds — every cached value is
+    the tx-start value and every uncached slot is unchanged since tx start. The
+    relations below leave the cache's representation free and pin its meaning:
+    `OrigInv` of the post-environment. -/
+
+/-- The implementation's original-value lookup: the cached entry, else the current
+    value (`Evm.Berlin.Vm.Effect.getOriginal env a k (env.state.getStorage a k)`). -/
+def cachedOriginal (env : Environment) (a : Evm.Address) (k : Evm.U256) : Evm.U256 :=
+  match env.storageOriginals.find? (fun (p, _) => p = (a, k)) with
+  | some (_, v) => v
+  | none        => env.state.getStorage a k
+
+/-- The cache agrees with the tx-start world on every slot. -/
+def OrigInv (env : Environment) : Prop :=
+  ∀ a k, cachedOriginal env a k = env.originalState.getStorage a k
+
 /-! ## SLOAD (0x54) — Berlin
 
     Pop slot, push value at `(currentTarget, slot)`. Gas:
@@ -99,13 +121,15 @@ def IsSloadStep (evm evm' : Evm) : Prop :=
     let cost := if wasCold then coldSloadCost else warmAccessCost
     evm.gasLeft ≥ cost ∧
     let v := evm.env.state.getStorage addr slot
+    OrigInv evm'.env ∧
     evm' = { evm with
       stack   := v :: rest,
       gasLeft := evm.gasLeft - cost,
       env     := { evm.env with
         accessedStorageKeys :=
           if wasCold then evm.env.accessedStorageKeys ++ [(addr, slot)]
-          else evm.env.accessedStorageKeys },
+          else evm.env.accessedStorageKeys,
+        storageOriginals := evm'.env.storageOriginals },
       pc      := evm.pc + 1 }
 
 /-! ## SSTORE (0x55) — Berlin (EIP-2929 on top of EIP-2200)
@@ -137,14 +161,18 @@ def IsSloadStep (evm evm' : Evm) : Prop :=
     check are inherited from Istanbul; EELS preserves them at
     Berlin.
 
+    Refund counter: EELS's `int` arithmetic — the relation states
+    `R' = R + delta` with `0 ≤ R + delta` (no clamp); the refinement gets
+    the bound from the tx-level `Evm.Constantinople.Spec.RefundInv`.
+    Corrected 2026-11-09: the relation used to clamp each delta in turn
+    (the implementation's discipline), not EELS's integer sum.
+
+    `original` is EELS's tx-start value (`originalState`); the
+    implementation's cache must agree (`OrigInv`, a precondition of the
+    refinement and a conjunct of the post-state).
+
     Refund-cap reduction (1/2 → 1/5) is at London (EIP-3529); see
     `London/Spec/RefundCap.lean`. -/
-
-private def adjustRefund (n : Nat) (delta : Int) : Nat :=
-  if delta ≥ 0 then n + delta.toNat
-  else
-    let sub := (-delta).toNat
-    if n ≥ sub then n - sub else 0
 
 /-- EIP-2200 trip-wire, unchanged at Berlin. EELS preserves the
     `if evm.gas_left <= GasCosts.CALL_STIPEND: raise OutOfGasError`
@@ -185,37 +213,31 @@ def IsSstoreStep (evm evm' : Evm) : Prop :=
         warmAccessCost
     let totalCost := coldDelta + mainCost
     evm.gasLeft ≥ totalCost ∧
-    -- EIP-2200 refund branch (same structure as Istanbul, but the
-    -- "restore-to-original" delta uses WARM_ACCESS_COST instead of
-    -- SLOAD; see module docstring).
-    let refundCounter : Nat :=
+    -- EIP-2200 refund branch (EELS 99-116): one integer sum of the three
+    -- deltas, the restore-to-original delta in WARM_ACCESS terms.
+    let refundDelta : Int :=
       if current ≠ value then
-        let r0 := evm.env.refundCounter
-        let r1 :=
-          if original ≠ (0 : Evm.U256) ∧ current ≠ (0 : Evm.U256) ∧
-             value = (0 : Evm.U256) then
-            adjustRefund r0 (sstoreClearRefund : Int)
-          else r0
-        let r2 :=
-          if original ≠ (0 : Evm.U256) ∧ current = (0 : Evm.U256) then
-            adjustRefund r1 (- (sstoreClearRefund : Int))
-          else r1
-        if original = value then
-          if original = (0 : Evm.U256) then
-            adjustRefund r2 ((sstoreSet - warmAccessCost : Nat) : Int)
-          else
-            adjustRefund r2 ((sstoreReset - coldSloadCost - warmAccessCost : Nat) : Int)
-        else r2
-      else evm.env.refundCounter
+        (if original ≠ (0 : Evm.U256) ∧ current ≠ (0 : Evm.U256) ∧
+            value = (0 : Evm.U256) then (sstoreClearRefund : Int) else 0) +
+        (if original ≠ (0 : Evm.U256) ∧ current = (0 : Evm.U256) then
+            -(sstoreClearRefund : Int) else 0) +
+        (if original = value then
+            (if original = (0 : Evm.U256) then ((sstoreSet - warmAccessCost : Nat) : Int)
+             else ((sstoreReset - coldSloadCost - warmAccessCost : Nat) : Int))
+          else 0)
+      else 0
+    0 ≤ (evm.env.refundCounter : Int) + refundDelta ∧
+    OrigInv evm'.env ∧
     evm' = { evm with
       stack   := rest,
       gasLeft := evm.gasLeft - totalCost,
       env     := { evm.env with
         state         := evm.env.state.setStorage addr slot value,
-        refundCounter := refundCounter,
+        refundCounter := ((evm.env.refundCounter : Int) + refundDelta).toNat,
         accessedStorageKeys :=
           if wasCold then evm.env.accessedStorageKeys ++ [(addr, slot)]
-          else evm.env.accessedStorageKeys },
+          else evm.env.accessedStorageKeys,
+        storageOriginals := evm'.env.storageOriginals },
       pc      := evm.pc + 1 }
 
 end Evm.Berlin.Spec

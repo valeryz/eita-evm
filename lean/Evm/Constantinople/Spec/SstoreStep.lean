@@ -37,11 +37,22 @@
             - if `original == 0`:    refund += 19800  (`sSetRefund`)
             - if `original != 0`:    refund += 4800   (`sResetRefund`)
 
-  ## Refund-counter clamping
-  The on-chain refund counter is unsigned (a `Nat`). EIP-1283 emits
-  negative deltas (the "cancel earlier clear" branch) but guarantees
-  the running total can't go below 0 if the earlier credit was issued
-  in the same transaction. We mirror the implementation's clamp at 0.
+  ## Refund counter: integer arithmetic, no clamp
+  EIP-1283 emits a negative delta (the "cancel earlier clear" branch);
+  the running tx total cannot go below 0 because the earlier clear of
+  the same slot in the same tx paid the 15000 back. The relation states
+  the integer update `R' = R + delta` together with `0 ≤ R + delta`
+  (no clamp). The refinement proves it from the tx-level invariant
+  `Evm.Constantinople.Spec.RefundInv` (one 15000 credit per slot that is
+  non-zero at tx start and zero now), which the step itself preserves.
+  (Corrected 2026-11-09: the relation used to clamp at 0, mirroring the
+  implementation rather than the EIP.)
+
+  ## Oracle
+  EELS has no EIP-1283: `forks/constantinople/vm/instructions/storage.py`
+  (main 636b5f1) is the post-Petersburg schedule. The oracle for this
+  relation is the EIP text and the legacy Constantinople state tests
+  (`GeneralStateTests/stSStoreTest`, pre-Petersburg fillers).
 
   ## What this relation does NOT cover
   * EIP-1706 stipend trip-wire — a Petersburg / Istanbul-era addition,
@@ -62,14 +73,6 @@ namespace Evm.Constantinople.Spec
 open Evm.Frontier (State)
 open Evm.Frontier.Vm
 
-/-- Signed-counter add over `Nat`, clamping at 0 on underflow.
-    EIP-1283 issues then occasionally cancels 15000-gas refunds. -/
-private def adjustRefund (n : Nat) (delta : Int) : Nat :=
-  if delta ≥ 0 then n + delta.toNat
-  else
-    let sub := (-delta).toNat
-    if n ≥ sub then n - sub else 0
-
 /-- 0x55 SSTORE under EIP-1283 (Constantinople flavour).
 
     Pre-conditions:
@@ -81,7 +84,8 @@ private def adjustRefund (n : Nat) (delta : Int) : Nat :=
 
     Post-state:
       * stack popped twice, gas charged, storage updated, refund
-        counter adjusted (clamped at 0), pc advanced by 1.
+        counter moved by the integer delta (which keeps it ≥ 0), pc
+        advanced by 1.
 
     See file docstring for the full nine-case branching. -/
 def IsSstoreStep (evm evm' : Evm) : Prop :=
@@ -124,12 +128,13 @@ def IsSstoreStep (evm evm' : Evm) : Prop :=
             else 0
           dCancelOrIssue + dResetToOrig
     evm.gasLeft ≥ cost ∧
+    0 ≤ (evm.env.refundCounter : Int) + refundDelta ∧
     evm' = { evm with
       stack   := rest,
       gasLeft := evm.gasLeft - cost,
       env     := { evm.env with
         state         := evm.env.state.setStorage addr key value,
-        refundCounter := adjustRefund evm.env.refundCounter refundDelta },
+        refundCounter := ((evm.env.refundCounter : Int) + refundDelta).toNat },
       pc      := evm.pc + 1 }
 
 end Evm.Constantinople.Spec

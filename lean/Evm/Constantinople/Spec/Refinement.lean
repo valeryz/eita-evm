@@ -24,11 +24,13 @@ import Evm.Frontier.Spec.Refinement
 import Evm.Constantinople.Spec.BitwiseStep
 import Evm.Constantinople.Spec.ExtcodehashStep
 import Evm.Constantinople.Spec.SstoreStep
+import Evm.Constantinople.Spec.RefundInv
 import Evm.Constantinople.Spec.Create2Step
 import Evm.Constantinople.Vm.Instructions.Bitwise
 import Evm.Constantinople.Vm.Instructions.Environment
 import Evm.Constantinople.Vm.Instructions.Storage
 import Evm.Constantinople.Vm.Effect
+import Mathlib.Tactic.SplitIfs
 
 namespace Evm.Constantinople.Spec.Refinement
 
@@ -133,14 +135,106 @@ theorem extcodehash_sound (evm evm' : Evm) :
 
 /-! ## EIP-1283 SSTORE -/
 
-/-- 0x55 SSTORE under EIP-1283 net-metering refines `IsSstoreStep`.
-    Nine-case decision tree with refund counter (clamped at 0)
-    deltas — the heaviest opcode refinement in this fork. Left as
-    `sorry` per methodology; the spec captures the obligations. -/
-theorem sstore_sound (evm evm' : Evm) :
+/-- The EIP-1283 cost/refund table, case by case: the implementation's
+    `sstoreGas` (one signed sum, clamped once) is the relation's
+    `(cost, R + delta)`, and under the slot-local refund bound the sum is
+    already non-negative (so the clamp never fires). -/
+theorem sstoreGas_eq (R : Nat) (o c v : Evm.U256)
+    (hR : o ≠ 0 → c = 0 → 15000 ≤ R) :
+    let cost : Nat :=
+      if c = v then Evm.Constantinople.Vm.Gas.sLoadGas
+      else if o = c then (if o = (0 : Evm.U256) then Gas.sSet else Gas.sReset)
+      else Evm.Constantinople.Vm.Gas.sLoadGas
+    let delta : Int :=
+      if c = v then 0
+      else if o = c then
+        (if o ≠ (0 : Evm.U256) ∧ v = (0 : Evm.U256) then (Gas.sClearRefund : Int) else 0)
+      else
+        (if o ≠ (0 : Evm.U256) then
+            (if c = (0 : Evm.U256) then -(Gas.sClearRefund : Int) else 0) +
+            (if v = (0 : Evm.U256) then (Gas.sClearRefund : Int) else 0)
+          else 0) +
+        (if o = v then
+            (if o = (0 : Evm.U256) then (Evm.Constantinople.Vm.Gas.sSetRefund : Int)
+             else (Evm.Constantinople.Vm.Gas.sResetRefund : Int))
+          else 0)
+    Evm.Constantinople.Vm.Instructions.sstoreGas R o c v = (cost, ((R : Int) + delta).toNat) ∧
+    0 ≤ (R : Int) + delta := by
+  intro cost delta
+  have hclamp : ∀ x : Int, (if x < 0 then 0 else x.toNat) = x.toNat := by
+    intro x; split <;> omega
+  unfold Evm.Constantinople.Vm.Instructions.sstoreGas
+  simp only [cost, delta, Gas.sClearRefund, Gas.sSet, Gas.sReset,
+    Evm.Constantinople.Vm.Gas.sLoadGas, Evm.Constantinople.Vm.Gas.sSetRefund,
+    Evm.Constantinople.Vm.Gas.sResetRefund, ne_eq] at hR ⊢
+  by_cases hoc0 : o ≠ 0 ∧ c = 0
+  · have hR15 : 15000 ≤ R := hR hoc0.1 hoc0.2
+    clear hR
+    split_ifs <;> dsimp only at * <;> (try simp only [Prod.mk.injEq, true_and]) <;>
+      first | omega | (exfalso; tauto)
+  · clear hR
+    split_ifs <;> dsimp only at * <;> (try simp only [Prod.mk.injEq, true_and]) <;>
+      first | omega | (exfalso; tauto)
+
+/-- 0x55 SSTORE under EIP-1283 net metering refines `IsSstoreStep`: the
+    nine-case table of EIP-1283 §Specification (the relation's docstring),
+    storage written, refund counter moved by the integer delta.
+
+    Precondition: the tx-level refund invariant `RefundInv` (one 15000 credit
+    per slot non-zero at tx start and zero now; `refundInv_init` gives it at tx
+    start, `sstoreStep_refundInv` shows this step keeps it). Without it the
+    "cancel earlier clear" branch would underflow the counter.
+
+    Oracle: EELS has no EIP-1283 (`forks/constantinople/vm/instructions/
+    storage.py` at main 636b5f1 is the post-Petersburg schedule); the EIP text
+    and the legacy pre-Petersburg Constantinople state tests are the oracle. -/
+theorem sstore_sound (evm evm' : Evm)
+    (hInv : RefundInv Gas.sClearRefund evm.env.originalState evm.env.state
+      evm.env.refundCounter) :
     Evm.Constantinople.Vm.Instructions.sstore evm = .ok evm' →
     IsSstoreStep evm evm' := by
-  intro _; sorry
+  intro h
+  unfold Evm.Constantinople.Vm.Instructions.sstore at h
+  by_cases hs : evm.message.isStatic = true
+  · simp [hs, bind, Except.bind] at h
+  · have hs' : evm.message.isStatic = false := by simpa using hs
+    simp only [hs', Bool.false_eq_true, ite_false, bind,
+      Evm.Frontier.Vm.Spec.Except.bind_eq_ok] at h
+    rcases h with ⟨⟨key, value, rest⟩, hp, h⟩
+    obtain hStack := (Evm.Frontier.Vm.Spec.Stack.pop2_eq_ok_iff _ _ _ _).mp hp
+    have hR : evm.env.originalState.getStorage evm.message.currentTarget key ≠ 0 →
+        evm.env.state.getStorage evm.message.currentTarget key = 0 →
+        15000 ≤ evm.env.refundCounter :=
+      fun ho hc => refundInv_slot hInv _ _ ho hc
+    obtain ⟨hgas, hnn⟩ := sstoreGas_eq evm.env.refundCounter
+      (evm.env.originalState.getStorage evm.message.currentTarget key)
+      (evm.env.state.getStorage evm.message.currentTarget key) value hR
+    rw [hgas] at h
+    simp only at h
+    rcases h with ⟨g, hg, h⟩
+    obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+    simp only [pure, Except.pure, Except.ok.injEq] at h
+    subst h
+    exact ⟨key, value, rest, hStack, hs', hle, hnn, rfl⟩
+
+/-- The EIP-1283 step keeps the refund invariant: each branch's refund move pays
+    15000 for a newly cleared slot and takes at most 15000 back for an un-cleared
+    one (`refundInv_setStorage`). -/
+theorem sstoreStep_refundInv (evm evm' : Evm) (h : IsSstoreStep evm evm')
+    (hInv : RefundInv Gas.sClearRefund evm.env.originalState evm.env.state
+      evm.env.refundCounter) :
+    RefundInv Gas.sClearRefund evm'.env.originalState evm'.env.state
+      evm'.env.refundCounter := by
+  obtain ⟨key, value, rest, _, _, _, hnn, rfl⟩ := h
+  simp only at hnn ⊢
+  apply refundInv_setStorage hInv
+  have hR := fun ho hc => refundInv_slot hInv evm.message.currentTarget key ho hc
+  generalize evm.env.originalState.getStorage evm.message.currentTarget key = o at hnn hR ⊢
+  generalize evm.env.state.getStorage evm.message.currentTarget key = c at hnn hR ⊢
+  generalize evm.env.refundCounter = R at hnn hR ⊢
+  simp only [Gas.sClearRefund, Evm.Constantinople.Vm.Gas.sSetRefund,
+    Evm.Constantinople.Vm.Gas.sResetRefund] at hnn hR ⊢
+  split_ifs <;> simp_all <;> omega
 
 /-! ## EIP-1014 CREATE2
 

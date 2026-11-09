@@ -17,34 +17,34 @@ For axiom-clean verification of the derived-code layer see
 statement mention + namespace (open/import), never bare-name
 matching across forks.
 
-Reconciliation with the repo-wide 10 sorries: Section A
-counts 3 (relation theorems in `Evm/*/Spec/*.lean` and the
+Reconciliation with the repo-wide 7 sorries: Section A
+counts 0 (relation theorems in `Evm/*/Spec/*.lean` and the
 curated composition layer `Evm/IR/Soundness.lean`). By file,
-all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refinement` (1), `Frontier/Spec/Refinement` (1), `Istanbul/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Petersburg/Spec/Refinement` (1), `Trie/Stack` (3).
+all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Frontier/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Trie/Stack` (3).
 
 ## A. Spec-relation theorem inventory (budget-enforced)
 
 | fork | proved | sorry | shape | unsuffixed | total |
 |---|---:|---:|---:|---:|---:|
 | Amsterdam | 4 | 0 | 1 | 0 | 5 |
-| Berlin | 2 | 0 | 2 | 0 | 4 |
+| Berlin | 4 | 0 | 0 | 0 | 4 |
 | Byzantium | 4 | 0 | 0 | 0 | 4 |
 | Cancun | 7 | 0 | 4 | 0 | 11 |
-| Constantinople | 4 | 1 | 0 | 0 | 5 |
+| Constantinople | 5 | 0 | 0 | 0 | 5 |
 | Frontier | 54 | 0 | 0 | 0 | 54 |
 | Homestead | 2 | 0 | 0 | 0 | 2 |
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
-| Istanbul | 3 | 1 | 1 | 0 | 5 |
+| Istanbul | 4 | 0 | 1 | 0 | 5 |
 | London | 8 | 0 | 0 | 0 | 8 |
 | Osaka | 3 | 0 | 2 | 0 | 5 |
 | Paris | 3 | 0 | 1 | 0 | 4 |
-| Petersburg | 0 | 1 | 0 | 0 | 1 |
+| Petersburg | 1 | 0 | 0 | 0 | 1 |
 | Prague | 0 | 0 | 12 | 0 | 12 |
 | Shanghai | 4 | 0 | 0 | 0 | 4 |
 | SpuriousDragon | 5 | 0 | 2 | 0 | 7 |
-| **total** | **166** | **3** | **25** | **0** | **194** |
+| **total** | **171** | **0** | **23** | **0** | **194** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 23.
 
 ### Amsterdam
 
@@ -58,8 +58,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 
 - PROVED `accessAddress_sound` (Refinement.lean)
 - PROVED `accessStorage_sound` (Refinement.lean)
-- SHAPE `sload_sound_shape` (Refinement.lean)
-- SHAPE `sstore_sound_shape` (Refinement.lean)
+- PROVED `sload_sound` (Refinement.lean)
+- PROVED `sstore_sound` (Refinement.lean)
 
 ### Byzantium
 
@@ -88,7 +88,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 - PROVED `sar_sound` (Refinement.lean)
 - PROVED `shl_sound` (Refinement.lean)
 - PROVED `shr_sound` (Refinement.lean)
-- SORRY `sstore_sound` (Refinement.lean)
+- PROVED `sstore_sound` (Refinement.lean)
 
 ### Frontier
 
@@ -224,7 +224,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 - SHAPE `blake2f_sound_shape` (Refinement.lean)
 - PROVED `chainid_sound` (Refinement.lean)
 - PROVED `selfbalance_sound` (Refinement.lean)
-- SORRY `sstore_sound` (Refinement.lean)
+- PROVED `sstore_sound` (Refinement.lean)
 
 ### London
 
@@ -254,7 +254,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 
 ### Petersburg
 
-- SORRY `sstore_sound` (Refinement.lean)
+- PROVED `sstore_sound` (Refinement.lean)
 
 ### Prague
 
@@ -290,7 +290,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 
 ## B. Relation coverage, fully qualified (informational)
 
-195 qualified relations: facts-only 3, missing 99, proved 65, shape 25, sorry 3, spec-is-impl 1.
+195 qualified relations: facts-only 3, missing 99, proved 70, shape 23, spec-is-impl 1.
 
 | relation | status | resolving theorem |
 |---|---|---|
@@ -301,8 +301,8 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 | `Evm.Amsterdam.Spec.IsValidDeployedCodeSize` | SHAPE | `Evm.Amsterdam.Spec.Refinement.validDeployedCodeSize_sound_shape` |
 | `Evm.Berlin.Spec.IsAccessAddressStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessAddress_sound` |
 | `Evm.Berlin.Spec.IsAccessStorageStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessStorage_sound` |
-| `Evm.Berlin.Spec.IsSloadStep` | SHAPE | `Evm.Berlin.Spec.Refinement.sload_sound_shape` |
-| `Evm.Berlin.Spec.IsSstoreStep` | SHAPE | `Evm.Berlin.Spec.Refinement.sstore_sound_shape` |
+| `Evm.Berlin.Spec.IsSloadStep` | PROVED | `Evm.Berlin.Spec.Refinement.sload_sound` |
+| `Evm.Berlin.Spec.IsSstoreStep` | PROVED | `Evm.Berlin.Spec.Refinement.sstore_sound` |
 | `Evm.Byzantium.Spec.IsBn256AddFail` | MISSING | — |
 | `Evm.Byzantium.Spec.IsBn256AddOk` | MISSING | — |
 | `Evm.Byzantium.Spec.IsBn256MulFail` | MISSING | — |
@@ -334,7 +334,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 | `Evm.Constantinople.Spec.IsSarStep` | PROVED | `Evm.Constantinople.Spec.Refinement.sar_sound` |
 | `Evm.Constantinople.Spec.IsShlStep` | PROVED | `Evm.Constantinople.Spec.Refinement.shl_sound` |
 | `Evm.Constantinople.Spec.IsShrStep` | PROVED | `Evm.Constantinople.Spec.Refinement.shr_sound` |
-| `Evm.Constantinople.Spec.IsSstoreStep` | SORRY | `Evm.Constantinople.Spec.Refinement.sstore_sound` |
+| `Evm.Constantinople.Spec.IsSstoreStep` | PROVED | `Evm.Constantinople.Spec.Refinement.sstore_sound` |
 | `Evm.Frontier.Spec.IsAddStep`<br>instance/spec facts (do not discharge the general obligation): `Evm.Frontier.Spec.Refinement.add_iff_isAdd` | PROVED | `Evm.Frontier.Spec.Refinement.add_sound` |
 | `Evm.Frontier.Spec.IsAddmodStep` | PROVED | `Evm.Frontier.Spec.Refinement.addmod_sound` |
 | `Evm.Frontier.Spec.IsAddressStep` | MISSING | — |
@@ -433,7 +433,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 | `Evm.Istanbul.Spec.IsChainidStep` | PROVED | `Evm.Istanbul.Spec.Refinement.chainid_sound` |
 | `Evm.Istanbul.Spec.IsPrecompile`<br>only instance/spec facts conclude this relation; the general implementation obligation is unproved: `Evm.Istanbul.Spec.extends_byzantium` | FACTS-ONLY | — |
 | `Evm.Istanbul.Spec.IsSelfbalanceStep` | PROVED | `Evm.Istanbul.Spec.Refinement.selfbalance_sound` |
-| `Evm.Istanbul.Spec.IsSstoreStep` | SORRY | `Evm.Istanbul.Spec.Refinement.sstore_sound` |
+| `Evm.Istanbul.Spec.IsSstoreStep` | PROVED | `Evm.Istanbul.Spec.Refinement.sstore_sound` |
 | `Evm.London.Spec.IsBasefeeStep` | PROVED | `Evm.London.Spec.Refinement.basefee_sound` |
 | `Evm.London.Spec.IsCalculatedBaseFee` | PROVED | `Evm.London.Spec.Refinement.calculateBaseFee_sound` |
 | `Evm.London.Spec.IsFeeSettlement` | PROVED | `Evm.London.Spec.Refinement.feeSettlement_sound` |
@@ -452,7 +452,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 | `Evm.Paris.Spec.IsParisOmmersBodyValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisOmmersHashValid` | MISSING | — |
 | `Evm.Paris.Spec.IsPrevrandaoStep` | PROVED | `Evm.Paris.Spec.Refinement.prevrandao_sound` |
-| `Evm.Petersburg.Spec.IsSstoreStep` | SORRY | `Evm.Petersburg.Spec.Refinement.sstore_sound` |
+| `Evm.Petersburg.Spec.IsSstoreStep` | PROVED | `Evm.Petersburg.Spec.Refinement.sstore_sound` |
 | `Evm.Prague.Spec.IsApplyAuthorization` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorization_sound_shape` |
 | `Evm.Prague.Spec.IsApplyAuthorizations` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorizations_sound_shape` |
 | `Evm.Prague.Spec.IsDelegationAccessCharge` | MISSING | — |
