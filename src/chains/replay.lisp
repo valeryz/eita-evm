@@ -1,7 +1,7 @@
 ;;;; chains/replay.lisp — EITA:REPLAY, one entry to every chain's replay (`eita replay`).
 ;;;;
-;;;; The driver reads its run policy from the environment (EITA_<NAME>, or the chain's
-;;;; prefix: chains/driver.lisp `env`), as deployments configure it; REPLAY's arguments set
+;;;; The driver reads its run policy from the environment (EITA_<NAME>: chains/driver.lisp
+;;;; `env`), as deployments configure it; REPLAY's arguments set
 ;;;; the same variables, so a flag and its variable are one setting, not two.
 
 (in-package #:eita.chain)
@@ -28,8 +28,7 @@
   (let* ((row (or (assoc chain +replay-chains+ :test #'string-equal)
                   (error "unknown chain ~S (~{~A~^, ~})" chain (mapcar #'first +replay-chains+))))
          (driver (second row)) (net (third row))
-         (full (if full-state-p full-state (not (eq driver :op))))
-         (prefix (case driver (:ethereum "ETH") (:arc "ARC"))))
+         (full (if full-state-p full-state (not (eq driver :op)))))
     (when blocks (setenv! "EITA_BLOCKS_DIR" blocks))
     (when source (setenv! "EITA_SOURCE" source))
     (when observer (setenv! "EITA_OBSERVER" observer))
@@ -40,7 +39,6 @@
       (setenv! "EITA_CHECKPOINT_EVERY" checkpoint-every)
       (setf eita.state::*checkpoint-every* checkpoint-every))
     (setenv! "EITA_FROM_GENESIS" (and full 1))
-    (when prefix (setenv! (concatenate 'string prefix "_FROM_GENESIS") (and full 1)))
     (let ((args (list (princ-to-string from))))
       (cond ((member to '(:tip "tip") :test #'equalp) (setf args (append args (list "tip"))))
             (to (setf args (append args (list (princ-to-string to))))))

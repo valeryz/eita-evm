@@ -115,7 +115,7 @@
   "Arc as a chain-spec: everything Arc changes about the generic replay."
   (let ((mainnet (string= net "mainnet")))
     (make-chain-spec
-     :name (format nil "Arc ~A" net) :id (arc-net-chain-id net) :env-prefix "ARC"
+     :name (format nil "Arc ~A" net) :id (arc-net-chain-id net)
      :genesis-path (format nil "lean/external/arc-cache/genesis-~A.json" (if mainnet "mainnet" "testnet"))
      :banner "fork=Osaka(18) + EIP-7623"
      :reorg-depth 0                               ; BFT finality: a block never reverts

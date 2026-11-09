@@ -4,7 +4,7 @@
 ;;;; from one chain into another, and this struct is the complete list of chain
 ;;;; extension points (grep it before adding a new hook anywhere else).
 ;;;;
-;;;;   identity      name id env-prefix genesis-path banner rpc-url cache-dir
+;;;;   identity      name id genesis-path banner rpc-url cache-dir
 ;;;;   tip           reorg-depth (blocks a reorg may undo; 0: final at once)  — snapshot-world.lisp
 ;;;   lazy state    prestate-overlay (pre-block state from debug traces, one fetch per block)
 ;;;;   per block     block-setup (fork table, chain hardfork flags)   — chains/driver.lisp
@@ -23,7 +23,6 @@
 ;;; --- Chain settings (set by the chain module before replay-main) ---------------
 (defvar *chain-name* "chain" "Human label for banners, e.g. \"Arc mainnet\".")
 (defvar *chain-id* 1)
-(defvar *chain-env-prefix* nil "Optional chain-specific prefix for environment names.")
 (defvar *chain-genesis-path* nil "geth genesis.json for full-state runs from genesis.")
 (defvar *chain-banner-extra* "" "Extra banner text (fork, chain rules).")
 (defvar *chain-block-setup-hook* nil
@@ -40,7 +39,7 @@
   "What this chain's observers record (NIL: everything). Arc's records predate call frames.")
 
 (defstruct chain-spec
-  (name "Ethereum") (id 1) env-prefix genesis-path (banner "") rpc-url cache-dir prestate-overlay
+  (name "Ethereum") (id 1) genesis-path (banner "") rpc-url cache-dir prestate-overlay
   (reorg-depth 64)
   block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
   receipt-encode header-foreign observe-kinds
@@ -53,7 +52,6 @@
   (setf *chain-spec* spec
         *chain-name* (chain-spec-name spec)
         *chain-id* (chain-spec-id spec)
-        *chain-env-prefix* (chain-spec-env-prefix spec)
         *chain-genesis-path* (chain-spec-genesis-path spec)
         *chain-banner-extra* (chain-spec-banner spec)
         *rpc-url* (chain-spec-rpc-url spec)

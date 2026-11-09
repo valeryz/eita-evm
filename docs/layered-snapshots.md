@@ -275,7 +275,7 @@ Nothing to convert. Existing `snap-N/` are bases; existing anchor lines are comp
 one base. The first anchor after the upgrade records a stack over the newest verified
 snapshot.
 
-1. Ship the code (bundle → checkout, as today). `ARC_CHECKPOINT_EVERY` stays 32,768:
+1. Ship the code (bundle → checkout, as today). `EITA_CHECKPOINT_EVERY` stays 32,768:
    anchors keep their cadence; layers come every 8,192 blocks for free.
 2. Restart from the newest verified snapshot (recovery.lisp decides, as before). The first
    freezes write `layer-*/` beside it; GC keeps the base until a newer verified base exists.

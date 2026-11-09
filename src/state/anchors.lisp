@@ -8,7 +8,7 @@
 ;;;; reads the base plus the layers in a background process, and a passed check records the
 ;;;; stack's composition in anchors.sexp; a resume maps the newest verified one.
 ;;;;
-;;;; Env: EITA_CHECKPOINT_EVERY (the ARC_ name still works, for running deployments): the
+;;;; Env: EITA_CHECKPOINT_EVERY: the
 ;;;; anchor interval; layers are frozen at four times that rate (resume and bisect points).
 
 (in-package #:eita.state)
@@ -17,11 +17,11 @@
 (declaim (special *chain-spec* *compactor* *snap-stats*))
 
 (defstartup *checkpoint-every*
-  (let ((v (or (sb-ext:posix-getenv "EITA_CHECKPOINT_EVERY") (sb-ext:posix-getenv "ARC_CHECKPOINT_EVERY")))) (and v (parse-integer v)))
+  (let ((v (sb-ext:posix-getenv "EITA_CHECKPOINT_EVERY"))) (and v (parse-integer v)))
   "Bring-up / bisect override: when set, checkpoint iff n mod EVERY = 0 (plus block 0).")
 
 ;;; --- Full-state mode + integrity checkpoints --------------------------------
-;;; ARC_FROM_GENESIS=1 replays with the FULL state: the world is populated from
+;;; EITA_FROM_GENESIS=1 replays with the FULL state: the world is populated from
 ;;; the chain's genesis alloc (arc-node assets/<net>/genesis.json, vendored in
 ;;; the cache dir), the lazy RPC hooks stay nil, and on the checkpoint schedule
 ;;; the state root of the checkpoint's snapshot is compared with the header

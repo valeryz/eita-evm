@@ -115,11 +115,8 @@
   (defconstant +map-shared+ #x1)         ; MAP_SHARED
   (defconstant +mfd-cloexec+ #x1))       ; MFD_CLOEXEC
 (defstartup +code-exec-arena-bytes+
-  (let ((kb (sb-ext:posix-getenv "EITA_CODE_ARENA_KB"))
-        (mb (sb-ext:posix-getenv "EITA_CODE_ARENA_MB")))
-    (cond (kb (* (parse-integer kb) 1024))          ; KB knob: forces wrap in stress tests
-          (mb (* (parse-integer mb) 1024 1024))
-          (t  (* 512 1024 1024)))))                 ; default 512 MiB
+  (let ((kb (sb-ext:posix-getenv "EITA_CODE_ARENA_KB")))   ; small values force wrap in stress tests
+    (if kb (* (parse-integer kb) 1024) (* 512 1024 1024))))  ; default 512 MiB
 (defparameter *code-exec-base*   nil)    ; RX (execute) view base pointer
 (defparameter *code-write-base*  nil)    ; RW (write) view: same physical pages as RX
 (defparameter *code-exec-head*   0)      ; bump offset

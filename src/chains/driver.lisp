@@ -8,8 +8,7 @@
 ;;;; A chain module sets the chain settings below and installs its hooks (evm/run-tx.lisp,
 ;;;; block-system.lisp, the EVM-core hooks in src/evm/), then calls `replay-main`.
 ;;;;
-;;;; Environment: EITA_<NAME>, or <prefix>_<NAME> with the chain's *chain-env-prefix*
-;;;; (Arc: ARC_FROM_GENESIS, ARC_RESUME_FROM, …) so running deployments keep working.
+;;;; Environment: EITA_<NAME> (EITA_FROM_GENESIS, EITA_RESUME_FROM, …).
 
 (in-package #:eita.chain)
 
@@ -17,10 +16,8 @@
 (declaim (special *receipts-unverifiable*))
 
 (defun env (name)
-  "EITA_<NAME>, else <chain prefix>_<NAME>."
-  (or (sb-ext:posix-getenv (concatenate 'string "EITA_" name))
-      (and *chain-env-prefix*
-           (sb-ext:posix-getenv (concatenate 'string *chain-env-prefix* "_" name)))))
+  "EITA_<NAME>."
+  (sb-ext:posix-getenv (concatenate 'string "EITA_" name)))
 
 ;;; --- Run policy (read by replay-main once the chain prefix is known) -----------
 (defvar *full-state* nil

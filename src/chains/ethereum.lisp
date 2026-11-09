@@ -105,7 +105,7 @@
 
 (defun ethereum-chain-spec ()
   (make-chain-spec
-   :name "Ethereum mainnet" :id 1 :env-prefix "ETH"
+   :name "Ethereum mainnet" :id 1
    :genesis-path "chains/ethereum/genesis.json"
    :banner "fork by block to the Merge, by timestamp after (Evm.Forks.ofBlock)"
    :rpc-url (sb-ext:posix-getenv "ETH_RPC_URL")
