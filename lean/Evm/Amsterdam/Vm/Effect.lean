@@ -56,16 +56,35 @@ def doSlotNumber (evm : Evm) : StepResult :=
 /-- Read the immediate byte following the opcode at `pc`, with
     out-of-code reads padded to zero (matches the EELS pattern using
     `buffer_read(evm.code, U256(evm.pc + 1), U256(1))`). -/
-private def immByte (evm : Evm) : Nat :=
+def immByte (evm : Evm) : Nat :=
   let p := evm.pc + 1
   if p < evm.message.code.size then (evm.message.code.get! p).toNat else 0
 
-/-- 0xE6 DUPN. EELS `forks/amsterdam/vm/instructions/stack.py::dupn`.
-    `item_number = imm + 1`. Push stack[-(imm+1)] (= n-th from top,
-    1-indexed). Gas VERY_LOW. PC advances by 2 (1 opcode + 1 imm). -/
+/-- EELS `forks/amsterdam/vm/stack.py::decode_single` (25-53): bytes 91..127 are invalid
+    (`InvalidParameter`); otherwise `(x + 145) mod 256`, a stack position in 17..235. -/
+def decodeSingle (x : Nat) : Option Nat :=
+  if x ≤ 90 ∨ 128 ≤ x then some ((x + 145) % 256) else none
+
+/-- EELS `forks/amsterdam/vm/stack.py::decode_pair` (56-91): bytes 82..127 are invalid;
+    otherwise `k = x ^ 143`, `(q, r) = divmod(k, 16)`, positions `(q+1, r+1)` if `q < r`
+    else `(r+1, 29-q)`. -/
+def decodePair (x : Nat) : Option (Nat × Nat) :=
+  if x ≤ 81 ∨ 128 ≤ x then
+    let k := x ^^^ 143
+    let q := k / 16
+    let r := k % 16
+    if q < r then some (q + 1, r + 1) else some (r + 1, 29 - q)
+  else none
+
+/-- 0xE6 DUPN. EELS `forks/amsterdam/vm/instructions/stack.py::dupn` (213-242): charge
+    VERY_LOW, decode the immediate (`decode_single`), underflow if the stack has fewer than
+    `n` items, push `stack[-n]` (the `n`-th from the top, 1-indexed), pc += 2. EELS raises
+    `InvalidParameter` for an invalid immediate; any exceptional halt consumes the frame's
+    gas, so it is `.invalidOpcode` here. -/
 def doDupN (evm : Evm) : StepResult :=
-  let imm := immByte evm
-  let n := imm + 1
+  match decodeSingle (immByte evm) with
+  | none => .error evm (.invalidOpcode 0xe6)
+  | some n =>
   match evm.stack[n - 1]? with
   | none => .error evm .stackUnderflow
   | some v =>
@@ -77,15 +96,16 @@ def doDupN (evm : Evm) : StepResult :=
       | .ok s    => .continue { evm with gasLeft := gasLeft, stack := s,
                                           pc := evm.pc + 2 }
 
-/-- 0xE7 SWAPN. EELS `stack.py::swapn`. SWAPN with decoded value `n`
-    swaps top (position 1) with position `n+1`. -/
+/-- 0xE7 SWAPN. EELS `stack.py::swapn` (245-278): `n = decode_single(imm)`; swap the top
+    (position 1) with position `n + 1`, i.e. `stack[0]` with `stack[n]` (`rest[n - 1]`). -/
 def doSwapN (evm : Evm) : StepResult :=
-  let imm := immByte evm
-  let n := imm
+  match decodeSingle (immByte evm) with
+  | none => .error evm (.invalidOpcode 0xe7)
+  | some n =>
   match evm.stack with
   | [] => .error evm .stackUnderflow
   | top :: rest =>
-    match rest[n]? with
+    match rest[n - 1]? with
     | none       => .error evm .stackUnderflow
     | some other =>
       match Gas.charge evm.gasLeft Gas.veryLow with
@@ -93,32 +113,22 @@ def doSwapN (evm : Evm) : StepResult :=
       | .ok gasLeft =>
         .continue { evm with
           gasLeft := gasLeft,
-          stack   := other :: rest.set n top,
+          stack   := other :: rest.set (n - 1) top,
           pc      := evm.pc + 2 }
 
-/-- 0xE8 EXCHANGE. EELS `stack.py::exchange`. The immediate byte is
-    decoded into `(n, m)` (high nibble, low nibble); the opcode swaps
-    items at positions `n+1` and `m+1` (1-indexed; position 1 = top).
-    `depth = max(n, m) + 1` items must be on the stack. -/
+/-- 0xE8 EXCHANGE. EELS `stack.py::exchange` (281-314): `(n, m) = decode_pair(imm)`; swap
+    positions `n + 1` and `m + 1` (0-indexed `n` and `m`); `max(n, m) + 1` items needed. -/
 def doExchange (evm : Evm) : StepResult :=
-  let imm := immByte evm
-  let n := imm >>> 4
-  let m := imm &&& 0x0f
-  let depth := (max n m) + 1
-  if depth > evm.stack.length then
-    .error evm .stackUnderflow
-  else
-    -- Convert to 0-indexed list positions: position k → index (k-1).
-    let i := n
-    let j := m
-    match evm.stack[i]?, evm.stack[j]? with
-    | some vi, some vj =>
+  match decodePair (immByte evm) with
+  | none => .error evm (.invalidOpcode 0xe8)
+  | some (n, m) =>
+    match evm.stack[n]?, evm.stack[m]? with
+    | some vn, some vm =>
       match Gas.charge evm.gasLeft Gas.veryLow with
       | .error e => .error evm e
       | .ok gasLeft =>
-        let s1 := evm.stack.set i vj
-        let s2 := s1.set j vi
-        .continue { evm with gasLeft := gasLeft, stack := s2,
+        .continue { evm with gasLeft := gasLeft,
+                              stack := (evm.stack.set n vm).set m vn,
                               pc := evm.pc + 2 }
     | _, _ => .error evm .stackUnderflow
 

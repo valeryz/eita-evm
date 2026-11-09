@@ -75,15 +75,16 @@ theorem sweepEmptyAccounts_sound
 
 /-! ## EIP-161 touched-set tracking refinement -/
 
-/-- `IsTouchAccountStep` records that the touch-tracking impl updates
-    `env.touched` (idempotently). State-touching env-update
-    obligation. -/
-theorem touchAccount_sound_shape (evm evm' : Evm) (addr : Evm.Address) :
-    IsTouchAccountStep evm addr evm' →
+/-- `Call.touch` (EIP-161's touched-set insert, run on every message's target) is an
+    `IsTouchAccountStep` when applied to the frame's environment. EELS
+    `forks/spurious_dragon/vm/interpreter.py` 120 (`evm.touched_accounts.add(...)`) and
+    `vm/__init__.py` 165. -/
+theorem touchAccount_sound (evm evm' : Evm) (addr : Evm.Address) :
+    { evm with env := Evm.Frontier.Vm.Call.touch evm.env addr } = evm' →
     IsTouchAccountStep evm addr evm' := by
-  -- Needs the impl `Evm.SpuriousDragon.Vm.Interpreter.touchAddr`
-  -- extracted; once exposed, this is a record-update equality.
-  intro h; exact h
+  intro h; subst h
+  unfold IsTouchAccountStep Evm.Frontier.Vm.Call.touch
+  split <;> simp_all
 
 /-! ## Notes
 

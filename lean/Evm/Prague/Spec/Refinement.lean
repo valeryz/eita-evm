@@ -6,12 +6,11 @@
 
     * `Bls12381Step.lean`  — EIP-2537 BLS12-381 precompiles at
                               0x0b..0x11 (seven new precompiles).
-    * `HistoryStorage.lean` — EIP-2935 BLOCKHASH via system contract.
     * `CalldataCost.lean`  — EIP-7623 calldata reprice + floor.
     * `Requests.lean`      — EIP-7685 execution-layer requests hash.
     * `SetCodeStep.lean`   — EIP-7702 set-code tx + CALL delegation.
 
-  All five are cross-cutting state-machine deltas (precompiles,
+  All four are cross-cutting state-machine deltas (precompiles,
   block-validity predicates, intrinsic-gas formulas, requests-hash,
   tx-shape / CALL-delegation). All `sorry`-deferred per methodology.
   NOTE: theorems suffixed `_shape` are `P → P` placeholders — the spec
@@ -20,7 +19,6 @@
 
 import Evm.Frontier.Spec.Refinement
 import Evm.Prague.Spec.Bls12381Step
-import Evm.Prague.Spec.HistoryStorage
 import Evm.Prague.Spec.CalldataCost
 import Evm.Prague.Spec.Requests
 import Evm.Prague.Spec.SetCodeStep
@@ -81,16 +79,15 @@ theorem mapFp2ToG2_sound_shape
     IsMapFp2ToG2Success input gas output gas' := by
   intro h; exact h
 
-/-! ## EIP-2935 BLOCKHASH via history contract -/
+/-! ## EIP-2935 (history storage)
 
-/-- BLOCKHASH at Prague re-points to the history-storage SLOAD.
-    Same 20-gas cost as Frontier; lookup source changes. -/
-theorem blockhash_sound_shape (evm evm' : Evm) :
-    IsBlockhashStep evm evm' →
-    IsBlockhashStep evm evm' := by
-  -- State-touching (state-reading) step; refinement against the
-  -- Prague `Effect`'s 0x40 handler.
-  intro h; exact h
+    EIP-2935 as shipped leaves the BLOCKHASH opcode alone (EELS
+    `forks/prague/vm/instructions/block.py::block_hash` still reads
+    `block_env.block_hashes`, the 256 most recent), so Prague has no
+    BLOCKHASH relation of its own: the obligation is Frontier's
+    `IsBlockhashStep`. The history contract is fed by the block-start system
+    call (`Evm.Prague.Fork`, `Evm.Frontier.Vm.System`). A draft relation that
+    re-pointed BLOCKHASH at the contract's storage was deleted 2026-11-09. -/
 
 /-! ## EIP-7623 calldata cost (tx-level) -/
 

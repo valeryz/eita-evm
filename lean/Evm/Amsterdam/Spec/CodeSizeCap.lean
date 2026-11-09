@@ -23,9 +23,10 @@
 
 namespace Evm.Amsterdam.Spec
 
-/-- EELS `forks/amsterdam/vm/interpreter.py::MAX_CODE_SIZE`. Pre-Amsterdam
-    forks use `0x6000` (EIP-170, Spurious Dragon). -/
-def maxCodeSize : Nat := 0x8000
+/-- EELS `forks/amsterdam/vm/interpreter.py` 80 (execution-specs 636b5f1):
+    `MAX_CODE_SIZE = 0x10000`. Pre-Amsterdam forks use `0x6000` (EIP-170, Spurious
+    Dragon). Corrected 2026-11-09 from an earlier draft's `0x8000`. -/
+def maxCodeSize : Nat := 0x10000
 
 /-- Validity predicate on a deployed contract's bytecode length under
     Amsterdam rules. The CREATE / CREATE2 spec uses this in the

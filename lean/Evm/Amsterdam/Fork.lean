@@ -20,10 +20,12 @@
       The actual encoding/hashing is large and is **not** modelled
       here yet (a TODO at the next pass).
     * EIP-7954 — Increase Maximum Contract Size. `MAX_CODE_SIZE` rises
-      from `0x6000` (24 576 bytes, EIP-170) to `0x8000` (32 768 bytes).
-      Used by the CREATE-success branch and by `validate_init_code` /
-      EIP-3860 helpers. EELS: `forks/amsterdam/vm/interpreter.py` line
-      65: `MAX_CODE_SIZE = 0x8000`.
+      from `0x6000` (24 576 bytes, EIP-170) to `0x10000` (65 536 bytes),
+      `MAX_INIT_CODE_SIZE = 2 * MAX_CODE_SIZE`. EELS (execution-specs
+      636b5f1): `forks/amsterdam/vm/interpreter.py` 80-81. NOT yet in the
+      implementation (Create / Tx / the derived effects still cap at
+      0x6000): `Evm.Amsterdam.Spec.Refinement.validDeployedCodeSize_sound_shape`
+      stays open until it is.
     * EIP-7732 (slot-number plumbing) / SLOTNUM (0x4B) — exposes the
       consensus-layer slot number to the EVM. EELS:
       `forks/amsterdam/vm/instructions/block.py::slot_number` and the
@@ -50,7 +52,7 @@
   access lists, intrinsic-gas re-pricing, automatic Transfer-log
   emission) lands in follow-up passes. The bits implemented here are:
 
-    * `maxCodeSize = 0x8000` (EIP-7954).
+    * EIP-7954's `MAX_CODE_SIZE` (`Evm.Amsterdam.Spec.maxCodeSize`).
     * `Vm/Effect.lean` intercepts 0x1E (CLZ from Osaka, falls through to
       Osaka), 0x4B (SLOTNUM), 0xE6/E7/E8 (DUPN/SWAPN/EXCHANGE).
     * Spec relations for SLOTNUM, DUPN, SWAPN, EXCHANGE and the
@@ -65,12 +67,6 @@ import Evm.Osaka.Fork
 import Evm.Amsterdam.Vm.Effect
 
 namespace Evm.Amsterdam
-
-/-! ## EIP-7954 (max contract size) -/
-
-/-- EELS `forks/amsterdam/vm/interpreter.py` line 65:
-    `MAX_CODE_SIZE = 0x8000`. -/
-def maxCodeSize : Nat := 0x8000
 
 /-! ## EIP-7981 calldata floor tokens (constants only — formula TODO) -/
 

@@ -13,14 +13,20 @@
   Each opcode reads a single immediate byte (the byte at `pc + 1`).
   The pc therefore advances by 2.
 
-  Decode rules (EELS `decode_single` / `decode_pair`):
-    * DUPN  : `item_number = imm + 1`. Duplicate item at depth
-              `item_number` (= 1-indexed from top). New stack length is
-              old + 1.
-    * SWAPN : `n = imm`. Swap top (position 1) with position `n + 1`.
-              Stack length unchanged.
-    * EXCHANGE : `n = imm >> 4`, `m = imm & 0x0f`. Swap items at
-              positions `n + 1` and `m + 1`. Stack length unchanged.
+  Decode rules (EELS `forks/amsterdam/vm/stack.py::decode_single` 25-53 /
+  `decode_pair` 56-91):
+    * DUPN  : `n = decode_single(imm)` (17..235; bytes 91..127 invalid).
+              Duplicate the `n`-th item from the top (1-indexed).
+    * SWAPN : `n = decode_single(imm)`. Swap top (position 1) with
+              position `n + 1`.
+    * EXCHANGE : `(n, m) = decode_pair(imm)` (bytes 82..127 invalid).
+              Swap items at positions `n + 1` and `m + 1`.
+  An invalid immediate is EELS `InvalidParameter`, an exceptional halt:
+  no step relation holds.
+
+  2026-11-09: these relations used the pre-index-shifting draft
+  (`imm + 1`, `imm`, nibbles); corrected to EELS amsterdam (spec-fidelity
+  fix, together with the implementation).
 
   Per the SPEC-METHODOLOGY: new opcodes get their own relations here;
   the implementation in `Evm/Amsterdam/Vm/Effect.lean` (`doDupN`,
@@ -40,12 +46,24 @@ def immediateByte (code : Evm.Bytes) (pc : Nat) : Nat :=
   let p := pc + 1
   if p < code.size then (code.get! p).toNat else 0
 
-/-- 0xE6 DUPN. Pre: stack has at least `imm + 1` items. Post: that
-    item is duplicated on top; gas charged VERY_LOW; pc advances by 2. -/
+/-- EELS `decode_single`: invalid for 91..127, else `(x + 145) mod 256`. -/
+def decodeSingle (x : Nat) : Option Nat :=
+  if 90 < x ∧ x < 128 then none else some ((x + 145) % 256)
+
+/-- EELS `decode_pair`: invalid for 82..127; else `k = x xor 143`, `q, r = divmod(k, 16)`,
+    `(q + 1, r + 1)` when `q < r`, otherwise `(r + 1, 29 - q)`. -/
+def decodePair (x : Nat) : Option (Nat × Nat) :=
+  if 81 < x ∧ x < 128 then none
+  else
+    let k := x ^^^ 143
+    if k / 16 < k % 16 then some (k / 16 + 1, k % 16 + 1)
+    else some (k % 16 + 1, 29 - k / 16)
+
+/-- 0xE6 DUPN. The immediate decodes to `n`; the stack has an `n`-th item
+    from the top (1-indexed, `stack[n - 1]`), which is pushed; VERY_LOW; pc += 2. -/
 def IsDupNStep (evm evm' : Evm) : Prop :=
-  let imm := immediateByte evm.message.code evm.pc
-  let n   := imm + 1
-  ∃ v,
+  ∃ n v,
+    decodeSingle (immediateByte evm.message.code evm.pc) = some n ∧
     evm.stack[n - 1]? = some v ∧
     evm.stack.length < stackLimit ∧
     evm.gasLeft ≥ Gas.veryLow ∧
@@ -54,27 +72,24 @@ def IsDupNStep (evm evm' : Evm) : Prop :=
       gasLeft := evm.gasLeft - Gas.veryLow,
       pc      := evm.pc + 2 }
 
-/-- 0xE7 SWAPN. Pre: stack has top + at least `imm` items beneath.
-    Post: top swapped with position `imm + 1` (0-indexed: `rest[imm]`). -/
+/-- 0xE7 SWAPN. The immediate decodes to `n`; the top swaps with position
+    `n + 1` (`stack[n]`, i.e. `rest[n - 1]` below the top). -/
 def IsSwapNStep (evm evm' : Evm) : Prop :=
-  let imm := immediateByte evm.message.code evm.pc
-  ∃ top other rest,
+  ∃ n top other rest,
+    decodeSingle (immediateByte evm.message.code evm.pc) = some n ∧
     evm.stack = top :: rest ∧
-    rest[imm]? = some other ∧
+    rest[n - 1]? = some other ∧
     evm.gasLeft ≥ Gas.veryLow ∧
     evm' = { evm with
-      stack   := other :: rest.set imm top,
+      stack   := other :: rest.set (n - 1) top,
       gasLeft := evm.gasLeft - Gas.veryLow,
       pc      := evm.pc + 2 }
 
-/-- 0xE8 EXCHANGE. Pre: stack has at least `max(n, m) + 1` items with
-    `n = imm >> 4` and `m = imm & 0x0f`. Post: items at positions
-    `n + 1` and `m + 1` (0-indexed: indices `n` and `m`) are swapped. -/
+/-- 0xE8 EXCHANGE. The immediate decodes to `(n, m)`; positions `n + 1`
+    and `m + 1` (indices `n`, `m`) are swapped. -/
 def IsExchangeStep (evm evm' : Evm) : Prop :=
-  let imm := immediateByte evm.message.code evm.pc
-  let n   := imm >>> 4
-  let m   := imm &&& 0x0f
-  ∃ vn vm,
+  ∃ n m vn vm,
+    decodePair (immediateByte evm.message.code evm.pc) = some (n, m) ∧
     evm.stack[n]? = some vn ∧
     evm.stack[m]? = some vm ∧
     evm.gasLeft ≥ Gas.veryLow ∧

@@ -26,7 +26,7 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refin
 
 | fork | proved | sorry | shape | unsuffixed | total |
 |---|---:|---:|---:|---:|---:|
-| Amsterdam | 0 | 0 | 5 | 0 | 5 |
+| Amsterdam | 4 | 0 | 1 | 0 | 5 |
 | Berlin | 2 | 0 | 2 | 0 | 4 |
 | Byzantium | 4 | 0 | 0 | 0 | 4 |
 | Cancun | 7 | 0 | 4 | 0 | 11 |
@@ -36,22 +36,22 @@ all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Constantinople/Spec/Refin
 | IR (composition) | 63 | 0 | 0 | 0 | 63 |
 | Istanbul | 3 | 1 | 1 | 0 | 5 |
 | London | 8 | 0 | 0 | 0 | 8 |
-| Osaka | 0 | 0 | 5 | 0 | 5 |
-| Paris | 1 | 0 | 4 | 0 | 5 |
+| Osaka | 3 | 0 | 2 | 0 | 5 |
+| Paris | 3 | 0 | 1 | 0 | 4 |
 | Petersburg | 0 | 1 | 0 | 0 | 1 |
-| Prague | 0 | 0 | 13 | 0 | 13 |
-| Shanghai | 0 | 0 | 3 | 0 | 3 |
-| SpuriousDragon | 4 | 0 | 3 | 0 | 7 |
-| **total** | **152** | **3** | **40** | **0** | **195** |
+| Prague | 0 | 0 | 12 | 0 | 12 |
+| Shanghai | 4 | 0 | 0 | 0 | 4 |
+| SpuriousDragon | 5 | 0 | 2 | 0 | 7 |
+| **total** | **166** | **3** | **25** | **0** | **194** |
 
-Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
+Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 28.
 
 ### Amsterdam
 
-- SHAPE `dupN_sound_shape` (Refinement.lean)
-- SHAPE `exchange_sound_shape` (Refinement.lean)
-- SHAPE `slotNumber_sound_shape` (Refinement.lean)
-- SHAPE `swapN_sound_shape` (Refinement.lean)
+- PROVED `dupN_sound` (Refinement.lean)
+- PROVED `exchange_sound` (Refinement.lean)
+- PROVED `slotNumber_sound` (Refinement.lean)
+- PROVED `swapN_sound` (Refinement.lean)
 - SHAPE `validDeployedCodeSize_sound_shape` (Refinement.lean)
 
 ### Berlin
@@ -241,17 +241,16 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 
 - SHAPE `clz_sound_shape` (Refinement.lean)
 - SHAPE `p256Verify_sound_shape` (Refinement.lean)
-- SHAPE `validBlobCount_sound_shape` (Refinement.lean)
-- SHAPE `validModexpInput_sound_shape` (Refinement.lean)
-- SHAPE `validTxGasCap_sound_shape` (Refinement.lean)
+- PROVED `validBlobCount_sound` (Refinement.lean)
+- PROVED `validModexpInput_sound` (Refinement.lean)
+- PROVED `validTxGasCap_sound` (Refinement.lean)
 
 ### Paris
 
 - PROVED `block_reward_identity` (NoBlockReward.lean)
-- SHAPE `parisBlockReward_sound_shape` (Refinement.lean)
+- PROVED `parisBlockReward_sound` (Refinement.lean)
 - SHAPE `parisHeaderInvariants_sound_shape` (Refinement.lean)
-- SHAPE `parisOmmersValid_sound_shape` (Refinement.lean)
-- SHAPE `prevrandao_sound_shape` (Refinement.lean)
+- PROVED `prevrandao_sound` (Refinement.lean)
 
 ### Petersburg
 
@@ -261,7 +260,6 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 
 - SHAPE `applyAuthorization_sound_shape` (Refinement.lean)
 - SHAPE `applyAuthorizations_sound_shape` (Refinement.lean)
-- SHAPE `blockhash_sound_shape` (Refinement.lean)
 - SHAPE `effectiveCallCode_sound_shape` (Refinement.lean)
 - SHAPE `g1Add_sound_shape` (Refinement.lean)
 - SHAPE `g1Msm_sound_shape` (Refinement.lean)
@@ -275,9 +273,10 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 
 ### Shanghai
 
-- SHAPE `initcodeWithinCap_sound_shape` (Refinement.lean)
-- SHAPE `push0_sound_shape` (Refinement.lean)
-- SHAPE `warmCoinbaseInit_sound_shape` (Refinement.lean)
+- PROVED `initcodeWithinCap_create_sound` (Refinement.lean)
+- PROVED `initcodeWithinCap_tx_sound` (Refinement.lean)
+- PROVED `push0_sound` (Refinement.lean)
+- PROVED `warmCoinbaseInit_sound` (Refinement.lean)
 
 ### SpuriousDragon
 
@@ -286,19 +285,19 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 - SHAPE `createCodeSizeRevert_sound_shape` (Refinement.lean)
 - SHAPE `recoverSender_sound_shape` (Refinement.lean)
 - PROVED `sweepEmptyAccounts_sound` (Refinement.lean)
-- SHAPE `touchAccount_sound_shape` (Refinement.lean)
+- PROVED `touchAccount_sound` (Refinement.lean)
 - PROVED `sweepEmptyAccounts_sound` (SweepEmpty.lean)
 
 ## B. Relation coverage, fully qualified (informational)
 
-198 qualified relations: facts-only 3, missing 100, proved 52, shape 40, sorry 3, spec-is-impl 1.
+195 qualified relations: facts-only 3, missing 99, proved 65, shape 25, sorry 3, spec-is-impl 1.
 
 | relation | status | resolving theorem |
 |---|---|---|
-| `Evm.Amsterdam.Spec.IsDupNStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.dupN_sound_shape` |
-| `Evm.Amsterdam.Spec.IsExchangeStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.exchange_sound_shape` |
-| `Evm.Amsterdam.Spec.IsSlotNumberStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.slotNumber_sound_shape` |
-| `Evm.Amsterdam.Spec.IsSwapNStep` | SHAPE | `Evm.Amsterdam.Spec.Refinement.swapN_sound_shape` |
+| `Evm.Amsterdam.Spec.IsDupNStep` | PROVED | `Evm.Amsterdam.Spec.Refinement.dupN_sound` |
+| `Evm.Amsterdam.Spec.IsExchangeStep` | PROVED | `Evm.Amsterdam.Spec.Refinement.exchange_sound` |
+| `Evm.Amsterdam.Spec.IsSlotNumberStep` | PROVED | `Evm.Amsterdam.Spec.Refinement.slotNumber_sound` |
+| `Evm.Amsterdam.Spec.IsSwapNStep` | PROVED | `Evm.Amsterdam.Spec.Refinement.swapN_sound` |
 | `Evm.Amsterdam.Spec.IsValidDeployedCodeSize` | SHAPE | `Evm.Amsterdam.Spec.Refinement.validDeployedCodeSize_sound_shape` |
 | `Evm.Berlin.Spec.IsAccessAddressStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessAddress_sound` |
 | `Evm.Berlin.Spec.IsAccessStorageStep` | PROVED | `Evm.Berlin.Spec.Refinement.accessStorage_sound` |
@@ -341,7 +340,7 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 | `Evm.Frontier.Spec.IsAddressStep` | MISSING | — |
 | `Evm.Frontier.Spec.IsAndStep` | PROVED | `Evm.Frontier.Spec.Refinement.and_sound` |
 | `Evm.Frontier.Spec.IsBalanceStep` | MISSING | — |
-| `Evm.Frontier.Spec.IsBlockhashStep`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
+| `Evm.Frontier.Spec.IsBlockhashStep` | MISSING | — |
 | `Evm.Frontier.Spec.IsByteStep` | PROVED | `Evm.Frontier.Spec.Refinement.byte_sound` |
 | `Evm.Frontier.Spec.IsCallEntrySuccess`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.Frontier.Spec.IsCallFailFastBalance`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
@@ -443,22 +442,19 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 | `Evm.London.Spec.IsValidDeployedCode`<br>instance/spec facts (do not discharge the general obligation): `Evm.London.Spec.empty_code_valid` | PROVED (+1 more) | `Evm.London.Spec.Refinement.validDeployedCode_tx_sound` |
 | `Evm.Osaka.Spec.IsClzStep` | SHAPE | `Evm.Osaka.Spec.Refinement.clz_sound_shape` |
 | `Evm.Osaka.Spec.IsP256VerifyStep` | SHAPE | `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` |
-| `Evm.Osaka.Spec.IsValidBlobCount` | SHAPE | `Evm.Osaka.Spec.Refinement.validBlobCount_sound_shape` |
-| `Evm.Osaka.Spec.IsValidModexpInput` | SHAPE | `Evm.Osaka.Spec.Refinement.validModexpInput_sound_shape` |
-| `Evm.Osaka.Spec.IsValidTxGasCap` | SHAPE | `Evm.Osaka.Spec.Refinement.validTxGasCap_sound_shape` |
-| `Evm.Paris.Spec.IsParisBlockReward`<br>instance/spec facts (do not discharge the general obligation): `Evm.Paris.Spec.block_reward_identity` | SHAPE | `Evm.Paris.Spec.Refinement.parisBlockReward_sound_shape` |
+| `Evm.Osaka.Spec.IsValidBlobCount` | PROVED | `Evm.Osaka.Spec.Refinement.validBlobCount_sound` |
+| `Evm.Osaka.Spec.IsValidModexpInput` | PROVED | `Evm.Osaka.Spec.Refinement.validModexpInput_sound` |
+| `Evm.Osaka.Spec.IsValidTxGasCap` | PROVED | `Evm.Osaka.Spec.Refinement.validTxGasCap_sound` |
+| `Evm.Paris.Spec.IsParisBlockReward`<br>instance/spec facts (do not discharge the general obligation): `Evm.Paris.Spec.block_reward_identity` | PROVED | `Evm.Paris.Spec.Refinement.parisBlockReward_sound` |
 | `Evm.Paris.Spec.IsParisDifficultyValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisHeaderInvariants` | SHAPE | `Evm.Paris.Spec.Refinement.parisHeaderInvariants_sound_shape` |
 | `Evm.Paris.Spec.IsParisNonceValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisOmmersBodyValid` | MISSING | — |
 | `Evm.Paris.Spec.IsParisOmmersHashValid` | MISSING | — |
-| `Evm.Paris.Spec.IsParisOmmersValid` | SHAPE | `Evm.Paris.Spec.Refinement.parisOmmersValid_sound_shape` |
-| `Evm.Paris.Spec.IsPrevrandaoStep` | SHAPE | `Evm.Paris.Spec.Refinement.prevrandao_sound_shape` |
+| `Evm.Paris.Spec.IsPrevrandaoStep` | PROVED | `Evm.Paris.Spec.Refinement.prevrandao_sound` |
 | `Evm.Petersburg.Spec.IsSstoreStep` | SORRY | `Evm.Petersburg.Spec.Refinement.sstore_sound` |
 | `Evm.Prague.Spec.IsApplyAuthorization` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorization_sound_shape` |
 | `Evm.Prague.Spec.IsApplyAuthorizations` | SHAPE | `Evm.Prague.Spec.Refinement.applyAuthorizations_sound_shape` |
-| `Evm.Prague.Spec.IsBlockhashRangeValid` | MISSING | — |
-| `Evm.Prague.Spec.IsBlockhashStep` | SHAPE | `Evm.Prague.Spec.Refinement.blockhash_sound_shape` |
 | `Evm.Prague.Spec.IsDelegationAccessCharge` | MISSING | — |
 | `Evm.Prague.Spec.IsDelegationDesignator` | MISSING | — |
 | `Evm.Prague.Spec.IsEffectiveCallCode` | SHAPE | `Evm.Prague.Spec.Refinement.effectiveCallCode_sound_shape` |
@@ -479,9 +475,9 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 | `Evm.Prague.Spec.IsPairingCheckSuccess` | SHAPE | `Evm.Prague.Spec.Refinement.pairingCheck_sound_shape` |
 | `Evm.Prague.Spec.IsPairingInputValid` | MISSING | — |
 | `Evm.Prague.Spec.IsRequestsHashValid` | SHAPE | `Evm.Prague.Spec.Refinement.requestsHashValid_sound_shape` |
-| `Evm.Shanghai.Spec.InitcodeWithinCap` | SHAPE | `Evm.Shanghai.Spec.Refinement.initcodeWithinCap_sound_shape` |
-| `Evm.Shanghai.Spec.IsPush0Step` | SHAPE | `Evm.Shanghai.Spec.Refinement.push0_sound_shape` |
-| `Evm.Shanghai.Spec.IsWarmCoinbaseInit` | SHAPE | `Evm.Shanghai.Spec.Refinement.warmCoinbaseInit_sound_shape` |
+| `Evm.Shanghai.Spec.InitcodeWithinCap` | PROVED (+1 more) | `Evm.Shanghai.Spec.Refinement.initcodeWithinCap_tx_sound` |
+| `Evm.Shanghai.Spec.IsPush0Step` | PROVED | `Evm.Shanghai.Spec.Refinement.push0_sound` |
+| `Evm.Shanghai.Spec.IsWarmCoinbaseInit` | PROVED | `Evm.Shanghai.Spec.Refinement.warmCoinbaseInit_sound` |
 | `Evm.SpuriousDragon.Spec.IsCodeSizeAllowed`<br>only instance/spec facts conclude this relation; the general implementation obligation is unproved: `Evm.SpuriousDragon.Spec.empty_output_allowed`, `Evm.SpuriousDragon.Spec.cap_monotone` | FACTS-ONLY | — |
 | `Evm.SpuriousDragon.Spec.IsCreateCodeSizeRevertStep` | SHAPE | `Evm.SpuriousDragon.Spec.Refinement.createCodeSizeRevert_sound_shape` |
 | `Evm.SpuriousDragon.Spec.IsEip155Signed` | MISSING | — |
@@ -492,5 +488,5 @@ Debt (SORRY+SHAPE+SHAPE-UNSUFFIXED): 43.
 | `Evm.SpuriousDragon.Spec.IsSweepEmptyStep` | PROVED (+1 more) | `Evm.SpuriousDragon.Spec.Refinement.sweepEmptyAccounts_sound` |
 | `Evm.SpuriousDragon.Spec.IsSweepOneStep`<br>no theorem concludes this relation; mentions exist but resolve elsewhere or ambiguously | MISSING | — |
 | `Evm.SpuriousDragon.Spec.IsSweepable` | MISSING | — |
-| `Evm.SpuriousDragon.Spec.IsTouchAccountStep` | SHAPE | `Evm.SpuriousDragon.Spec.Refinement.touchAccount_sound_shape` |
+| `Evm.SpuriousDragon.Spec.IsTouchAccountStep` | PROVED | `Evm.SpuriousDragon.Spec.Refinement.touchAccount_sound` |
 

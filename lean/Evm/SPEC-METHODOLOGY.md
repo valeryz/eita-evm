@@ -85,7 +85,6 @@ lean/Evm/
     AccessList.lean               ← EIP-2929 warm/cold accounting predicate
     StorageStep.lean              ← EIP-2929 SSTORE cold surcharge
     CallStep.lean                 ← EIP-2929 CALL family cold surcharge
-    TypedTx.lean                  ← EIP-2718 transaction envelope
 
   London/Spec/
     BaseFee.lean                  ← EIP-1559 base fee formula + effective price
@@ -116,7 +115,6 @@ lean/Evm/
 
   Prague/Spec/
     Bls12381Step.lean             ← EIP-2537 (precompiles 0x0b..0x11)
-    HistoryStorage.lean           ← EIP-2935 (BLOCKHASH via history contract)
     CalldataCost.lean             ← EIP-7623
     Requests.lean                 ← EIP-7685 (requestsHash)
     SetCodeStep.lean              ← EIP-7702 (set-code tx + CALL delegation)

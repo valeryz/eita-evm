@@ -25,6 +25,7 @@ import Evm.Paris.Spec.BlockHeaderInvariants
 import Evm.Paris.Spec.NoBlockReward
 import Evm.Paris.Spec.PrevrandaoStep
 import Evm.Paris.Vm.Effect
+import Evm.Frontier.Vm.Block
 
 namespace Evm.Paris.Spec.Refinement
 
@@ -34,16 +35,13 @@ open Evm.Paris.Spec
 
 /-! ## EIP-4399 PREVRANDAO (0x44) -/
 
-/-- PREVRANDAO at Paris is a `NullaryPushStep` over `env.prevRandao`.
-    The impl handler is dispatched from `Paris.Vm.Effect.step1` —
-    no stand-alone `Instructions.prevrandao` in this fork's tree
-    (it re-uses the Frontier-shape PUSH machinery). -/
-theorem prevrandao_sound_shape (evm evm' : Evm) :
-    IsPrevrandaoStep evm evm' →
-    IsPrevrandaoStep evm evm' := by
-  -- Needs `runNullaryPush_sound` once it lands in
-  -- `Frontier/Spec/StepShapes.lean`. Until then, identity.
-  intro h; exact h
+/-- PREVRANDAO (`Paris.Vm.Effect.prevRandao`, the 0x44 arm) is a nullary push of
+    `prev_randao` at `GAS_BASE`. EELS `forks/paris/vm/instructions/block.py::prev_randao`
+    (168-). -/
+theorem prevrandao_sound (evm evm' : Evm) :
+    Evm.Paris.Vm.Effect.prevRandao evm = .ok evm' →
+    IsPrevrandaoStep evm evm' :=
+  Evm.Frontier.Spec.Refinement.nullaryPush_sound Gas.base (fun e => e.env.prevRandao) evm evm'
 
 /-! ## EIP-3675 header invariants -/
 
@@ -59,20 +57,17 @@ theorem parisHeaderInvariants_sound_shape
 
 /-! ## EIP-3675 block-reward removal -/
 
-/-- `IsParisBlockReward`: the end-of-block coinbase balance update
-    is the identity. -/
-theorem parisBlockReward_sound_shape
-    (coinbase : Evm.Address) (pre post : State) :
-    IsParisBlockReward coinbase pre post →
+/-- EIP-3675: from Paris (`k ≥ 14`) the block's reward step (`Block.payRewards`) leaves the
+    coinbase's balance as it was. EELS `forks/paris/fork.py::apply_body` has no
+    `pay_rewards` call (London's `fork.py` 683 is the last). -/
+theorem parisBlockReward_sound (k : Nat) (coinbase : Evm.Address) (number : Nat)
+    (ommers : List (Evm.Address × Nat)) (pre post : State) :
+    Evm.Frontier.Vm.Block.payRewards k pre coinbase number ommers = post → k ≥ 14 →
     IsParisBlockReward coinbase pre post := by
-  intro h; exact h
-
-/-- `IsParisOmmersValid`: the block body's ommers list must be
-    empty. -/
-theorem parisOmmersValid_sound_shape {α : Type} (ommers : List α) :
-    IsParisOmmersValid ommers →
-    IsParisOmmersValid ommers := by
-  intro h; exact h
+  intro h hk
+  unfold Evm.Frontier.Vm.Block.payRewards at h
+  rw [if_pos hk] at h
+  subst h; rfl
 
 /-! ## Notes
 

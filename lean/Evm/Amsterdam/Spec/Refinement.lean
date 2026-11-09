@@ -5,7 +5,7 @@
   Amsterdam adds:
 
     * `BlockAccessList.lean`   — EIP-7928 BAL (stub; abbrev = Unit).
-    * `CodeSizeCap.lean`       — EIP-7954 MAX_CODE_SIZE bump to 0x8000.
+    * `CodeSizeCap.lean`       — EIP-7954 MAX_CODE_SIZE bump to 0x10000.
     * `IntrinsicGasFloor.lean` — EIP-7981 calldata floor reprice.
     * `SlotNumberStep.lean`    — EIP-7732 0x4B SLOTNUM.
     * `StackAccessStep.lean`   — EIP-8024 0xE6 DUPN / 0xE7 SWAPN /
@@ -19,6 +19,7 @@
 -/
 
 import Evm.Frontier.Spec.Refinement
+import Evm.Byzantium.Spec.Refinement
 import Evm.Amsterdam.Spec.BlockAccessList
 import Evm.Amsterdam.Spec.CodeSizeCap
 import Evm.Amsterdam.Spec.IntrinsicGasFloor
@@ -33,12 +34,13 @@ open Evm.Amsterdam.Spec
 
 /-! ## EIP-7732 SLOTNUM (0x4B) -/
 
-/-- SLOTNUM is a NullaryPushStep over `env.slotNumber`. Identity
-    refinement pending `runNullaryPush_sound`. -/
-theorem slotNumber_sound_shape (evm evm' : Evm) :
-    IsSlotNumberStep evm evm' →
-    IsSlotNumberStep evm evm' := by
-  intro h; exact h
+/-- SLOTNUM (`doSlotNumber`, the 0x4b arm) is a nullary push of `slot_number` at
+    `GAS_BASE`. EELS `forks/amsterdam/vm/instructions/block.py::slot_number`. -/
+theorem slotNumber_sound (evm evm' : Evm) :
+    Evm.Amsterdam.Vm.Effect.doSlotNumber evm = .continue evm' →
+    IsSlotNumberStep evm evm' :=
+  Evm.Byzantium.Spec.Refinement.stepNullaryPush_sound Gas.base
+    (fun e => Evm.U256.ofNat e.env.slotNumber) evm evm'
 
 /-! ## EIP-8024 DUPN / SWAPN / EXCHANGE (0xE6 / 0xE7 / 0xE8)
 
@@ -47,24 +49,97 @@ theorem slotNumber_sound_shape (evm evm' : Evm) :
     handlers `doDupN` / `doSwapN` / `doExchange` are
     `StepResult`-yielding in `Amsterdam.Vm.Effect`. -/
 
-theorem dupN_sound_shape (evm evm' : Evm) :
-    IsDupNStep evm evm' →
+/-- The implementation's `decodeSingle` is EELS `decode_single` as the spec states it. -/
+theorem decodeSingle_eq (x : Nat) :
+    Evm.Amsterdam.Vm.Effect.decodeSingle x = decodeSingle x := by
+  unfold Evm.Amsterdam.Vm.Effect.decodeSingle decodeSingle
+  by_cases h : x ≤ 90 ∨ 128 ≤ x
+  · rw [ite_eq_left h, ite_eq_right (show ¬(90 < x ∧ x < 128) by omega)]
+  · rw [ite_eq_right h, ite_eq_left (show 90 < x ∧ x < 128 by omega)]
+
+/-- The implementation's `decodePair` is EELS `decode_pair` as the spec states it. -/
+theorem decodePair_eq (x : Nat) :
+    Evm.Amsterdam.Vm.Effect.decodePair x = decodePair x := by
+  unfold Evm.Amsterdam.Vm.Effect.decodePair decodePair
+  by_cases h : x ≤ 81 ∨ 128 ≤ x
+  · rw [ite_eq_left h, ite_eq_right (show ¬(81 < x ∧ x < 128) by omega)]
+  · rw [ite_eq_right h, ite_eq_left (show 81 < x ∧ x < 128 by omega)]
+
+/-- 0xE6 DUPN (`doDupN`) refines `IsDupNStep`. EELS
+    `forks/amsterdam/vm/instructions/stack.py::dupn` (213-242). -/
+theorem dupN_sound (evm evm' : Evm) :
+    Evm.Amsterdam.Vm.Effect.doDupN evm = .continue evm' →
     IsDupNStep evm evm' := by
-  intro h; exact h
+  intro h
+  unfold Evm.Amsterdam.Vm.Effect.doDupN at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i n hn
+    split at h
+    · exact absurd h (by simp)
+    · rename_i v hv
+      split at h
+      · exact absurd h (by simp)
+      · rename_i g hg
+        split at h
+        · exact absurd h (by simp)
+        · rename_i st hs
+          obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+          obtain ⟨hlt, rfl⟩ := (Evm.Frontier.Vm.Spec.Stack.push_eq_ok_iff _ _ _).mp hs
+          injection h with h; subst h
+          rw [decodeSingle_eq] at hn
+          exact ⟨n, v, hn, hv, hlt, hle, rfl⟩
 
-theorem swapN_sound_shape (evm evm' : Evm) :
-    IsSwapNStep evm evm' →
+/-- 0xE7 SWAPN (`doSwapN`) refines `IsSwapNStep`. EELS `stack.py::swapn` (245-278). -/
+theorem swapN_sound (evm evm' : Evm) :
+    Evm.Amsterdam.Vm.Effect.doSwapN evm = .continue evm' →
     IsSwapNStep evm evm' := by
-  intro h; exact h
+  intro h
+  unfold Evm.Amsterdam.Vm.Effect.doSwapN at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i n hn
+    split at h
+    · exact absurd h (by simp)
+    · rename_i top rest hst
+      split at h
+      · exact absurd h (by simp)
+      · rename_i other ho
+        split at h
+        · exact absurd h (by simp)
+        · rename_i g hg
+          obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+          injection h with h; subst h
+          rw [decodeSingle_eq] at hn
+          exact ⟨n, top, other, rest, hn, hst, ho, hle, rfl⟩
 
-theorem exchange_sound_shape (evm evm' : Evm) :
-    IsExchangeStep evm evm' →
+/-- 0xE8 EXCHANGE (`doExchange`) refines `IsExchangeStep`. EELS `stack.py::exchange`
+    (281-314). -/
+theorem exchange_sound (evm evm' : Evm) :
+    Evm.Amsterdam.Vm.Effect.doExchange evm = .continue evm' →
     IsExchangeStep evm evm' := by
-  intro h; exact h
+  intro h
+  unfold Evm.Amsterdam.Vm.Effect.doExchange at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i n m hnm
+    split at h
+    · rename_i vn vm hn hm
+      split at h
+      · exact absurd h (by simp)
+      · rename_i g hg
+        obtain ⟨hle, rfl⟩ := (Evm.Frontier.Vm.Spec.Gas.charge_eq_ok_iff _ _ _).mp hg
+        injection h with h; subst h
+        rw [decodePair_eq] at hnm
+        exact ⟨n, m, vn, vm, hnm, hn, hm, hle, rfl⟩
+    · exact absurd h (by simp)
 
 /-! ## EIP-7954 deployed-code size bump -/
 
-/-- New cap: 0x8000 instead of 0x6000. -/
+/-- EIP-7954: new cap 0x10000 instead of 0x6000. OPEN, and not provable as things stand:
+    the implementation (`Create.resume`, `Tx.createEnd`, the derived `EffectCreate` /
+    `EffectTx`) still applies EIP-170's 0x6000 at Amsterdam, so Amsterdam deployments of
+    0x6001..0x10000 bytes fail where EELS accepts them. Closing it changes emitted code. -/
 theorem validDeployedCodeSize_sound_shape (codeLen : Nat) :
     IsValidDeployedCodeSize codeLen →
     IsValidDeployedCodeSize codeLen := by

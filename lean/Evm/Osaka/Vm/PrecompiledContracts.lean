@@ -80,10 +80,27 @@ def p256verify (input : Evm.Bytes) (gas : Nat) :
   -- Per EELS: malformed input length returns gas-consumed + empty output.
   if input.size ≠ 160 then
     return (Evm.Bytes.empty, gas')
-  -- TODO: real SECP256R1 verification. For now the conservative
-  -- "verification failed" branch — empty output. EELS reference:
-  -- `ethereum.crypto.elliptic_curve.secp256r1_verify`.
+  -- KNOWN GAP (stated as `p256verify_stub_rejects` below): no SECP256R1
+  -- verification in Lean yet — every signature is rejected (empty output).
+  -- EELS reference: `ethereum.crypto.elliptic_curve.secp256r1_verify`. The
+  -- host (Lisp/C) implements the real check; this Lean table entry does not.
   return (Evm.Bytes.empty, gas')
+
+/-- The visible form of the P256VERIFY gap: the Lean precompile never verifies — every
+    successful run returns empty output, valid signature or not (EELS returns
+    `left_pad_zero_bytes(b"\x01", 32)` for a valid one). So
+    `Evm.Osaka.Spec.Refinement.p256Verify_sound_shape` stays open: proving the spec
+    against this stub would certify the stub. -/
+theorem p256verify_stub_rejects (input : Evm.Bytes) (gas : Nat) (out : Evm.Bytes × Nat) :
+    p256verify input gas = .ok out → out.1 = Evm.Bytes.empty := by
+  unfold p256verify
+  by_cases hg : gas < gasP256Verify
+  · simp [hg, bind, Except.bind]
+  · by_cases hs : input.size ≠ 160
+    · simp [hg, hs, bind, Except.bind, pure, Except.pure]
+      intro h; rw [← h]
+    · simp [hg, hs, bind, Except.bind, pure, Except.pure]
+      intro h; rw [← h]
 
 /-! ## EIP-7883 / EIP-7823 MODEXP (documented; not yet wired)
 

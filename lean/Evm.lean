@@ -130,7 +130,6 @@ import Evm.Optimism.Fjord.Spec.Soundness
 import Evm.Optimism.Granite.Spec.Soundness
 import Evm.Optimism.Holocene.Spec.Soundness
 import Evm.Prague.Spec.Bls12381Step
-import Evm.Prague.Spec.HistoryStorage
 import Evm.Prague.Spec.CalldataCost
 import Evm.Prague.Spec.BlobSchedule
 import Evm.Prague.Spec.Requests

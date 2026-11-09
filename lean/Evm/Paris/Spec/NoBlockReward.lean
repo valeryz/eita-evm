@@ -49,12 +49,6 @@ open Evm.Frontier (State)
 def IsParisBlockReward (coinbase : Evm.Address) (pre post : State) : Prop :=
   post.getBalance coinbase = pre.getBalance coinbase
 
-/-- `IsParisOmmersValid ommers` — post-Merge blocks must have an
-    empty ommers list. EELS `state_transition` line ~159:
-    `if block.ommers != (): raise InvalidBlock`. -/
-def IsParisOmmersValid {α : Type} (ommers : List α) : Prop :=
-  ommers = []
-
 /-- The Paris block reward in wei. Zero. (Frontier..GrayGlacier
     have non-zero values; Paris and beyond have zero.) -/
 def blockRewardWei : Nat := 0
