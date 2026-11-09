@@ -176,7 +176,7 @@ def handleYield (frame : Evm) (eff : YieldEffect)
     body to Paris's), bound to Shanghai's `runFrame` so sub-frames
     see PUSH0 + EIP-3860 CREATEs. -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

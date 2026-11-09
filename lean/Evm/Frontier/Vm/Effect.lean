@@ -637,9 +637,15 @@ def runFrameR : Nat → Evm → Step
 
 /-- The trampoline: orchestrates `runFrame`, handles each yield via
     `handleYield` (spawning sub-frames by recursively trampolining
-    them), until the top frame halts or errors. -/
+    them), until the top frame halts or errors.
+
+    Fuel: `evm.gasLeft + 1` steps per `runFrame` (every fork's trampoline and
+    `IR.runProgram` alike). A step that continues charges at least 1 gas, so the frame
+    halts, errors or yields before the fuel is gone. Until 2026-11-09 the fuel was a fixed
+    `2^24`, which a London+ frame (block gas limits above 2^24) could exhaust: a spurious
+    out-of-gas. -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

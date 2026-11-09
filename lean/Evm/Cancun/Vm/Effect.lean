@@ -333,7 +333,7 @@ partial def trampoline
         Option Evm.Frontier.Vm.PrecompiledContracts.Precompile :=
       Evm.Cancun.Vm.PrecompiledContracts.lookup)
     (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

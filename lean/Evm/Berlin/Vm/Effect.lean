@@ -412,7 +412,7 @@ def handleYield (frame : Evm) (eff : YieldEffect)
     arms are dead code at Berlin because `step1` routes those opcodes
     through pure handlers above. -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

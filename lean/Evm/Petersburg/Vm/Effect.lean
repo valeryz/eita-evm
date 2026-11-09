@@ -151,7 +151,7 @@ def handleYield (frame : Evm) (eff : YieldEffect)
     Constantinople's, bound to Petersburg's `runFrame` so sub-frames
     see Petersburg's `step1` (and therefore the SSTORE revert). -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

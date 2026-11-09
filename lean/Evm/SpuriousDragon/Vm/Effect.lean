@@ -511,7 +511,7 @@ def handleYield (frame : Evm) (eff : YieldEffect)
     `handleYield` (spawning sub-frames by recursively trampolining
     them), until the top frame halts or errors. -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

@@ -264,7 +264,7 @@ def handleYield (frame : Evm) (eff : YieldEffect)
     the EIP-3541 0xEF code-prefix check. EELS
     `forks/london/vm/interpreter.py:process_create_message`. -/
 partial def trampoline (evm : Evm) : Except Exception Evm :=
-  match runFrame (1 <<< 24) evm with
+  match runFrame (evm.gasLeft + 1) evm with
   | .halt finalEvm _ => .ok finalEvm
   | .error _ e       => .error e
   | .yield frame eff =>

@@ -851,7 +851,7 @@ def executeProgramR (fork : Evm.Fork) :
     runner keeps the semantics shared rather than re-encoded. -/
 partial def runProgram (fork : Evm.Fork) (prog : Program) (evm : Evm) :
     Except Exception Evm :=
-  Trampoline.StepOf.cases fork (executeProgramR fork (1 <<< 24) prog evm)
+  Trampoline.StepOf.cases fork (executeProgramR fork (evm.gasLeft + 1) prog evm)
     (fun frame eff =>
       match Trampoline.runYieldOf fork frame eff
               (Trampoline.trampolineOf fork) with
