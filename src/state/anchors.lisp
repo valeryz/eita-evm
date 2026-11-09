@@ -166,6 +166,14 @@
     (let ((gone (eita.state.recovery:run-gc (state-dir) :pinned (live-components))))
       (when gone (format t "~&[anchor] gc: deleted ~{~A~^ ~}~%" gone) (force-output)))))
 
+(defun kill-root-check! ()
+  "Stop the root check in flight and forget it: no verdict is recorded, nothing acts on it."
+  (let ((p (shiftf *pending-root* nil)))
+    (when p
+      (ignore-errors (sb-ext:process-kill (third p) 9))
+      (sb-ext:process-wait (third p))
+      (ignore-errors (delete-file (fourth p))))))
+
 (defun root-check-finish! (&key force)
   "Collect the in-flight root check if it has finished (or FORCE a wait): append
    (N expected computed ok composition) to the anchors file, prune, error on mismatch.

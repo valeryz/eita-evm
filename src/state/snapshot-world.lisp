@@ -463,11 +463,31 @@
                (start-compaction! (list :major run (eita.state.snapshot:snap-block (first run)))))))))))
   nil)
 
+(defun discard-compacting-base! (why)
+  "The compacted base waiting for its root check (*COMPACTING-BASE*, snap-M) will never
+   replace the base: its due check is forgotten, the snap closed and its directory deleted
+   (no passed check names it: it is no resume point), and compaction and GC resume (both
+   wait while it is set). Its root check, if running, was stopped first (`rollback-to!`)."
+  (let ((s (shiftf *compacting-base* nil)))
+    (when s
+      (let ((m (eita.state.snapshot:snap-block s)))
+        (when (eql *base-check-due* m) (setf *base-check-due* nil))
+        (eita.state.snapshot:snap-close s)
+        (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir s)))) :search t)
+        (format t "~&[layers] compacted base snap-~D DISCARDED: ~A~%" m why)
+        (force-output)))))
+
 (defun compaction-swap! (m)
   "The compacted base snap-M passed its root check: it replaces the base and the layers up
-   to M."
+   to M. Only while M is a layer boundary of the stack (snap-M is then the state there); a
+   reorg below M discards it first (`rollback-to!`), so this refusal is a second line: it
+   never installs a base that would sit under layers of another branch."
   (let ((s *compacting-base*))
-    (assert (eql m (eita.state.snapshot:snap-block s)))
+    (unless (and s (eql m (eita.state.snapshot:snap-block s)) (member m *layers* :key #'layer-block))
+      (format *error-output* "~&[layers] REFUSED to swap in compacted base snap-~D: ~:[none is pending~;~:*block ~D is not a layer boundary of the stack (a rollback went below it)~]~%"
+              m (and s (eita.state.snapshot:snap-block s)))
+      (when s (discard-compacting-base! (format nil "block ~D is not in the stack" m)))
+      (return-from compaction-swap! nil))
     (sb-thread:with-mutex (*stack-lock*)
       (let ((gone (cons *base* (member m *layers* :key #'layer-block)))
             (keep (ldiff *layers* (member m *layers* :key #'layer-block))))
@@ -475,7 +495,8 @@
         (sb-thread:barrier (:write))
         (setf *base* s *layers* keep)))
     (setf *compacting-base* nil)
-    (format t "~&[layers] base is now snap-~D (~D layers above it)~%" m (length *layers*))))
+    (format t "~&[layers] base is now snap-~D (~D layers above it)~%" m (length *layers*))
+    t))
 
 (defun stop-background! ()
   "End of a run: the writer finishes its queue and stops; a running compaction finishes."
@@ -495,8 +516,9 @@
 
 (defun rollback-to! (world b)
   "Roll the state back to the newest layer boundary T <= B (a reorg forked after B): drop
-   every layer above T (frozen or on disk) and the hot set. Returns T; the caller
-   re-executes T+1..B and then the new branch. Lean: `rollback_view`."
+   every layer above T (frozen or on disk), the hot set, and the root check and pending
+   compacted base above T. Returns T; the caller re-executes T+1..B and then the new
+   branch. Lean: `rollback_view`."
   (writer-drain!)
   ;; a running compaction finishes first (its result is taken at the next poll); it never
   ;; touches the newest `reorg-window` blocks, so a reorg within the window leaves it valid
@@ -509,6 +531,15 @@
          (top (if keep (layer-block (first keep)) (eita.state.snapshot:snap-block *base*))))
     (when (and (null keep) (> (eita.state.snapshot:snap-block *base*) b))
       (error "rollback to ~D: below the base snap-~D (the reorg is deeper than the layers)" b (eita.state.snapshot:snap-block *base*)))
+    ;; everything above TOP belongs to the abandoned branch: a root check in flight (of an
+    ;; anchor, or of a compacted base) and a finished compaction's base waiting for its check.
+    ;; Left set, a killed base check stalled compaction, GC and `finish-anchors!` for good; a
+    ;; check not yet started passed later (against snap-M's own root) and installed the old
+    ;; branch's snap-M under the kept layers (a Veil model, CompactionDeepReorg, 17 steps)
+    (when (and *pending-root* (> (first *pending-root*) top))
+      (kill-root-check!))
+    (when (and *compacting-base* (> (eita.state.snapshot:snap-block *compacting-base*) top))
+      (discard-compacting-base! (format nil "rollback to ~D" top)))
     (sb-thread:with-mutex (*stack-lock*) (sb-thread:barrier (:write)) (setf *layers* keep))
     (dolist (l drop)
       (eita.state.snapshot:snap-close l)

@@ -222,16 +222,12 @@
   (:report (lambda (c s) (format s "reorg at block ~D" (reorg-block c)))))
 
 (defun rollback-chain! (world fork)
-  "Forget everything above the newest layer boundary T <= FORK: layers, queued and running
-   root checks, observers' records (the stream's :rollback), block hashes and the source's
-   blocks. Returns T+1."
+  "Forget everything above the newest layer boundary T <= FORK: layers, the running root
+   check and a pending compacted base (`rollback-to!`), queued root checks, observers'
+   records (the stream's :rollback), block hashes and the source's blocks. Returns T+1."
   (let ((top (rollback-to! world fork)))
     ;; an anchor above TOP belongs to the abandoned branch
     (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*))
-    (when (and *pending-root* (> (first *pending-root*) top))
-      (ignore-errors (sb-ext:process-kill (third *pending-root*) 9))
-      (sb-ext:process-wait (third *pending-root*))
-      (setf *pending-root* nil))
     (stream-rollback! top)
     (loop for b being the hash-keys of *block-hashes* when (> b top) do (remhash b *block-hashes*))
     (source-call #'block-source-forget-above top)

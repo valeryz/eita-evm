@@ -268,10 +268,124 @@
           (check :table-bytes-native (>= native (* 65 20000)) t)
           (check :table-bytes-lisp (plusp lisp) t))))))
 
+(defun big-delta (k)
+  "Every address in range, with slots: a layer that outweighs a one-account base (a major
+   compaction is due over it). Block K's layer has one more slot per address than the one
+   before: a base of the wrong block under a layer shows through the storage map."
+  (loop for addr from #x1000 below (+ #x1000 40)
+        collect (list addr (list 1 (+ k addr) +ec+ nil) nil
+                      (loop for slot below (+ 12 (floor (- k 100) 10)) collect (cons slot (+ 1 k slot))))))
+
+(defun rollback-discards-pending-base (sub)
+  "A major compaction finished (snap-120 over base 100 and layers 110, 120) and waits for its
+   own root check (SUB :due — not started; :running — a checker process in flight; :above —
+   the rollback stays at M; :guard — the check passes after a rollback the pending base
+   missed: `compaction-swap!` refuses it). A reorg rolls back to 115, below M = 120 (the Veil model
+   CompactionDeepReorg, 17 steps): the pending base must go with the abandoned branch —
+   its check stopped, snap-120 deleted, nothing waiting on it — so that compaction and GC
+   resume, `finish-anchors!` returns, and a later pass of that check cannot install the old
+   branch's snap-120 under the kept layers. At or above M it stays and swaps in as before.
+   The stack's specials are set globally (`finish-anchors!` runs on a thread) and restored."
+  (let* ((dir (format nil "~Areorg-~(~A~)/" *dir* sub))
+         (old-env (sb-ext:posix-getenv "EITA_STATE_DIR"))
+         (vars '(eita.state::*base* eita.state::*layers* eita.state::*compacting-base* eita.state::*base-check-due*
+                 eita.state::*pending-root* eita.state::*anchor-queue* eita.state::*compactor* eita.state::*compactor-job*
+                 eita.state::*compactor-result* eita.state::*retired* eita.state::*current-world*
+                 eita.state::*keep-zero-slots* eita.state::*fault-account-hook* eita.state::*fault-slot-hook*
+                 eita.state::*storage-wipe-hook* eita.state::*cold-storage-map-hook*))
+         (saved (mapcar #'symbol-value vars))
+         (world (eita.state:make-world))
+         (tag (list :reorg sub))
+         (proc nil))
+    (sb-ext:run-program "rm" (list "-rf" dir) :search t)
+    (ensure-directories-exist dir)
+    (sb-posix:setenv "EITA_STATE_DIR" dir 1)
+    (unwind-protect
+         (let ((*dir* dir) (*open* '())
+               (acc (make-hash-table)) (sto (make-hash-table :test 'equal)))
+           (apply-delta acc sto (list (list #x1000 (list 1 1 +ec+ nil) nil (list (cons 1 1)))))
+           (let* ((base (write-base 100 acc sto))
+                  (models '()) (layers '()))
+             (loop for (p n) in '((100 110) (110 120) (120 130))
+                   for d = (big-delta n)
+                   do (apply-delta acc sto d)
+                      (push (write-layer p n d) layers)
+                      (push (cons n (cons (model-copy acc) (model-copy sto))) models))
+             ;; snap-120 = base + layers 110, 120: the finished major compaction
+             (let ((tmp (snap-tmp-path dir 120)))
+               (write-composed tmp 1 120 "0x00" (rest layers) base)
+               (snap-publish dir 120 tmp))
+             (eita.state::back-world! world base layers)
+             (setf eita.state::*compacting-base* (snap-open (snap-path dir 120))
+                   eita.state::*base-check-due* nil eita.state::*pending-root* nil eita.state::*anchor-queue* '()
+                   eita.state::*compactor* nil eita.state::*compactor-job* nil eita.state::*compactor-result* nil
+                   eita.state::*retired* '())
+             (ecase sub
+               ((:due :above :guard) (setf eita.state::*base-check-due* 120))
+               (:running
+                (setf proc (sb-ext:run-program "/bin/sleep" '("600") :wait nil)
+                      eita.state::*pending-root*
+                      (list 120 "0x00" proc (namestring (merge-pathnames "state-120.rootout" dir))
+                            (list (list :base 120 "")) :base (get-universal-time)))))
+             (let* ((target (if (eq sub :above) 125 115))
+                    ;; :guard — the rollback is not seen by the pending base (as if a path
+                    ;; bypassed `rollback-to!`'s discard): the swap itself must refuse it
+                    (top (if (eq sub :guard)
+                             (let ((cb (shiftf eita.state::*compacting-base* nil)))
+                               (prog1 (eita.state::rollback-to! world target)
+                                 (setf eita.state::*compacting-base* cb)))
+                             (eita.state::rollback-to! world target)))
+                    (m (if (eq sub :above) 120 110))
+                    (model (cdr (assoc m models))))
+               (check (list tag :top) top m)
+               (if (eq sub :above)
+                   ;; at or above M: the pending base stays, its check goes on, the swap installs it
+                   (progn
+                     (check (list tag :pending-kept) (and eita.state::*compacting-base* (snap-block eita.state::*compacting-base*)) 120)
+                     (check (list tag :check-due-kept) eita.state::*base-check-due* 120)
+                     (eita.state::compaction-swap! 120)
+                     (check (list tag :base-is-120) (snap-block eita.state::*base*) 120))
+                   (progn
+                     (when (eq sub :guard)
+                       (check (list tag :swap-refused) (eita.state::compaction-swap! 120) nil))
+                     (check (list tag :pending-discarded) eita.state::*compacting-base* nil)
+                     (check (list tag :check-due-cleared) eita.state::*base-check-due* nil)
+                     (check (list tag :root-check-stopped) eita.state::*pending-root* nil)
+                     (when proc (check (list tag :checker-dead) (sb-ext:process-alive-p proc) nil))
+                     (check (list tag :snap-120-deleted) (probe-file (snap-path dir 120)) nil)
+                     ;; the old check passing later (old code: it installed snap-120 here)
+                     (let ((s eita.state::*compacting-base*))
+                       (when s (eita.state::compaction-swap! 120)))
+                     (check (list tag :base-still-100) (snap-block eita.state::*base*) 100)
+                     ;; no stall: a bounded run's end returns, a compaction starts again
+                     (let ((th (sb-thread:make-thread (lambda () (handler-case (progn (eita.state::finish-anchors! 115) :returned)
+                                                                (error (e) (list :error (princ-to-string e))))))))
+                       (let ((r (sb-thread:join-thread th :timeout 20 :default :timeout)))
+                         (when (eq r :timeout) (sb-thread:terminate-thread th) (sb-thread:join-thread th :default nil))
+                         (check (list tag :finish-anchors-returns) r :returned)))
+                     (when proc (ignore-errors (sb-ext:process-kill proc 9)) (sb-ext:process-wait proc))
+                     (setf eita.state::*pending-root* nil)
+                     (unless eita.state::*compacting-base*
+                       (eita.state::compaction-step! 1000 nil)
+                       (check (list tag :compaction-restarts) (and eita.state::*compactor* t) t)
+                       (when eita.state::*compactor*
+                         (sb-thread:join-thread eita.state::*compactor* :default nil)
+                         (check (list tag :compacted-to-110) (eita.state::compaction-step! 1000 nil) 110)
+                         (check-base (list tag :compacted-110) eita.state::*compacting-base* (car model) (cdr model))
+                         (snap-close (shiftf eita.state::*compacting-base* nil))))))
+               (check-view (list tag :view) eita.state::*layers* eita.state::*base* (car model) (cdr model))
+               (mapc #'snap-close eita.state::*retired*)
+               (mapc #'snap-close (remove-if-not #'snap-p (cons eita.state::*base* eita.state::*layers*)))
+               (when (and eita.state::*compacting-base* (not (eq sub :above))) (snap-close eita.state::*compacting-base*)))))
+      (when (and proc (sb-ext:process-alive-p proc)) (ignore-errors (sb-ext:process-kill proc 9)) (sb-ext:process-wait proc))
+      (loop for v in vars for x in saved do (setf (symbol-value v) x))
+      (if old-env (sb-posix:setenv "EITA_STATE_DIR" old-env 1) (sb-posix:unsetenv "EITA_STATE_DIR")))))
+
 (let ((rounds (if eita.test:*argument* (parse-integer eita.test:*argument*) 200)))
   (dotimes (r rounds) (round-1 r))
   (gc-spares-frozen-layer)
   (tip-freezes-stay-bounded)
+  (dolist (sub '(:due :running :above :guard)) (rollback-discards-pending-base sub))
   (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
   (format t "~D rounds, ~D failures~%" rounds *fails*)
   (eita.test:finish :code (if (zerop *fails*) 0 1)))
