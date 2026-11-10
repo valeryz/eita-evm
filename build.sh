@@ -52,14 +52,19 @@ if [ "$LEANLESS" = 0 ]; then
   echo "[1/6] mathlib olean cache (no-op when up to date)"
   ( cd lean && lake exe cache get )
   echo "[2/6] lake build: the emitters and the emitJIT daemon (a runtime dependency of the JIT)"
-  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL emitJIT )
-  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp from the Lean spec"
+  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL emitHostC emitJIT )
+  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h} from the Lean spec"
   ## `lake env` puts the toolchain's lib dir on the library path (Linux needs it).
   ( cd lean && lake env ./.lake/build/bin/emitARM64 )  > c/handlers.S
   ( cd lean && lake env ./.lake/build/bin/emitX86Interp elf ) > c/handlers-x86-elf.S
   ( cd lean && lake env ./.lake/build/bin/emitHostCL ) > src/generated/host.lisp
+  ## ...and the same gas formulas as freestanding C, for the hosts with no Lisp
+  ## (Evm.CL.GasEmitC; c/test_host_gas.c holds them to Lean's own eval).
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --header )  > c/generated/host.h
+  ( cd lean && lake env ./.lake/build/bin/emitHostC )           > c/generated/host.c
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --vectors ) > c/test_host_gas.c
 else
-  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp"
+  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h}"
 fi
 
 echo "[4/6] build libeita, libkeccak_batch, libeita_pq ($(uname -s)/$(uname -m))"

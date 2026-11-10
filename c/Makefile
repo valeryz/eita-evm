@@ -218,6 +218,22 @@ $(BUILD)/test_compute: test_compute.c eita_compute.c evm_state.h | $(BUILD)
 	$(CC) $(ARCHFLAG) $(MARCH) -O2 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
 	  $(INCDIRS) -o $@ test_compute.c eita_compute.c $(LIBDIRS) $(RPATHS) -lgmp
 
+# The gas formulas as C (generated/host.c, emitted from Evm.CL.GasEmitC) against the
+# emitted vectors, whose expected values Lean's own Expr.eval computed: the printer and
+# the meaning it prints are checked against each other, 670 cases.
+test_host_gas: $(BUILD)/test_host_gas
+	$(BUILD)/test_host_gas
+$(BUILD)/test_host_gas: test_host_gas.c generated/host.c generated/host.h | $(BUILD)
+	$(CC) -O2 -Wall -Wextra -Wno-unused-function -I. -o $@ test_host_gas.c generated/host.c
+
+# The same source for the chip: freestanding rv32imac, no libc, no Lisp, no Lean.
+# Compile-only — running it on the target is the firmware's business.
+RV32_CC    ?= riscv64-elf-gcc
+RV32_FLAGS ?= -march=rv32imac -mabi=ilp32 -O2 -ffreestanding -Wall -Wextra -Wno-unused-function
+host_gas_rv32: $(BUILD)/host-rv32.o
+$(BUILD)/host-rv32.o: generated/host.c generated/host.h | $(BUILD)
+	$(RV32_CC) $(RV32_FLAGS) -I. -c -o $@ generated/host.c
+
 $(BUILD)/%.o: $(LEAN_C)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -230,4 +246,5 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation
+.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation \
+	test_host_gas host_gas_rv32

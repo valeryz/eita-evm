@@ -255,3 +255,45 @@ differential, the fixtures, the 30k replay, `tests/native-storage-hooks.lisp` (o
 and without the watch; rows and watched accesses equal a digest recorded from step 5's Lisp path), and the fact
 log and storage view of the 30k range compared with the ones the Lisp path wrote (step 5: rows and content
 hashes in every sealed segment; step 6: against step 5's Lisp-path outputs).
+
+## The gas formulas in C, for hosts with no Lisp — derived + tested
+
+`src/generated/host.lisp` prints the consensus gas formulas as Common Lisp, where every
+intermediate is a bignum for free. A host on a 32-bit microcontroller has no Lisp and no
+bignum, and hand-writing a gas schedule there would be exactly the parallel copy
+CONTRIBUTING rule 4 forbids (and `scripts/check-derived-gas.py` refuses in the Lisp). So
+`Evm.CL.GasEmitC` adds a **second printer over the same `Evm.CL.GasEmit.Expr` terms**:
+`lake exe emitHostC` writes `c/generated/host.{c,h}`, freestanding C over `uint64_t` with
+no runtime, which compiles for `rv32imac` as it does for the host (4.7 KiB of rv32 text for
+the whole set). The terms, their `eval` and the EIP-number kernel checks are untouched.
+
+**Trusted.**
+- The printer `Expr.toC` — the same class as `toCL`: it fails on any construct outside its
+  subset rather than emitting something approximate.
+- The checked-arithmetic prelude (`GasEmitC.preludeC`, 11 helpers of one line each): `add`,
+  `mul`, `sub` (truncated, = `toCL`'s `(max 0 (- a b))`), `fdiv`, `max`, `min`, `blen`
+  (= CL `integer-length`), `pow2`, a 4-limb `u256_blen`, and `fake_exponential` — the one
+  loop the IR has, mirroring the already-hand-written `GasEmit.fakeExponentialCL` line for
+  line (the Lean meaning is `Evm.Cancun.Spec.fakeExponential`).
+- That `Nat` fits in 64 bits for the formulas emitted. This is *not* taken on faith:
+  `add`, `mul`, `pow2` and division call `eita_spec_overflow` (declared `noreturn`) rather
+  than wrapping, so the gap is a loud stop and never a wrong number. A replay host may
+  abort there; a signing device must refuse to sign.
+
+**Restricted on purpose.** `GasEmitC.Dom` splits the table into `gas` (bounded by the block
+gas limit, so 64 bits hold every value *and* every intermediate) and `wei` (bounded by
+nothing the chain enforces). Only `gas` formulas are emitted; the `wei` ones —
+`spec-block-base-reward`, `spec-uncle-inclusion-bonus`, `spec-uncle-reward`,
+`spec-blob-base-fee`, `spec-effective-gas-price` — wait for a 256-bit printer, and
+`c/generated/host.h` lists them. The reason is concrete rather than cautious: an ether
+reward is ~5·10^18 before it is multiplied by anything, and `uncle-reward` trapped on its
+own first vector. The Lisp host emits all of them.
+
+**Checked by** `c/test_host_gas.c` (emitted by `lake exe emitHostC --vectors`): 670 vectors
+over every emitted function, each expected value computed by `Expr.eval` *in Lean* — the
+meaning the printer is a second view of. `fork-ord` is swept over every fork, sizes over the
+thresholds the formulas branch on (32/33, 64/65, 1024/1025), and the one 256-bit input
+(MODEXP's `exp-head`) past 2^64, which is what would catch a truncated limb.
+`scripts/verify-host-emit.sh` regenerates all three artifacts, fails on drift, and runs the
+vectors (`make -C c test_host_gas`); `make -C c host_gas_rv32` compiles the same C
+freestanding for the target.

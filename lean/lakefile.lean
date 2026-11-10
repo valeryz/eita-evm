@@ -128,6 +128,11 @@ lean_exe emitLimbC where
 lean_exe emitStorageC where
   root := `EmitStorageC
 
+-- The gas formulas as C (Evm.CL.GasEmitC): the Lisp-free hosts' copy of the one
+-- Lean-owned formula. Additive: emitHostCL and src/generated/host.lisp are untouched.
+lean_exe emitHostC where
+  root := `EmitHostC
+
 private def cFlags (extra : Array String := #[]) : FetchM (Array String) := do
   let leanInc := (← getLeanIncludeDir).toString
   return #["-I", leanInc, "-I", "/opt/homebrew/include",

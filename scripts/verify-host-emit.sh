@@ -85,6 +85,17 @@ for pair in "emitLimbC:generated/limb_ops.h" "emitStorageC:generated/storage_eff
   if cmp -s ../c/$out /tmp/_emit_check.c; then echo "c/$out up to date with the Lean emitter OK"
   else echo "DRIFT: c/$out != lake exe $exe"; echo "  fix: (cd lean && lake exe $exe > ../c/$out)"; exit 1; fi
 done
+# ...the same gas formulas printed as C for the Lisp-free hosts (Evm.CL.GasEmitC), and
+# the emitted vectors that hold the C to Lean's own Expr.eval...
+build /tmp/_emit_hostc_build.log emitHostC
+for pair in "--header:generated/host.h" ":generated/host.c" "--vectors:test_host_gas.c"; do
+  arg=${pair%%:*}; out=${pair##*:}
+  # $arg is unquoted on purpose: empty means "no flag" (the .c itself).
+  emit /tmp/_emit_run.err /tmp/_emit_check_hostc.c lake env ./.lake/build/bin/emitHostC $arg
+  if cmp -s ../c/$out /tmp/_emit_check_hostc.c; then echo "c/$out up to date with the Lean emitter OK"
+  else echo "DRIFT: c/$out != lake exe emitHostC $arg"; echo "  fix: ./build.sh (regenerates it)"; exit 1; fi
+done
+make -C ../c test_host_gas >/dev/null && echo "c/test_host_gas (emitted C == Lean Expr.eval) OK"
 # ...and no gas schedule copied by hand into the replay code around it
 python3 ../scripts/check-derived-gas.py   # cwd is lean/ here
 # ...and the committed interpreter runs against CHECKING callbacks (c/test_interp.c: the
