@@ -39,3 +39,26 @@ fi
 HN=$(grep -c '^\.globl' "$OUT/handlers.s")
 HI=$(grep -cE '^\s{4}[a-z]' "$OUT/handlers.s")
 echo "$HN handlers assemble OK ($HI instructions)"
+
+# ...and the WHOLE interpreter: the frame, the dispatch loop, the epilogue, the
+# fault stubs, the 22 fork tables and every handler body. Nothing may be left
+# undefined except the C helpers the engine links against.
+( cd lean && DYLD_LIBRARY_PATH=/opt/homebrew/lib lake exe emitRV32 --interp ) > "$OUT/interp.s"
+if grep -q '«' "$OUT/interp.s"; then
+  echo "FAIL: unlowered instruction in the emitted rv32 interpreter" >&2; exit 1
+fi
+"$RV32_CC" -march=rv32imac -mabi=ilp32 -c -x assembler "$OUT/interp.s" -o "$OUT/interp.o"
+for sym in eita_run eita_next eita_sync_and_ret eita_set_fork; do
+  "${RV32_CC%-gcc}-nm" -g "$OUT/interp.o" | grep -q " T $sym\$" || {
+    echo "FAIL: $sym is not defined in the emitted interpreter" >&2; exit 1; }
+done
+# every undefined symbol must be one of the C helpers (eita_helper_* / eita_ts_*)
+BAD=$("${RV32_CC%-gcc}-nm" -u "$OUT/interp.o" | awk '{print $2}' |
+      grep -vE '^eita_(helper_|ts_|spec_|sh_|ws_|keccak)' || true)
+if [ -n "$BAD" ]; then
+  echo "FAIL: the interpreter references symbols that are not engine C:" >&2
+  echo "$BAD" >&2; exit 1
+fi
+TI=$(grep -cE '^\s{4}[a-z]' "$OUT/interp.s")
+TT=$("${RV32_CC%-gcc}-size" "$OUT/interp.o" | awk 'NR==2{print $1}')
+echo "whole interpreter assembles OK ($TI instructions, $TT bytes of text, 137 handlers + 22 fork tables)"

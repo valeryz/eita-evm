@@ -39,8 +39,8 @@ typedef void (*eita_sh_hook_fn)(uint64_t op, const u256_t *addr, const u256_t *k
 
 typedef struct eita_sh {
   /* set by Lisp (offsets 0..88, src/evm/callbacks.lisp) */
-  ws_world *ws;                 /*  0: the current world's slot tables */
-  TxState *ts;                  /*  8 */
+  EITA_PTR(ws_world *ws, ws);                 /*  0: the current world's slot tables */
+  EITA_PTR(TxState *ts, ts);                  /*  8 */
   uint64_t fork;                /* 16: Fork.ord */
   uint64_t flags;               /* 24: EITA_SH_* */
   eita_sh_learn_fn learn;       /* 32 */

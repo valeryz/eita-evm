@@ -83,6 +83,8 @@ inductive RvInsn where
 inductive RvItem where
   | insn  (i : RvInsn)
   | label (l : String)
+  /-- An assembler directive (sections, alignment, globals, table words). -/
+  | dir (text : String)
   /-- A form the lowering cannot handle: the loud marker, carried as data. -/
   | unlowered (why : String)
   deriving DecidableEq, Repr
@@ -135,6 +137,7 @@ def RvInsn.emit : RvInsn → String
 def RvItem.emit : RvItem → String
   | .insn i      => i.emit
   | .label l     => s!"{l}:\n"
+  | .dir t       => s!"{t}\n"
   | .unlowered w => s!"    /* «unlowered: {w}» */\n"
 
 def emitProg (p : List RvItem) : String := String.join (p.map RvItem.emit)

@@ -26,7 +26,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "evm_state.h"
+#include "evm_state.h"   /* EITA_PTR: pointer-field layout on ILP32 */
 
 #ifdef __cplusplus
 extern "C" {
@@ -109,9 +109,9 @@ struct TxState;
 typedef struct {
     uint64_t        journal_count;    /* offset  0 */
     uint64_t        log_count;        /* offset  8 */
-    JournalEntry   *journal_data;     /* offset 16 */
-    LogEntry       *log_data;         /* offset 24 */
-    uint8_t        *log_blob_ptr;     /* offset 32 */
+    EITA_PTR(JournalEntry   *journal_data, journal_data);     /* offset 16 */
+    EITA_PTR(LogEntry       *log_data, log_data);         /* offset 24 */
+    EITA_PTR(uint8_t        *log_blob_ptr, log_blob_ptr);     /* offset 32 */
     uint64_t        journal_cap;      /* offset 40 */
     uint64_t        log_cap;          /* offset 48 */
     uint64_t        log_blob_cap;     /* offset 56 */

@@ -72,12 +72,32 @@ _Static_assert(_Alignof(u256_t) == 8, "u256_t must be 8-byte aligned");
  *   4 = CREATE        (deploy new contract, address from sender+nonce)
  *   5 = CREATE2       (deploy with salt-derived address)
  */
+
+/* ===========================================================================
+ * Pointer fields on a 32-bit target (EITA_RV32)
+ *
+ * The emitted code addresses these structs by byte offset, so their layout is
+ * part of the ABI. On ILP32 a pointer is 4 bytes AND 4-aligned, so it packs
+ * where the 64-bit build has 8 bytes — `CallResult.output` lands at 4 instead
+ * of 8 and every field after it shifts (the static assertions below catch it).
+ *
+ * `EITA_PTR` makes each pointer field a union with a `uint64_t`, which pins
+ * both its size and its alignment to 8. The layout is then identical to the
+ * 64-bit build, the assertions hold on both, and because the union is
+ * anonymous every `state->memory` and `result->output` in the C is unchanged.
+ * =========================================================================== */
+#if defined(EITA_RV32)
+#define EITA_PTR(decl, name) union { decl; uint64_t name##_w64; }
+#else
+#define EITA_PTR(decl, name) decl
+#endif
+
 typedef struct CallParams {
     int             kind;                 /* offset  0 */
     int             staticp;              /* offset  4 — 1 = sub-frame is static */
     u256_t          addr;                 /* offset  8 — callee address */
     u256_t          value;                /* offset 40 — wei transferred */
-    const uint8_t  *input;                /* offset 72 — calldata */
+    EITA_PTR(const uint8_t  *input, input);                /* offset 72 — calldata */
     uint64_t        input_len;            /* offset 80 */
     uint64_t        gas;                  /* offset 88 — gas to forward */
     u256_t          salt;                 /* offset 96 — for CREATE2 */
@@ -85,7 +105,7 @@ typedef struct CallParams {
 
 typedef struct CallResult {
     int             success;              /* offset  0 — 1 ok, 0 reverted */
-    uint8_t        *output;               /* offset  8 — sub-frame's RETURN/REVERT bytes */
+    EITA_PTR(uint8_t        *output, output);               /* offset  8 — sub-frame's RETURN/REVERT bytes */
     uint64_t        output_len;           /* offset 16 */
     uint64_t        gas_used;             /* offset 24 — gas the sub-frame consumed */
     u256_t          created_addr;         /* offset 32 — for CREATE/CREATE2 */
@@ -185,21 +205,21 @@ typedef struct EvmState {
     uint64_t   gas_left;       /* offset   8 — remaining gas (signed semantics) */
     uint64_t   sp;             /* offset  16 — stack pointer (next free slot) */
     uint64_t   mp;             /* offset  24 — memory high-water mark (bytes) */
-    u256_t    *stack;          /* offset  32 — 1024-entry U256 array */
-    uint8_t   *memory;         /* offset  40 — resizable byte buffer */
+    EITA_PTR(u256_t    *stack, stack);          /* offset  32 — 1024-entry U256 array */
+    EITA_PTR(uint8_t   *memory, memory);         /* offset  40 — resizable byte buffer */
     uint64_t   memory_size;    /* offset  48 — actual size (bytes) */
     uint64_t   memory_cap;     /* offset  56 — capacity (bytes); resize when size = cap */
 
     /* --- Buffers (immutable per frame) ----------------------------------- */
-    const uint8_t *code;       /* offset  64 — contract code */
+    EITA_PTR(const uint8_t *code, code);       /* offset  64 — contract code */
     uint64_t       code_size;  /* offset  72 */
-    const uint8_t *calldata;   /* offset  80 — inputs from the caller */
+    EITA_PTR(const uint8_t *calldata, calldata);   /* offset  80 — inputs from the caller */
     uint64_t       calldata_size; /* offset 88 */
 
     /* --- Outputs --------------------------------------------------------- */
-    uint8_t       *returndata; /* offset  96 — set by sub-call return */
+    EITA_PTR(uint8_t       *returndata, returndata); /* offset  96 — set by sub-call return */
     uint64_t       returndata_size; /* offset 104 */
-    uint8_t       *output;     /* offset 112 — set by RETURN/REVERT */
+    EITA_PTR(uint8_t       *output, output);     /* offset 112 — set by RETURN/REVERT */
     uint64_t       output_size; /* offset 120 */
 
     /* --- Flags ----------------------------------------------------------- */
@@ -214,7 +234,7 @@ typedef struct EvmState {
      * Built by the host per frame (eita_jumpdest_map); JUMP/JUMPI consult it after
      * the bounds check, never the code byte. Was `jump_count` (dead: no handler
      * wrote it) until the 5,800,596 jump-into-PUSH-data divergence. */
-    const uint8_t *jumpdests;  /* offset 136 */
+    EITA_PTR(const uint8_t *jumpdests, jumpdests);  /* offset 136 */
 
     /* --- Frame-level env (U256-valued) ---------------------------------- */
     u256_t         address;    /* offset 144 — executing contract */
@@ -232,8 +252,8 @@ typedef struct EvmState {
     u256_t         basefee;    /* offset 464 */
 
     /* --- Host link ------------------------------------------------------- */
-    const EvmCallbacks *cb;    /* offset 496 — vtable */
-    void               *cb_ctx; /* offset 504 — opaque host context */
+    EITA_PTR(const EvmCallbacks *cb, cb);    /* offset 496 — vtable */
+    EITA_PTR(void               *cb_ctx, cb_ctx); /* offset 504 — opaque host context */
 
     /* --- Post-Merge env ------------------------------------------------- */
     u256_t         prev_randao; /* offset 512 — RANDAO mix (EIP-4399) */
@@ -247,7 +267,7 @@ typedef struct EvmState {
      * per index, four little-endian limbs, `blob_hash_count` entries; installed by
      * the host per tx (empty for a non-blob tx). BLOBHASH (0x49) indexes it over the
      * full u256 index and pushes 0 past the count. */
-    const u256_t  *blob_hashes;      /* offset 552 */
+    EITA_PTR(const u256_t  *blob_hashes, blob_hashes);      /* offset 552 */
     uint64_t       blob_hash_count;  /* offset 560 */
     /* The block's blob base fee, fake_exponential(excess_blob_gas) per the block's
      * fork, computed once per block by the host (emitted spec-blob-base-fee) and
@@ -256,7 +276,7 @@ typedef struct EvmState {
     /* x86-64 direct threading: the table every handler's continuation jumps
        through (the fork's, the trace table, or the return table; set by the
        entry, c/handlers-x86-elf.S). Unused on ARM64 (x27). */
-    const void *const *cont_table;   /* offset 600 */
+    EITA_PTR(const void *const *cont_table, cont_table);   /* offset 600 */
 
     /* --- RISC-V lowering scratch (rv32 ONLY) --------------------------------
      * Two 64-bit slots the rv32 handler lowering spills a borrowed register

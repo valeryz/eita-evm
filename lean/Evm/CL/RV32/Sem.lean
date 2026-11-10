@@ -116,6 +116,8 @@ def exec : Nat → List RvItem → RS → Option (RS × Option String)
   | fuel + 1, it :: rest, s =>
       match it with
       | .label _ => exec fuel rest s
+      -- a directive does nothing at run time (as `AsmSem.exec` treats them)
+      | .dir _ => exec fuel rest s
       | .unlowered _ => none
       | .insn i =>
           match step s i with
