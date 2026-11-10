@@ -84,6 +84,11 @@ import Evm.Cancun.Vm.PrecompiledContracts
 -- them here — it checks that no such proof runs one of the spec's @[extern]s.
 import Evm.CL.RV32.Regs
 import Evm.CL.RV32.Lower
+import Evm.CL.RV32.Asm
+import Evm.CL.RV32.Sem
+import Evm.CL.RV32.Items
+import Evm.CL.RV32.Carry
+import Evm.CL.RV32.Sim
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect
