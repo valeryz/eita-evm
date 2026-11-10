@@ -133,6 +133,11 @@ lean_exe emitStorageC where
 lean_exe emitHostC where
   root := `EmitHostC
 
+-- The rv32imac lowering of the gadget set, for the assembler gate
+-- (scripts/verify-rv32-emit.sh); Evm.CL.RV32.Lower proves the coverage.
+lean_exe emitRV32 where
+  root := `EmitRV32
+
 private def cFlags (extra : Array String := #[]) : FetchM (Array String) := do
   let leanInc := (← getLeanIncludeDir).toString
   return #["-I", leanInc, "-I", "/opt/homebrew/include",

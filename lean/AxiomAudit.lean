@@ -79,6 +79,11 @@ import Evm.Crypto.Bn254
 import Evm.Crypto.P256Verify
 import Evm.Crypto.Bls12381
 import Evm.Cancun.Vm.PrecompiledContracts
+-- The RISC-V backend's modules: they use `native_decide` (coverage over the
+-- emitted programs, the register budget), so the extern rule above requires
+-- them here — it checks that no such proof runs one of the spec's @[extern]s.
+import Evm.CL.RV32.Regs
+import Evm.CL.RV32.Lower
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect

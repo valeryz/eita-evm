@@ -257,6 +257,20 @@ typedef struct EvmState {
        through (the fork's, the trace table, or the return table; set by the
        entry, c/handlers-x86-elf.S). Unused on ARM64 (x27). */
     const void *const *cont_table;   /* offset 600 */
+
+    /* --- RISC-V lowering scratch (rv32 ONLY) --------------------------------
+     * Two 64-bit slots the rv32 handler lowering spills a borrowed register
+     * into. RISC-V has no condition flags, so a few sequences need one more
+     * live bit than its single carry register holds; and it has no red zone,
+     * so the slot cannot sit below `sp` — nor at a fixed `sp` offset, because a
+     * handler moves `sp` to frame its helper calls. Hanging it off `EvmState`
+     * gives the lowering an address that never moves.
+     *
+     * Compiled in only for the rv32 target, so the 608-byte struct every other
+     * backend's emitted code addresses is untouched. */
+#if defined(EITA_RV32)
+    uint64_t rv32_scratch[2];        /* offset 608 */
+#endif
 } EvmState;
 
 /* ===========================================================================
@@ -312,7 +326,12 @@ EITA_ASSERT_OFFSET(blob_hash_count, 560);
 EITA_ASSERT_OFFSET(blob_base_fee, 568);
 EITA_ASSERT_OFFSET(cont_table,    600);
 
+#if defined(EITA_RV32)
+EITA_ASSERT_OFFSET(rv32_scratch,  608);
+_Static_assert(sizeof(EvmState) == 624, "EvmState (rv32) must be exactly 624 bytes");
+#else
 _Static_assert(sizeof(EvmState) == 608, "EvmState must be exactly 608 bytes");
+#endif
 
 #undef EITA_ASSERT_OFFSET
 
