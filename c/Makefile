@@ -249,7 +249,7 @@ $(BUILD)/host-rv32.o: generated/host.c generated/host.h | $(BUILD)
 # Lean. Assembles the emitted interpreter (lake exe emitRV32 --interp) and the
 # C substrate, partial-links them, and prints what is left undefined — which
 # must be ONLY the host hooks the firmware supplies (c/rv32/README.md).
-RV32_SRCS := rv32/shim.c rv32/unlowered.c eita_compute.c tx_state.c world_slots.c \
+RV32_SRCS := rv32/shim.c rv32/unlowered.c rv32/selftest.c eita_compute.c tx_state.c world_slots.c \
              storage_host.c generated/storage_effect.c generated/host.c \
              $(LEAN_C)/keccak.c $(LEAN_C)/sha256.c $(LEAN_C)/ripemd160.c \
              $(LEAN_C)/blake2f.c
