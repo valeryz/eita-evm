@@ -68,8 +68,8 @@ else
   echo "FAIL: an effect proof does not check or has a sorry"; grep -m5 -e error -e sorry /tmp/_effect_proof.log Evm/CL/Effect*.lean; exit 1
 fi
 # ...the committed interpreter assembly for both backends...
-build /tmp/_emit_exe_build.log emitARM64 emitX86Interp
-for pair in "emitARM64:handlers.S" "emitX86Interp elf:handlers-x86-elf.S"; do
+build /tmp/_emit_exe_build.log emitARM64 emitX86Interp emitRV32
+for pair in "emitARM64:handlers.S" "emitX86Interp elf:handlers-x86-elf.S" "emitRV32 --interp:handlers-rv32.S"; do
   exe=${pair%%:*}; out=${pair##*:}
   # $exe is unquoted on purpose: "emitX86Interp elf" passes `elf` as argv[1].
   emit /tmp/_emit_run.err /tmp/_emit_check.S lake env ./.lake/build/bin/$exe

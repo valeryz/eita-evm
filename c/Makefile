@@ -258,10 +258,12 @@ RV32_NM   := $(subst -gcc,-nm,$(RV32_CC))
 RV32_SIZE := $(subst -gcc,-size,$(RV32_CC))
 RV32_HOOKS := eita_rv32_malloc|eita_rv32_realloc|eita_rv32_free|eita_rv32_abort|eita_rv32_log|eita_spec_overflow
 
+# Uses the COMMITTED handlers-rv32.S, like the ARM64 and x86-64 files: no Lean
+# in this path, so firmware can build the engine from a checkout alone
+# (build.sh regenerates it; verify-host-emit.sh fails on drift).
 rv32_engine: | $(RV32_DIR)
 	rm -f $(RV32_DIR)/*.o $(BUILD)/eita-engine-rv32.o
-	( cd ../lean && lake exe emitRV32 --interp ) > $(RV32_DIR)/interp.s
-	$(RV32_CC) $(RV32_FLAGS) -c $(RV32_DIR)/interp.s -o $(RV32_DIR)/interp.o
+	$(RV32_CC) $(RV32_FLAGS) -c handlers-rv32.S -o $(RV32_DIR)/interp.o
 	for f in $(RV32_SRCS); do \
 	  $(RV32_CC) $(RV32_FLAGS) -DEITA_RV32 -DEITA_NO_LEAN_WRAPPER \
 	    -I. -Irv32/include -I$(LEAN_C) -c $$f \
