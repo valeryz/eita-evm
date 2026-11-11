@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "evm_state.h"
+#include "u128.h"   /* the 128-bit primitives; portable where __uint128_t is absent */
 
 typedef u256_t u256;
 
@@ -189,10 +190,11 @@ void eita_helper_mul(u256 *result, const u256 *a, const u256 *b) {
         if (a->limb[i] == 0) continue;
         uint64_t carry = 0;
         for (int j = 0; i + j < 4; j++) {
-            __uint128_t t = (__uint128_t)a->limb[i] * b->limb[j]
-                          + r[i + j] + carry;
-            r[i + j] = (uint64_t)t;
-            carry = (uint64_t)(t >> 64);
+            eita_u128 t = eita_u128_add64(
+                              eita_u128_add64(eita_mul64(a->limb[i], b->limb[j]), r[i + j]),
+                              carry);
+            r[i + j] = t.lo;
+            carry = t.hi;
         }
     }
     result->limb[0] = r[0];
@@ -213,14 +215,14 @@ void eita_helper_mul(u256 *result, const u256 *a, const u256 *b) {
  * floor((2^128 - 1) / d) - 2^64, the one 128-bit division per udivrem call (Möller &
  * Granlund, IEEE TC 2011, Algorithm 4): two multiplications and two rare corrections. */
 static inline uint64_t reciprocal_2by1(uint64_t d) {
-    return (uint64_t)(((((__uint128_t)~d) << 64) | ~(uint64_t)0) / d);
+    return eita_udiv128by64(~d, ~(uint64_t)0, d);
 }
 
 /* (u1:u0) / d for u1 < d (quotient fits one limb); *rem = the remainder. */
 static inline uint64_t div_2by1(uint64_t u1, uint64_t u0, uint64_t d, uint64_t v,
                                 uint64_t *rem) {
-    __uint128_t q = (__uint128_t)v * u1 + ((((__uint128_t)u1) << 64) | u0);
-    uint64_t q1 = (uint64_t)(q >> 64) + 1, q0 = (uint64_t)q;
+    eita_u128 q = eita_u128_add(eita_mul64(v, u1), eita_u128_of(u1, u0));
+    uint64_t q1 = q.hi + 1, q0 = q.lo;
     uint64_t r = u0 - q1 * d;
     if (r > q0) { q1--; r += d; }
     if (r >= d) { q1++; r -= d; }
@@ -278,7 +280,8 @@ static void udivrem(uint64_t q[4], uint64_t r[4], const uint64_t *u, int m,
             qhat = div_2by1(un[j + n], un[j + n - 1], vtop, inv, &rhat);
         }
         while (!rhat_big &&
-               (__uint128_t)qhat * vnext > (((__uint128_t)rhat << 64) | un[j + n - 2])) {
+               eita_u128_gt(eita_mul64(qhat, vnext),
+                            eita_u128_of(rhat, un[j + n - 2]))) {
             qhat--;
             uint64_t t = rhat + vtop;
             rhat_big = t < rhat;
@@ -287,9 +290,9 @@ static void udivrem(uint64_t q[4], uint64_t r[4], const uint64_t *u, int m,
         /* D4: un[j..j+n] -= qhat * vn. */
         uint64_t borrow = 0, carry = 0;
         for (int i = 0; i < n; i++) {
-            __uint128_t p = (__uint128_t)qhat * vn[i] + carry;
-            carry = (uint64_t)(p >> 64);
-            uint64_t plo = (uint64_t)p, x = un[i + j];
+            eita_u128 p = eita_u128_add64(eita_mul64(qhat, vn[i]), carry);
+            carry = p.hi;
+            uint64_t plo = p.lo, x = un[i + j];
             uint64_t t = x - plo;
             uint64_t b1 = x < plo;
             un[i + j] = t - borrow;
@@ -305,9 +308,11 @@ static void udivrem(uint64_t q[4], uint64_t r[4], const uint64_t *u, int m,
             qhat--;
             uint64_t c = 0;
             for (int i = 0; i < n; i++) {
-                __uint128_t sum = (__uint128_t)un[i + j] + vn[i] + c;
-                un[i + j] = (uint64_t)sum;
-                c = (uint64_t)(sum >> 64);
+                uint64_t s1 = un[i + j] + vn[i];
+                uint64_t c1 = s1 < vn[i];
+                uint64_t s2 = s1 + c;
+                c = c1 | (s2 < c);
+                un[i + j] = s2;
             }
             un[j + n] += c;                          /* the carry out is discarded */
         }
@@ -368,9 +373,11 @@ void eita_helper_addmod(u256 *result, const u256 *a, const u256 *b, const u256 *
     uint64_t s[5];
     uint64_t carry = 0;
     for (int i = 0; i < 4; i++) {
-        __uint128_t t = (__uint128_t)a->limb[i] + b->limb[i] + carry;
-        s[i] = (uint64_t)t;
-        carry = (uint64_t)(t >> 64);
+        uint64_t s1 = a->limb[i] + b->limb[i];
+        uint64_t c1 = s1 < b->limb[i];
+        uint64_t s2 = s1 + carry;
+        carry = c1 | (s2 < carry);
+        s[i] = s2;
     }
     s[4] = carry;
     udivrem(NULL, result->limb, s, 5, n->limb);
@@ -382,10 +389,11 @@ void eita_helper_mulmod(u256 *result, const u256 *a, const u256 *b, const u256 *
     for (int i = 0; i < 4; i++) {
         uint64_t carry = 0;
         for (int j = 0; j < 4; j++) {
-            __uint128_t t = (__uint128_t)a->limb[i] * b->limb[j]
-                          + prod[i + j] + carry;
-            prod[i + j] = (uint64_t)t;
-            carry = (uint64_t)(t >> 64);
+            eita_u128 t = eita_u128_add64(
+                              eita_u128_add64(eita_mul64(a->limb[i], b->limb[j]), prod[i + j]),
+                              carry);
+            prod[i + j] = t.lo;
+            carry = t.hi;
         }
         prod[i + 4] = carry;
     }

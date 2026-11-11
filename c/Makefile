@@ -214,6 +214,16 @@ $(BUILD)/test_modexp: test_modexp.c $(LEAN_C)/modexp.c | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -DEITA_NO_LEAN_WRAPPER $(INCDIRS) -o $@ test_modexp.c $(LEAN_C)/modexp.c $(LIBDIRS) $(RPATHS) -lcrypto -lgmp
 test_compute: $(BUILD)/test_compute
 	$(BUILD)/test_compute
+
+# The same differential, with the PORTABLE 128-bit primitives (c/u128.h) forced
+# on: that is the path a 32-bit target compiles, and GMP is the only thing that
+# can say whether its 64x64 products and its one 128/64 division are right.
+test_compute_portable: $(BUILD)/test_compute_portable
+	$(BUILD)/test_compute_portable
+$(BUILD)/test_compute_portable: test_compute.c eita_compute.c evm_state.h u128.h | $(BUILD)
+	$(CC) $(ARCHFLAG) $(MARCH) -O2 -g -DEITA_NO_INT128 \
+	  -fsanitize=address,undefined -fno-sanitize-recover=all \
+	  $(INCDIRS) -o $@ test_compute.c eita_compute.c $(LIBDIRS) $(RPATHS) -lgmp
 $(BUILD)/test_compute: test_compute.c eita_compute.c evm_state.h | $(BUILD)
 	$(CC) $(ARCHFLAG) $(MARCH) -O2 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
 	  $(INCDIRS) -o $@ test_compute.c eita_compute.c $(LIBDIRS) $(RPATHS) -lgmp
@@ -234,6 +244,43 @@ host_gas_rv32: $(BUILD)/host-rv32.o
 $(BUILD)/host-rv32.o: generated/host.c generated/host.h | $(BUILD)
 	$(RV32_CC) $(RV32_FLAGS) -I. -c -o $@ generated/host.c
 
+# ---------------------------------------------------------------------------
+# The whole engine for the chip: freestanding rv32imac, no libc, no Lisp, no
+# Lean. Assembles the emitted interpreter (lake exe emitRV32 --interp) and the
+# C substrate, partial-links them, and prints what is left undefined — which
+# must be ONLY the host hooks the firmware supplies (c/rv32/README.md).
+RV32_SRCS := rv32/shim.c rv32/unlowered.c eita_compute.c tx_state.c world_slots.c \
+             storage_host.c generated/storage_effect.c generated/host.c \
+             $(LEAN_C)/keccak.c $(LEAN_C)/sha256.c $(LEAN_C)/ripemd160.c \
+             $(LEAN_C)/blake2f.c
+RV32_DIR  := $(BUILD)/rv32
+RV32_NM   := $(subst -gcc,-nm,$(RV32_CC))
+RV32_SIZE := $(subst -gcc,-size,$(RV32_CC))
+RV32_HOOKS := eita_rv32_malloc|eita_rv32_realloc|eita_rv32_free|eita_rv32_abort|eita_rv32_log|eita_spec_overflow
+
+rv32_engine: | $(RV32_DIR)
+	rm -f $(RV32_DIR)/*.o $(BUILD)/eita-engine-rv32.o
+	( cd ../lean && lake exe emitRV32 --interp ) > $(RV32_DIR)/interp.s
+	$(RV32_CC) $(RV32_FLAGS) -c $(RV32_DIR)/interp.s -o $(RV32_DIR)/interp.o
+	for f in $(RV32_SRCS); do \
+	  $(RV32_CC) $(RV32_FLAGS) -DEITA_RV32 -DEITA_NO_LEAN_WRAPPER \
+	    -I. -Irv32/include -I$(LEAN_C) -c $$f \
+	    -o $(RV32_DIR)/`basename $$f .c`.o || exit 1; \
+	done
+	$(RV32_CC) -march=rv32imac -mabi=ilp32 -nostdlib -Wl,-r \
+	  -o $(BUILD)/eita-engine-rv32.o $(RV32_DIR)/*.o -lgcc
+	@$(RV32_SIZE) $(BUILD)/eita-engine-rv32.o | tail -1
+	@$(RV32_NM) -u $(BUILD)/eita-engine-rv32.o | awk '{print $$2}' | sort > $(RV32_DIR)/undef.txt
+	@cat $(RV32_DIR)/undef.txt
+	@if grep -vE "^($(RV32_HOOKS))$$" $(RV32_DIR)/undef.txt > $(RV32_DIR)/bad.txt; then \
+	  echo "FAIL: the engine references symbols that are not host hooks:" >&2; \
+	  cat $(RV32_DIR)/bad.txt >&2; exit 1; \
+	else echo "rv32 engine links; only the host hooks are undefined OK"; fi
+
+$(RV32_DIR):
+	mkdir -p $@
+
+
 $(BUILD)/%.o: $(LEAN_C)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -247,4 +294,4 @@ clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
 .PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation \
-	test_host_gas host_gas_rv32
+	test_host_gas host_gas_rv32 test_compute_portable rv32_engine
