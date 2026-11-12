@@ -184,9 +184,8 @@ def step1 (evm : Evm) : StepResult :=
     | 0xff => doSelfdestruct evm                                     -- EIP-6780
     | _    => Evm.Shanghai.Vm.Effect.step1 evm
 
-/-- Trace-friendly format: one tab-separated line per opcode step.
-    Matches the layout `BaseReplay` produces from op-geth's
-    `structLogTracer` JSON so we can `diff` the two files. -/
+/-- Trace-friendly format: one tab-separated line per opcode step, in the
+    layout of op-geth's `structLogTracer` JSON so the two can be `diff`ed. -/
 private def formatTraceLine (evm : Evm) : String :=
   let pc := evm.pc
   let op : UInt8 := if pc < evm.message.code.size then evm.message.code.get! pc else 0

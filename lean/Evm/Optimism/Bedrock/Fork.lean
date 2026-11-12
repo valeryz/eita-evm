@@ -501,9 +501,7 @@ private partial def applyAll
 /-- Bedrock block driver. Run all txs in order; produce post-state.
 
     Takes the four block-context numerics directly (instead of a
-    parsed `BaseHeader`) so this module doesn't pull a hard dep on
-    `Replay.Parse`. The wiring layer (`Replay.lean` for mainnet's
-    analog) plumbs the header for us. -/
+    header type), so the caller plumbs whatever header it parsed. -/
 def applyBlock
     (state          : State)
     (blockHashes    : List Evm.Hash32)

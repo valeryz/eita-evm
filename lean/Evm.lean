@@ -114,8 +114,6 @@ import Evm.Optimism.Holocene.Spec.Eip1559Params
 import Evm.Optimism.Isthmus.Spec.PragueInheritance
 import Evm.Optimism.Bedrock.Transactions
 import Evm.Optimism.Bedrock.Fork
-import Evm.Optimism.Replay.Fetch
-import Evm.Optimism.Replay.Parse
 import Evm.Optimism.Replay.L1Fee
 import Evm.Optimism.Replay.FeeRouting
 import Evm.Optimism.Canyon.Fork

@@ -13,11 +13,10 @@
 ;;;;
 ;;;; Data sources, in priority order:
 ;;;;   1. per-block prestateTracer overlay (lean/external/base-cache/
-;;;;      prestate_<hex>.json, written by the Lean Base replay) —
+;;;;      prestate_<hex>.json) —
 ;;;;      first-touch-wins merge gives the exact pre-block value of
 ;;;;      every account/slot the canonical execution touched;
-;;;;   2. disk cache (same dir, balance_/nonce_/code_/storage_ keys,
-;;;;      shared format with lean/Evm/Optimism/Replay/Fetch.lean);
+;;;;   2. disk cache (same dir, balance_/nonce_/code_/storage_ keys);
 ;;;;   3. live RPC via curl ($BASE_RPC_URL).
 ;;;; A fault that misses all three is counted + warned (a touched-set
 ;;;; divergence from the canonical execution, or an offline run of an

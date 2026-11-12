@@ -17,17 +17,17 @@ Statement lines are what a reader has to trust: the theorem statements and the d
 | [Block-STM](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Parallel)<br>`lean/Evm/Parallel/*` | 250 (132 + 118) | 352 | 46 | 0 | 0 | 1: 1 standard |
 | [Persistence (layered state, recovery)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Persist)<br>`lean/Evm/Persist/*` | 429 (232 + 197) | 703 | 88 | 0 | 0 | — |
 | [Crypto oracles and precompile contracts](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Crypto)<br>`lean/Evm/Crypto/*` | 290 (286 + 4) | 17 | 1 | 0 | 0 | 1: 1 standard |
-| [Chain specs (Arc, OP Stack)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Optimism)<br>`lean/Evm/Arc/*`, `lean/Evm/Optimism/*` | 1,990 (1,781 + 209) | 97 | 37 | 1 | 0 | 2: 2 standard |
+| [Chain specs (Arc, OP Stack)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Optimism)<br>`lean/Evm/Arc/*`, `lean/Evm/Optimism/*` | 1,666 (1,457 + 209) | 97 | 37 | 1 | 0 | 2: 2 standard |
 | [Trie and RLP](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Trie)<br>`lean/Evm/Trie/*`, `lean/Evm/Trie.lean`, `lean/Evm/Rlp.lean` | 301 (266 + 35) | 16 | 6 | 3 | 0 | — |
 | [Native slot table (Velvet)](https://github.com/valeryz/eita-evm/tree/main/verify/velvet-slots)<br>`verify/velvet-slots/*`, `CL/WorldSlotsModel.lean` | 1,253 (1,019 + 234) | 905 | 143 | 0 | 0 | 26: 26 standard |
 | [State-layer protocols (Veil)](https://github.com/valeryz/eita-evm/tree/main/verify/protocols)<br>`verify/protocols/*` | 1,003 (1,003 + 0) | 0 | — (6 models) | 0 | 0 | 4: 4 standard |
-| **Total** | 39,533 (29,844 + 9,689) | 22,065 | 2,967 | 7 | 377 | 111: 102 standard, 9 with `native_decide` |
+| **Total** | 39,209 (29,520 + 9,689) | 22,065 | 2,967 | 7 | 377 | 111: 102 standard, 9 with `native_decide` |
 
 Tools, not part of the claim and not in the totals:
 
 | Component | Statement lines | Proof lines | Theorems | `sorry` | `native_decide` | Axioms |
 |---|---:|---:|---:|---:|---:|---|
-| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 3,718 (3,713 + 5) | 0 | 1 | 0 | 6 | — |
+| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 2,958 (2,953 + 5) | 0 | 1 | 0 | 6 | — |
 
 `native_decide` trusts the Lean compiler's evaluation of a decision procedure (an extra axiom per use): see [`docs/trusted-surface.md`](../../docs/trusted-surface.md#native_decide).
 
@@ -61,4 +61,4 @@ Tools, not part of the claim and not in the totals:
 - `sorry`: 7 in `lean/Evm`, equal to the 7 of `scripts/generated/refinement-coverage.md` (the generator fails otherwise); 0 elsewhere. By component: Opcode refinement relations 1, Effect layer 1, ARM64 backend and shared lowering 1, Chain specs 1, Trie and RLP 3.
 - Axioms: all 81 entries of `scripts/generated/axiom-audit.txt` map to their declaring file (the generator fails otherwise); the Velvet and Veil rows count their own gates' checks.
 - Theorems: 2,967 in the claim rows, plus 1 in the tools; 282 `example` blocks are counted as statement/proof lines but not as theorems.
-- Files: 427 in the claim rows, 29 tools; other lines (imports, namespaces, `#` commands): 3,560.
+- Files: 424 in the claim rows, 26 tools; other lines (imports, namespaces, `#` commands): 3,541.

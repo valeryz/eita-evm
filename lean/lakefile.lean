@@ -62,15 +62,6 @@ lean_exe test where
 lean_exe replay where
   root := `Replay
 
-lean_exe mainnet where
-  root := `Mainnet
-
-lean_exe baseProbe where
-  root := `BaseProbe
-
-lean_exe baseReplay where
-  root := `BaseReplay
-
 lean_exe interpFixtures where
   root := `InterpFixtures
 
