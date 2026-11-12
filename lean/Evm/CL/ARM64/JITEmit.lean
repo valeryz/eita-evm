@@ -9,7 +9,7 @@ itself uses remains here. -/
 namespace Evm.CL.ARM64.JITEmit
 open Evm.CL.AsmEncode Evm.CL.AsmEncode.Insn Evm.CL.AsmEncode.Item
 
-/-- `movz`+`movk` sequence for a 64-bit immediate (matches `ARM64.movImm`). -/
+/-- `movz`+`movk` sequence for a 64-bit immediate (matches `AsmCore.movImmInstrs`). -/
 def movImmI (rd : Nat) (v : Nat) : List Item :=
   I (movz rd (v % 65536) 0) ::
   ((List.range 3).filterMap (fun i =>

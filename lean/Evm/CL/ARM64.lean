@@ -97,16 +97,6 @@ namespace Offset
   def contTable    : Nat := 600
 end Offset
 
-/-- Materialize a 64-bit literal into a register (movz + movk chain;
-    fields that are zero are skipped). -/
-def movImm (reg : String) (v : Nat) : String := Id.run do
-  let mut s := s!"    movz  {reg}, #{v % 65536}\n"
-  for i in [1:4] do
-    let field := (v >>> (16 * i)) % 65536
-    if field > 0 then
-      s := s ++ s!"    movk  {reg}, #{field}, lsl #{16 * i}\n"
-  return s
-
 /-! ## Handler header + footer
 
 The threaded convention: handler is just a label; ends with `br x27`. -/

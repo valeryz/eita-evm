@@ -148,8 +148,8 @@ failures).
 
 The chunk algebra (`ARM64.JIT.emitChunkGen` over `ChunkOut`) got its x86-64
 instance. Three changes to the shared algorithm, each keeping the ARM64 output
-byte-identical (`chunk_text_derived`, `handlers.S`, the jit-emit and snapshot
-gates):
+byte-identical (`chunk_text_derived` — since retired with `textOut` —,
+`handlers.S`, the jit-emit and snapshot gates):
 
 * `ChunkOut.callSym` — an op site (enter a flat handler, continue at the label
   after) is now distinct from `tailSym` (a terminator). ARM64 prints both as

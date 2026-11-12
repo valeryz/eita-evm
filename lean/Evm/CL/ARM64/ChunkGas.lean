@@ -76,32 +76,10 @@ def GInstr.denote : GInstr → GMach → GMach
 def retakeUnchecked (rem : Nat) (m : GMach) : GMach :=
   { m with gas := (m.gas + W - rem % W) % W }
 
-/-! ## Emitters — one definition per gadget, two targets
+/-! ## The emitter — one definition per gadget -/
 
-Byte-identical to the strings these replace, so `handlers.S` and every emitted
-chunk are unchanged (checked by the examples below and by
-`scripts/verify-jit-emit.sh`, which assembles the Items and diffs against clang
-on the text). -/
-
-/-- The clang/text path. -/
-def GInstr.emit : GInstr → String
-  | .charge n lbl =>
-      (if n ≤ 4095 then s!"    subs  x22, x22, #{n}\n"
-       else movImm "x14" n ++ "    subs  x22, x22, x14\n") ++
-      s!"    b.hs  {lbl}\n" ++
-      -- A b.cond cannot reach a cross-image linker stub; branch around an
-      -- unconditional b, which the linker does stub.
-      "    b     _eita_oog\n" ++
-      s!"{lbl}:\n"
-  | .handBack rem => movImm "x15" rem ++ "    add   x22, x22, x15\n"
-  | .retake rem lbl =>
-      movImm "x15" rem ++
-      "    subs  x22, x22, x15\n" ++
-      s!"    b.hs  {lbl}\n" ++
-      "    b     _eita_oog\n" ++
-      s!"{lbl}:\n"
-
-/-- The gadget as `AInstr` (stage 4s): the one body both printers derive from. -/
+/-- The gadget as `AInstr` (stage 4s): the one body the text and the bytes are both
+    lowered from. -/
 def GInstr.instrs : GInstr → List Evm.CL.AsmCore.AInstr
   | .charge n lbl =>
       (if n ≤ 4095 then [.subsImm .x22 .x22 n]
@@ -111,30 +89,6 @@ def GInstr.instrs : GInstr → List Evm.CL.AsmCore.AInstr
   | .retake rem lbl =>
       Evm.CL.AsmCore.movImmInstrs .x15 rem ++
       [.subsReg .x22 .x22 .x15, .bcLbl .hs lbl, .bFar "_eita_oog", .label lbl]
-
-/-- The printed instructions ARE the hand-written text, for both the small and
-    the large immediate path and for every gadget kind. -/
-example : Evm.CL.Frame.text (GInstr.charge 100 "L").instrs = (GInstr.charge 100 "L").emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.charge 5000 "L").instrs = (GInstr.charge 5000 "L").emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.handBack 1027).instrs = (GInstr.handBack 1027).emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.retake 1027 "L").instrs = (GInstr.retake 1027 "L").emit := by native_decide
-
-/-- Byte-identity with the strings this replaces (the `rem != 0` hand-back pair
-    and the chunk head, as they stood in `ARM64.JIT`). -/
-example : (GInstr.handBack 1027).emit
-        = Evm.CL.ARM64.movImm "x15" 1027 ++ "    add   x22, x22, x15\n" := by native_decide
-example : (GInstr.charge 4095 "Lg_7").emit
-        = "    subs  x22, x22, #4095\n    b.hs  Lg_7\n    b     _eita_oog\nLg_7:\n" := by
-  native_decide
-example : (GInstr.retake 1027 "Lr_7_3").emit
-        = Evm.CL.ARM64.movImm "x15" 1027 ++
-          "    subs  x22, x22, x15\n    b.hs  Lr_7_3\n    b     _eita_oog\nLr_7_3:\n" := by
-  native_decide
-/-- Over 4095 the head materialises the immediate in x14 first. -/
-example : (GInstr.charge 5000 "Lg_1").emit
-        = Evm.CL.ARM64.movImm "x14" 5000 ++
-          "    subs  x22, x22, x14\n    b.hs  Lg_1\n    b     _eita_oog\nLg_1:\n" := by
-  native_decide
 
 /-! ## Per-op charging, and the refinement -/
 

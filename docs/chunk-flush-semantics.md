@@ -48,7 +48,8 @@ disjoint ranges, the limb view `ofLimbs`). Addresses are uniformly
 
 The flush was restated as list combinators (`exitOneT`, `exitStoresT`,
 `memCommitT`, `depthUpdate`) with no change to the text
-(`chunk_text_derived`, the snapshot, `handlers.S`, 36/36, 110/110).
+(`chunk_text_derived` — retired 2026-11-12 with the `textOut` algebra it
+compared against — the snapshot, `handlers.S`, 36/36, 110/110).
 `emitChunkGen`'s two `for` loops were likewise restated as folds (`dynCosts`,
 `bodyStep` over `BodySt`), text identical by the same gates, so the body pass
 is a `List.foldl` an invariant can be carried through. `symStep` now refuses

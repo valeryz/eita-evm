@@ -212,10 +212,10 @@ def externAllowed : List (Name × Name × String) :=
   -- pointer-memoized `dagSlotsImpl` (the reference is never executed: structural dedup is
   -- 2^k on DUP-shared trees), and the IR fold (dynCosts -> regionStep -> foldStep ->
   -- execOp) through the C Keccak for a constant-input KECCAK256. They gate the shipped
-  -- emitter's output on the corpus (text identity, lowering, relocations, register
+  -- emitter's output on the corpus (lowering, relocations, register
   -- aliasing, flag provenance); no proof uses them (docs and comments only), so they say
   -- nothing about the reference dagSlots or keccak256 that a lemma could build on.
-  let gates := [``Evm.CL.ARM64.JIT.chunk_text_derived, ``Evm.CL.X86FlagProv.no_flag_provenance_hazards,
+  let gates := [``Evm.CL.X86FlagProv.no_flag_provenance_hazards,
                 ``Evm.CL.X86JIT.x86_chunks_lower, ``Evm.CL.X86JIT.x86_chunks_no_alias,
                 ``Evm.CL.X86JIT.x86_chunks_only_abs64]
   gates.flatMap fun t =>

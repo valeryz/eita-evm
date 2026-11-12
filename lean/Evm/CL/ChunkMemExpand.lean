@@ -3,7 +3,7 @@
 
   Stage 1 of #238. `AsmCore.memExpand_charges_eels` proves the PER-OP gadget
   charges the EELS delta. The JIT does something stronger and so far unproved:
-  `ARM64.JIT.memExpandFlush` charges ONE delta for the whole chunk, from the
+  `ARM64.JIT.memExpandFlushT` charges ONE delta for the whole chunk, from the
   frame's runtime entry memory size to the chunk's maximum touched end, and its
   docstring justifies that with
 
@@ -126,7 +126,7 @@ example : expand 0 1 = 3 := by simp [expand, memCost]
 example (w0 : Nat) : expand w0 0 = 0 := by simp [expand]
 
 /-- Monotone ends are the common case and telescope to a single delta, which is
-    the shape `memExpandFlush` emits. -/
+    the shape `memExpandFlushT` emits. -/
 example : sumDeltas 0 [1, 2, 5] = expand 0 5 := by
   rw [telescope]; rfl
 
