@@ -1,22 +1,12 @@
 /-
-  Evm.CL.OpInstrs — `Op` lowered to `AInstr`, gated by text identity.
+  Evm.CL.OpInstrs — the x86-64 program of an op, and the checks over the bodies.
 
-  `AsmCore.Op` is the handler-level vocabulary: every constructor has a
-  denotation (`Op.denote`), and every constructor lowers to ARM64 text directly
-  (`Op.emit`). That text is the only form the ops have, so an x86-64 handler
-  cannot be derived from them — the gadgets inside them are `AInstr`, the ops
-  around the gadgets are strings.
-
-  `Op.instrs?` gives the ops an `AInstr` form. It is partial by design — ops
-  are added as handlers need them — and it is GATED: `instrs_reproduce_emit`
-  checks, for every op in the MLOAD and MSTORE bodies, that printing the
-  `AInstr` form through `emitARM64` gives `Op.emit`'s text character for
-  character. So the ARM64 output of a handler assembled from `Op.instrs?` is
-  the handler assembled from `Op.emit`, and `handlers.S` cannot move when the
-  emitters switch over.
-
-  The first two handlers: MLOAD (9 ops) and MSTORE (9 ops), 18 ops, 14
-  distinct constructors.
+  Every op's ARM64 instructions are `AsmCore.Op.toAInstrs`, and its text
+  (`Op.emit`) is their printing — one source. This module derives the x86-64
+  program from them (`Op.instrsX86?`: the sp rescaling `spScale`, with per-target
+  arms for the call sequences and the arithmetic family) and runs the checks
+  that read a body as instructions: callback arguments defined by the op that
+  passes them, the register-cached stack kept coherent, helper-call alignment.
 -/
 
 import Evm.CL.AsmCore
@@ -25,10 +15,6 @@ import Evm.CL.Lowering
 namespace Evm.CL.OpInstrs
 
 open Evm.CL.AsmCore
-
-/-- The ARM64 argument register `x{i}` for i < 4. -/
-def argReg : Nat → Option Reg
-  | 0 => some .x0 | 1 => some .x1 | 2 => some .x2 | 3 => some .x3 | _ => none
 
 /-- The ARM register name whose x86 HOME is SysV argument register i
     (rdi, rsi, rdx, rcx) — x3, x2, x1, x14 under the forced colouring. -/
@@ -40,357 +26,6 @@ def sysvReg : Nat → Option Reg
   | 4 => some .x6
   -- argument 5 is r9 — TOS limb 1's home; same condition (LOG's `len`)
   | 5 => some .x7 | _ => none
-
-/-- `createMemExpandEmit offP lenP name`, as instructions. -/
-def createMemExpandInstrs (offP lenP : Nat) (name : String) : List AInstr :=
-  memRangeInstrs lenP offP .x0 s!".Lcrin0_{name}" s!".Lcrin1_{name}" ++
-  [.movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
-  [.subsReg .x22 .x22 .x17, .bloOog, .label "4", .strOff .x22 .x20 8]
-
-/-- `callMemExpandEmit inOffP inLenP outOffP outLenP name`, as instructions. -/
-def callMemExpandInstrs (inOffP inLenP outOffP outLenP : Nat) (name : String) : List AInstr :=
-  memRangeInstrs inLenP inOffP .x0 s!".Lcfin0_{name}" s!".Lcfin1_{name}" ++
-  memRangeInstrs outLenP outOffP .x14 s!".Lcfout0_{name}" s!".Lcfout1_{name}" ++
-  [.cmpReg .x0 .x14, .cselHi .x0 .x0 .x14, .movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
-  [.subsReg .x22 .x22 .x17, .bloOog, .label "4"]
-
-/-- The ARM64 cache sync of both words, and the TOS reload, as used by every
-    frame body. -/
-def syncTosNos : List AInstr :=
-  [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
-    .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16 ]
-def reloadTos : List AInstr :=
-  [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
-def reloadNosIf2 (target lbl : String) : List AInstr :=
-  [ .cmpImm .x23 2, .bcLbl .lt target, .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
-    .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16, .label lbl ]
-
-def Op.instrs? : Op → Option (List AInstr)
-  | .ovfGuard         => some [.cmpImm .x23 1024, .bSym .hs "_eita_stack_overflow"]
-  | .underflow n      => some [.cmpImm .x23 n, .bSym .lo "_eita_stack_underflow"]
-  | .boundCheckHiTos  => some [.orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzOog .x14]
-  | .newEndTos add    => some [.addsImm .x0 .x6 add, .bcsOog]
-  | .setAcc base      => some [.movImm .x17 base]
-  | .memExpand        => some memExpandInstrs
-  | .chargeAcc        => some [.subsReg .x22 .x22 .x17, .bloOog]
-  | .mstoreTail       => some
-      [ .addImm .x15 .x6 32, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
-        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
-        .ldrOff .x14 .x20 40, .addReg .x14 .x14 .x6,
-        .rev .x0 .x13, .rev .x1 .x12, .rev .x2 .x11, .rev .x3 .x10,
-        .strOff .x0 .x14 0, .strOff .x1 .x14 8, .strOff .x2 .x14 16, .strOff .x3 .x14 24,
-        .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
-  | .mloadTail        => some
-      [ .ldrOff .x14 .x20 40, .addImm .x15 .x6 32, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
-        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
-        .addReg .x14 .x14 .x6,
-        .ldrOff .x6 .x14 0, .ldrOff .x7 .x14 8, .ldrOff .x8 .x14 16, .ldrOff .x9 .x14 24,
-        .rev .x6 .x6, .rev .x7 .x7, .rev .x8 .x8, .rev .x9 .x9,
-        .movReg .x14 .x6, .movReg .x6 .x9, .movReg .x9 .x14,
-        .movReg .x14 .x7, .movReg .x7 .x8, .movReg .x8 .x14 ]
-  | .reloadNos        => some
-      [ .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16 ]
-  | .storeTos         => some
-      [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
-        .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ]
-  | .brCont           => some [.brCont]
-  -- the C-ABI call family (stage 4m). ARM64 AAPCS: a 32-byte scratch below a
-  -- saved fp/lr, result pointer in x0, stack-word pointers in x1-x3.
-  | .binHelper h      => some
-      [ .spSub 32, .stpFpLr, .addSp .x0 16,
-        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
-        .blSym h,
-        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .ldpFpLr, .spAdd 32 ]
-  | .ternaryHelper h  => some
-      [ .spSub 32, .stpFpLr, .addSp .x0 16,
-        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
-        .subImm .x14 .x23 3, .addLsl5 .x3 .x24 .x14,
-        .blSym h,
-        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .ldpFpLr, .spAdd 32 ]
-  | .cbEnter s        => some [.spSub s, .stpFpLr]
-  | .cbExit s         => some [.ldpFpLr, .spAdd s]
-  | .loadScratchTos   => some [.addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16]
-  | .loadScratchU64Tos => some [.ldrSp .x6 16, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .chargeGasX0      => some [.subsReg .x22 .x22 .x0, .bloOog]
-  -- environment loads (stage 4n)
-  | .loadFieldTos f   => some [.ldrOff .x6 .x20 f.offset, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .loadU64Off off   => some [.ldrOff .x6 .x20 off, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .loadU256Off off  => some
-      (if off + 16 ≤ 504 then [.ldpOff .x6 .x7 .x20 off, .ldpOff .x8 .x9 .x20 (off + 16)]
-       else [.addImm .x14 .x20 off, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16])
-  | .pcMinus1Tos      => some [.subImm .x6 .x21 1, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .chargeGasPushTos c => some
-      [.subsImm .x22 .x22 c, .bloOog, .movReg .x6 .x22, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .chargeFixed n    => some [.movImm .x14 n, .subsReg .x22 .x22 .x14, .bloOog]
-  | .chargeGasX0Via14 => some [.movReg .x14 .x0, .subsReg .x22 .x22 .x14, .bloOog]
-  -- host callbacks: ARM64 passes args in x0-x3 (`argReg`)
-  | .argStateBase r   => (argReg r).map (fun a => [.movReg a .x20])
-  | .argStateField r off => (argReg r).map (fun a => [.addImm a .x20 off])
-  | .argStackPtr r n  => (argReg r).map (fun a => [.subImm .x14 .x23 n, .addLsl5 a .x24 .x14])
-  | .argScratch r     => (argReg r).map (fun a => [.addSp a 16])
-  | .loadCtx r        => (argReg r).map (fun a => [.ldrOff a .x20 504])
-  | .loadCtxVia14 r   => (argReg r).map (fun a => [.ldrOff .x14 .x20 504, .movReg a .x14])
-  | .loadTxStateCtx r => (argReg r).map (fun a => [.ldrOff .x14 .x20 504, .ldrOff a .x14 64])
-  | .cbDirect name    => some [.blSym name]
-  | .cbSlot slot      => some [.ldrOff .x14 .x20 496, .ldrOff .x14 .x14 slot, .blr .x14]
-  -- the gas gadgets, already AInstr (stage 4o)
-  | .copyGasCharge c  => some (copyGasInstrs c)
-  | .returndataBounds => some returndataBoundsInstrs
-  | .staticValueGuard => some staticValueGuardInstrs
-  | .keccakGasCharge c => some (keccakGasInstrs c)
-  | .mcopyGasCharge c => some (mcopyGasInstrs c)
-  | .extcodecopyGasMem => some extcodecopyGasInstrs
-  | .expGasCharge c b => some (expGasInstrs c b)
-  | .blobhashLookup   => some blobHashInstrs
-  -- control flow, halting, output
-  | .pcDec            => some [.subImm .x21 .x21 1]
-  | .branchOOG        => some [.bSymU "_eita_oog"]
-  | .staticGuard      => some [.ldrbOff .x14 .x20 130, .cbnzSymW .x14 "_eita_static_violation"]
-  | .setHalted        => some [.movImmW .x14 1, .strbOff .x14 .x20 128]
-  | .setReverted      => some [.strbOff .x14 .x20 129]
-  | .setOutput        => some
-      [ .strOff .x10 .x20 120, .ldrOff .x14 .x20 40, .addReg .x14 .x14 .x6, .strOff .x14 .x20 112,
-        .addReg .x15 .x6 .x10, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16, .cselHi .x16 .x15 .x16,
-        .strOff .x16 .x20 24 ]
-  | .jumpSyncRet      => some [.loadSymAddr .x27 "_eita_sync_and_ret", .brReg .x27]
-  -- The destination is looked up in the host's valid-JUMPDEST map (EvmState #136), not
-  -- in the code: a 0x5b byte inside a PUSH immediate is not a JUMPDEST (EELS
-  -- `get_valid_jump_destinations`). See `jumpDestInstrs`.
-  | .jumpValidate     => some
-      ([ .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzSym .x14 "_eita_invalid_jump",
-        .ldrOff .x14 .x20 72, .cmpReg .x6 .x14, .bSym .hs "_eita_invalid_jump" ] ++
-      jumpDestInstrs ++ [ .movReg .x21 .x6 ])
-  | .jumpiCheck       => some
-      ([ .orr3 .x14 .x10 .x11, .orr3 .x15 .x12 .x13, .orr3 .x14 .x14 .x15, .cbzLbl .x14 "_eita_jumpi_fallthrough",
-        .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzSym .x14 "_eita_invalid_jump",
-        .ldrOff .x14 .x20 72, .cmpReg .x6 .x14, .bSym .hs "_eita_invalid_jump" ] ++
-      jumpDestInstrs ++ [ .movReg .x21 .x6, .label "_eita_jumpi_pop" ])
-  | .jumpiTailGas c   => some
-      [ .subsImm .x22 .x22 c, .bloOog, .brCont, .label "_eita_jumpi_fallthrough", .bLbl "_eita_jumpi_pop" ]
-  -- `movImmStr` prints a single movz when the value fits 16 bits (2300 does)
-  | .sstoreSentry n   => if n < 65536 then some [.movzImm .x14 n, .cmpReg .x22 .x14, .bSym .ls "_eita_oog"] else none
-  | .mstore8Tail      => some
-      [ .ldrOff .x14 .x20 40, .addImm .x15 .x6 1, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
-        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24, .strbReg .x10 .x14 .x6,
-        .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
-  | .memExpandIfLen tag => some
-      (memRangeInstrs 2 1 .x0 s!".Lro{tag}0" s!".Lro{tag}1" ++
-       [.movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
-       [.subsReg .x22 .x22 .x17, .bloOog, .label "4"])
-  | .copyCbPop3 h     => some
-      [ .stpFpLr, .movReg .x0 .x20,
-        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
-        .subImm .x14 .x23 3, .addLsl5 .x3 .x24 .x14,
-        .blSym h, .ldpFpLr,
-        .subImm .x23 .x23 3, .cmpImm .x23 1, .bcLbl .lt "7f",
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .label "7", .cmpImm .x23 2, .bcLbl .lt "8f",
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16,
-        .label "8" ]
-  | .keccakCbPop1     => some
-      [ .spSub 32, .stpFpLr, .movReg .x0 .x20,
-        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
-        .addSp .x3 16, .blSym "_eita_helper_keccak256",
-        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .ldpFpLr, .spAdd 32, .subImm .x23 .x23 1 ]
-  -- the write-side callbacks (stage 4p): sync the caches to the stack, call
-  -- the host with pointers, charge the returned gas
-  | .selfdestructCb   => some
-      [ .stpFpLr,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
-        .ldrOff .x0 .x20 504, .addImm .x1 .x20 144, .movReg .x2 .x14,
-        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 104, .blr .x14,
-        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr ]
-  | .tstoreCb         => some
-      [ .stpFpLr,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16,
-        .ldrOff .x1 .x20 504, .ldrOff .x0 .x1 64, .addImm .x2 .x20 144,
-        .subImm .x14 .x23 1, .addLsl5 .x3 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x4 .x24 .x14,
-        .blSym "_eita_ts_tstore", .ldpFpLr,
-        .subImm .x23 .x23 2,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16 ]
-  | .sstoreCb         => some
-      [ .stpFpLr,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16,
-        .ldrOff .x0 .x20 504, .addImm .x1 .x20 144,
-        .subImm .x14 .x23 1, .addLsl5 .x2 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x3 .x24 .x14,
-        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 8, .blr .x14,
-        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr,
-        .ldrOff .x14 .x20 504, .ldrOff .x15 .x14 0, .ldrOff .x16 .x14 16, .movImm .x17 104, .madd .x0 .x15 .x17 .x16,
-        .strZr .x0 0, .ldpOff .x1 .x2 .x20 144, .ldpOff .x3 .x4 .x20 160, .stpOff .x1 .x2 .x0 8, .stpOff .x3 .x4 .x0 24,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16,
-        .stpOff .x6 .x7 .x0 40, .stpOff .x8 .x9 .x0 56, .stpOff .x10 .x11 .x0 72, .stpOff .x12 .x13 .x0 88,
-        .ldrOff .x14 .x20 504, .addImm .x15 .x15 1, .strOff .x15 .x14 0,
-        .subImm .x23 .x23 2,
-        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
-  | .extcodecopyCb    => some
-      [ .stpFpLr, .ldrOff .x0 .x20 504,
-        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
-        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14,
-        .ldrOff .x16 .x20 40, .addReg .x2 .x16 .x15,
-        .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x3 .x14,
-        .ldrOff .x15 .x14 8, .ldrOff .x16 .x14 16, .orr3 .x15 .x15 .x16,
-        .ldrOff .x16 .x14 24, .orr3 .x15 .x15 .x16, .cbzLbl .x15 "94f",
-        .movImm .x3 0, .subImm .x3 .x3 1, .label "94",
-        -- len (fifth argument) loaded by this op, never inherited from the gas gadget
-        .subImm .x14 .x23 4, .addLsl5 .x14 .x24 .x14, .ldrBase .x4 .x14,
-        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 56, .blr .x14,
-        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr,
-        .subImm .x23 .x23 4,
-        .cmpImm .x23 1, .bcLbl .lt "91f", .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .label "91",
-        .cmpImm .x23 2, .bcLbl .lt "92f", .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16, .label "92" ]
-  -- the frame bodies (stage 4q): LOG, CREATE, CREATE2, the CALL family
-  | .logEmit n cost   => some
-      (syncTosNos ++
-       [ .orr3 .x14 .x11 .x12, .orr3 .x14 .x14 .x13, .cbnzOog .x14,
-         .movImm .x17 cost, .addLsl .x17 .x17 .x10 3, .cbzLbl .x10 "4f",
-         .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzOog .x14,
-         .adds .x0 .x6 .x10, .bcsOog ] ++
-       memExpandInstrs ++
-       [ .label "4",
-         .ldrOff .x14 .x20 504, .ldrOff .x15 .x14 8, .addImm .x15 .x15 1, .strOff .x15 .x14 8,
-         .addReg .x15 .x6 .x10, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16, .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
-         .subImm .x23 .x23 (2 + n),
-         .subsReg .x22 .x22 .x17, .bloOog,
-         .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 72, .cbzLbl .x14 "7f",
-         .stpFpLr,
-         .ldrOff .x0 .x20 504, .addImm .x1 .x20 144,
-         .movImm .x2 n,
-         .addLsl5 .x3 .x24 .x23,
-         .addImm .x15 .x23 (n + 1),
-         .addLsl5 .x15 .x24 .x15, .ldrBase .x15 .x15, .ldrOff .x4 .x20 40, .addReg .x4 .x4 .x15,
-         .addImm .x15 .x23 n,
-         .addLsl5 .x15 .x24 .x15, .ldrBase .x5 .x15,
-         .blr .x14, .ldpFpLr,
-         .label "7",
-         .cmpImm .x23 1, .bcLbl .lt "5f" ] ++ reloadTos ++ [ .label "5" ] ++
-       reloadNosIf2 "6f" "6" ++ [ .brCont ])
-  | .createCore       => some
-      ([ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
-       createMemExpandInstrs 2 3 "create" ++
-       [ .movImmW .x0 4, .strWSp .x0 16, .strWzrSp 20, .stpZrSp 24, .stpZrSp 40,
-         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72,
-         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
-         .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
-         .strSp .x22 104, .stpZrSp 112, .stpZrSp 128,
-         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 96, .blr .x14,
-         .ldrSp .x14 152, .strOff .x14 .x20 96, .ldrSp .x14 160, .strOff .x14 .x20 104,
-         .ldrWSp .x15 144, .cbzWLbl .x15 "L_create_fail",
-         .addSp .x14 176, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .bLbl "L_create_done",
-         .label "L_create_fail", .movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
-         .label "L_create_done", .ldrSp .x0 168, .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog,
-         .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
-       reloadNosIf2 "L_create_done2" "L_create_done2" ++ [ .ldpFpLr, .spAdd 192, .brCont ])
-  | .create2Core      => some
-      ([ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
-       createMemExpandInstrs 2 3 "create2" ++
-       [ .movImmW .x0 5, .strWSp .x0 16, .strWzrSp 20, .stpZrSp 24, .stpZrSp 40,
-         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72,
-         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
-         .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
-         .strSp .x22 104,
-         .subImm .x14 .x23 4, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 112, .stpSp .x2 .x3 128,
-         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 96, .blr .x14,
-         .ldrSp .x14 152, .strOff .x14 .x20 96, .ldrSp .x14 160, .strOff .x14 .x20 104,
-         .ldrWSp .x15 144, .cbzWLbl .x15 "L_create2_fail",
-         .addSp .x14 176, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .bLbl "L_create2_done",
-         .label "L_create2_fail", .movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
-         .label "L_create2_done", .ldrSp .x0 168, .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog,
-         .subImm .x23 .x23 3, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
-       reloadNosIf2 "L_create2_done2" "L_create2_done2" ++ [ .ldpFpLr, .spAdd 192, .brCont ])
-  | .callFamilyCore name kind staticpFlag withValue =>
-      let argsCount : Nat := if withValue then 7 else 6
-      let inOff : Nat := if withValue then 4 else 3
-      let inLen : Nat := if withValue then 5 else 4
-      let outOff : Nat := if withValue then 6 else 5
-      let outLen : Nat := if withValue then 7 else 6
-      some
-      (callMemExpandInstrs inOff inLen outOff outLen name ++
-       [ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
-       [ .movImmW .x0 kind, .strWSp .x0 16, .movImmW .x0 staticpFlag, .strWSp .x0 20,
-         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 24, .stpSp .x2 .x3 40 ] ++
-       (if withValue then
-          [ .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72 ]
-        else [ .stpZrSp 56, .stpZrSp 72 ]) ++
-       [ .subImm .x14 .x23 inOff, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
-         .subImm .x14 .x23 inLen, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
-         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x15 .x16 .x14 0, .ldpOff .x0 .x1 .x14 16,
-         .orr3 .x16 .x16 .x0, .orr3 .x16 .x16 .x1, .cmpImm .x16 0, .csinvEqZr .x15 .x15, .strSp .x15 104,
-         .stpZrSp 112, .stpZrSp 128,
-         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 88, .blr .x14,
-         .ldrSp .x0 152, .strOff .x0 .x20 96, .ldrSp .x0 160, .strOff .x0 .x20 104,
-         .subImm .x14 .x23 outOff, .addLsl5 .x14 .x24 .x14, .ldrBase .x1 .x14,
-         .subImm .x14 .x23 outLen, .addLsl5 .x14 .x24 .x14, .ldrBase .x2 .x14, .movReg .x0 .x20, .blSym "_eita_helper_returndata_to_mem",
-         .ldrWSp .x15 144, .ldrSp .x0 168,
-         .subImm .x23 .x23 (argsCount - 1),
-         .movReg .x6 .x15, .andImmHex .x6 .x6 0xff, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
-         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
-       reloadNosIf2 s!"L_callret_{name}" s!"L_callret_{name}" ++
-       [ .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr, .spAdd 192, .brCont ])
-  | .clzReduce        => some clzReduceInstrs
-  -- the stack family (stage 4l). On x86-64 `tosToNos` vanishes (spScale drops
-  -- NOS writes: the old TOS is already in memory by the invariant that every
-  -- TOS-producing handler ends with storeTos) and `nosToTos` becomes four
-  -- loads from stack[sp-2], which is exactly the per-instruction lowering of
-  -- `mov x6, x10` with a NOS source.
-  | .tosToNos         => some [.movReg .x10 .x6, .movReg .x11 .x7, .movReg .x12 .x8, .movReg .x13 .x9]
-  | .nosToTos         => some [.movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13]
-  | .spInc            => some [.addImm .x23 .x23 1]
-  | .spDec2           => some [.subImm .x23 .x23 2]
-  | .loadZeroTos      => some [.movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
-  | .dupLoad n        => some
-      [ .subImm .x14 .x23 n, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
-  | .swapPartner n    => some
-      [ .subImm .x14 .x23 (n + 1), .addLsl5 .x14 .x24 .x14,
-        .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16,
-        .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
-        .movReg .x6 .x0, .movReg .x7 .x1, .movReg .x8 .x2, .movReg .x9 .x3 ]
-  | .pushImm n        => some (pushWideInstrs n)
-  | .spDec            => some [.subImm .x23 .x23 1]
-  | .exitGas c        => some [.subsImm .x22 .x22 c, .bloOog, .brCont]
-  | .notLimbs         => some [.mvn .x6 .x6, .mvn .x7 .x7, .mvn .x8 .x8, .mvn .x9 .x9]
-  | .eqReduce         => some
-      [ .eor3 .x14 .x6 .x10, .eor3 .x15 .x7 .x11, .orr3 .x14 .x14 .x15,
-        .eor3 .x15 .x8 .x12, .orr3 .x14 .x14 .x15, .eor3 .x15 .x9 .x13, .orr3 .x14 .x14 .x15,
-        .cmpImm .x14 0, .cset .x6 .eq, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
-  | .iszeroReduce     => some
-      [ .orr3 .x14 .x6 .x7, .orr3 .x15 .x8 .x9, .orr3 .x14 .x14 .x15,
-        .cmpImm .x14 0, .cset .x6 .eq, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
-  | .cmpChain swapped cond => some
-      ((if swapped then
-          [ .subsZr .x10 .x6, .sbcsZr .x11 .x7, .sbcsZr .x12 .x8, .sbcsZr .x13 .x9 ]
-        else
-          [ .subsZr .x6 .x10, .sbcsZr .x7 .x11, .sbcsZr .x8 .x12, .sbcsZr .x9 .x13 ]) ++
-       [ .cset .x6 (match cond with | .lo => .lo | .lt => .lt),
-         .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ])
-  | .arith .add       => some
-      [ .adds .x10 .x6 .x10, .adcs .x11 .x7 .x11, .adcs .x12 .x8 .x12, .adc .x13 .x9 .x13,
-        .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ]
-  | .arith .sub       => some
-      [ .subsReg .x10 .x6 .x10, .sbcs .x11 .x7 .x11, .sbcs .x12 .x8 .x12, .sbc .x13 .x9 .x13,
-        .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ]
-  | .bitwise op       => some
-      (let f : Reg → Reg → Reg → AInstr := match op with
-         | .and => .and3 | .orr => .orr3 | .eor => .eor3
-       [ f .x10 .x10 .x6, f .x11 .x11 .x7, f .x12 .x12 .x8, f .x13 .x13 .x9,
-         .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ])
 
 /-! ## The x86-64 program for an op
 
@@ -672,7 +307,7 @@ def Op.instrsX86? : Op → Option (List AInstr)
       (let f : Reg → Reg → Reg → AInstr := match op with
          | .and => .and3 | .orr => .orr3 | .eor => .eor3
        [ f .x6 .x6 .x10, f .x7 .x7 .x11, f .x8 .x8 .x12, f .x9 .x9 .x13 ])
-  | o => (Op.instrs? o).map (fun is => is.flatMap spScale)
+  | o => some (o.toAInstrs.flatMap spScale)
 
 /-- The x86-64 arithmetic forms compute the same limb-wise result the ARM64
     forms do: both are `TOS ← TOS ∘ NOS`; ARM64 lands it in x10-x13 first and
@@ -692,7 +327,7 @@ def renameDest : AInstr → AInstr
 theorem x86_arith_is_arm_arith_into_tos :
     [Op.arith .add, .arith .sub].all (fun o =>
       (Op.instrsX86? o).map (·.length) == some 4 &&
-      ((Op.instrs? o).map (fun is => (is.take 4).map renameDest)) == Op.instrsX86? o) = true := by
+      (some ((o.toAInstrs.take 4).map renameDest)) == Op.instrsX86? o) = true := by
   native_decide
 
 /-- The handlers that are fully covered so far. -/
@@ -722,48 +357,8 @@ def covered : List Prog :=
    callFamilyBody "call" 0 0 true, callFamilyBody "callcode" 1 0 true,
    callFamilyBody "delegatecall" 2 0 false, callFamilyBody "staticcall" 3 1 false]
 
-/-- Every op of the covered handlers has an `AInstr` form. -/
-theorem covered_ops_lower :
-    covered.all (fun p => p.all (fun o => (Op.instrs? o).isSome)) = true := by native_decide
-
-/-- Ops that only appear in bodies not yet covered are checked standalone, so
-    a printing slip cannot hide behind the body list — handlers.S found both
-    of these the first time (`cbnz w14` is the 32-bit form; the sentry is a
-    `movz`). -/
-def standaloneOps : List Op := [.staticGuard, .sstoreSentry 2300, .chargeFixed 100, .cbDirect "_eita_ts_tload"]
-
-theorem standalone_ops_reproduce_emit :
-    standaloneOps.all (fun o =>
-      match Op.instrs? o with
-      | some is => String.join (is.map AInstr.emitARM64) == o.emit
-      | none => false) = true := by native_decide
-
 theorem sysv_arg4_is_tos_limb0 :
     (sysvReg 4).bind Evm.CL.Lowering.x86Reg? = some "r8" := by native_decide
-
-/-- **Text identity.** Printing the `AInstr` form through `emitARM64` is
-    `Op.emit`, character for character, for every covered op — so switching
-    the handler emitters to `Op.instrs?` cannot change `handlers.S`. -/
-theorem instrs_reproduce_emit :
-    covered.all (fun p => p.all (fun o =>
-      match Op.instrs? o with
-      | some is => String.join (is.map AInstr.emitARM64) == o.emit
-      | none => false)) = true := by native_decide
-
-/-- The emitter the handler files use from now on: an op with an `AInstr` form
-    is printed through `emitARM64`; one without falls back to `Op.emit`. For
-    covered ops the two are character-identical (`instrs_reproduce_emit`), for
-    uncovered ops the fallback IS `Op.emit` — so switching every call site is
-    byte-neutral by construction, and `handlers.S` is the gate that says so. -/
-def _root_.Evm.CL.AsmCore.Op.emitDerived (o : Op) : String :=
-  match Op.instrs? o with
-  | some is => String.join (is.map AInstr.emitARM64)
-  | none => o.emit
-
-def _root_.Evm.CL.AsmCore.Prog.emitDerived (p : Prog) : String := String.join (p.map Op.emitDerived)
-
-theorem emitDerived_eq_emit_covered :
-    covered.all (fun p => p.emitDerived == p.emit) = true := by native_decide
 
 /-- Append `suf` to every NAMED label a body defines and every reference to
     one — the `AInstr` form of `ARM64.suffixDefinedLabels`. Numeric labels
@@ -786,7 +381,7 @@ where
     if l.length > 0 && !l.front.isDigit then l ++ suf else l
 
 /-- A handler body as one `AInstr` list. -/
-def bodyInstrs (p : Prog) : List AInstr := p.flatMap (fun o => (Op.instrs? o).getD [])
+def bodyInstrs (p : Prog) : List AInstr := p.flatMap Op.toAInstrs
 
 /-- The two bodies as `AInstr`, for the pressure analysis and the x86 pipeline. -/
 def handlerBodies : List (List AInstr) := covered.map bodyInstrs
@@ -801,16 +396,6 @@ theorem handler_sizes :
        5, 3, 1, 69, 70, 25, 32, 49, 67, 74, 116, 25, 17, 18, 28, 26, 60,
        63, 35, 27, 100,
        92, 92, 92, 135, 139, 187, 174, 170, 170] := by
-  native_decide
-
-/-- **Totality over the handlers.** `Op.instrs?` has an arm for every
-    constructor (the compiler rejects a fallback as redundant); the only `none`s
-    left are out-of-range parameters that no handler uses (`argReg r` for r ≥ 4,
-    `sstoreSentry n` for n ≥ 2^16). So every op of every handler body has an
-    `AInstr` form, and `Op.emit` is a specification the derived text is checked
-    against, not an emitter any handler file reaches. -/
-theorem instrs_total_over_handlers :
-    (covered.flatten ++ standaloneOps).all (fun o => (Op.instrs? o).isSome) = true := by
   native_decide
 
 /-- The ARM register names the x86-64 call programs use for arguments have
@@ -1021,10 +606,10 @@ def callArgsBad (x86 : Bool) (tb : List (Bool × AInstr)) : List Nat :=
       !(match helperArity h with | some a => argsOk w a | none => false)
     | _, _ => false
 
-/-- Both backends' lists of a body, tagged (`Op.instrs?` / `Op.instrsX86?`). -/
+/-- Both backends' lists of a body, tagged (`Op.toAInstrs` / `Op.instrsX86?`). -/
 def callArgsDefined (p : Prog) : Bool :=
-  p.all (fun o => (Op.instrs? o).isSome && (Op.instrsX86? o).isSome) &&
-  (callArgsBad false (taggedBody Op.instrs? p)).isEmpty &&
+  p.all (fun o => (Op.instrsX86? o).isSome) &&
+  (callArgsBad false (taggedBody (some ∘ Op.toAInstrs) p)).isEmpty &&
   (callArgsBad true (taggedBody Op.instrsX86? p)).isEmpty
 
 /-! ## The register-cached stack stays coherent
@@ -1236,8 +821,8 @@ def cwalk (is : List AInstr) : Nat → Nat → Nat → CS → List Nat
 def cacheIncoherent (is : List AInstr) : List Nat :=
   (cwalk is (is.length + 1) 0 0 CS.entry).eraseDups
 
-/-- Every op lowers, and the ARM64 body keeps the stack cache coherent. -/
+/-- The ARM64 body keeps the stack cache coherent. -/
 def cacheCoherent (p : Prog) : Bool :=
-  p.all (fun o => (Op.instrs? o).isSome) && (cacheIncoherent (bodyInstrs p)).isEmpty
+  (cacheIncoherent (bodyInstrs p)).isEmpty
 
 end Evm.CL.OpInstrs

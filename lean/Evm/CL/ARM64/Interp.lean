@@ -349,7 +349,7 @@ def variantHandlers : List (String × String) := [
 /-! ## The registry as programs (stage 4v)
 
 `handlersWith` above is the registry as STRINGS: each entry is a shape
-emitter that prints `hdr name ++ body.emitDerived` for one `AsmCore` body.
+emitter that prints `hdr name ++ body.emit` for one `AsmCore` body.
 This is the same registry as `Prog`s — name → body — which is what a second
 target lowers (`X86Interp` takes each body through `Op.instrsX86?`). The
 ARM64 strings are derived from it below (`allHandlersP`, …) and
@@ -562,7 +562,7 @@ open Evm.CL.AsmCore Evm.CL.OpInstrs in
     EXTCODECOPY body passes len from whatever x4 held. -/
 theorem callback_args_rejects_inherited_len :
     (callArgsBad false
-      ((taggedBody Op.instrs? extcodecopyBody).filter (·.2 != .ldrBase .x4 .x14))).isEmpty = false := by
+      ((taggedBody (some ∘ Op.toAInstrs) extcodecopyBody).filter (·.2 != .ldrBase .x4 .x14))).isEmpty = false := by
   native_decide
 
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
@@ -592,7 +592,7 @@ theorem handler_runs_cache_coherent :
   intro p hp m₀ hsp hc hsep
   have := List.all_eq_true.mp handler_stack_cache_coherent p hp
   simp only [cacheCoherent, Bool.and_eq_true, List.isEmpty_iff] at this
-  exact cacheIncoherent_sound _ this.2 m₀ hsp hc hsep
+  exact cacheIncoherent_sound _ this m₀ hsp hc hsep
 
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
 /-- …and it rejects the bug: the CLZ body on the former x10-x13 temporaries. -/
@@ -603,7 +603,7 @@ theorem cache_coherence_rejects_clz_on_nos :
           .addImm .x11 .x11 64, .addImm .x12 .x12 128, .addImm .x13 .x13 192,
           .cmpImm .x7 0, .cselNe .x12 .x12 .x13, .cmpImm .x8 0, .cselNe .x11 .x11 .x12,
           .cmpImm .x9 0, .cselNe .x6 .x10 .x11, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
-      else (Op.instrs? o).getD [])).isEmpty = false := by
+      else o.toAInstrs)).isEmpty = false := by
   native_decide
 
 /-- The forks that get their own dispatch table, in `Fork.ord` order
@@ -619,29 +619,12 @@ def tableForks : List (Evm.Fork × String) :=
    (.arrowGlacier, "arrow_glacier"), (.grayGlacier, "gray_glacier"),
    (.paris, "paris"), (.shanghai, "shanghai")]
 
+open Evm.CL.AsmCore in
 /-- `_eita_set_fork(uint64 ord)`: repoint `_eita_dispatch_ptr` at the
     `Fork.ord`-indexed table. Ordinals past amsterdam (21) clamp; ords
     16..17 (cancun, prague) hold the default Cancun table, 18..21
     (osaka, bpo1, bpo2, amsterdam) the Osaka table (+CLZ, EIP-7939): a
     BPO fork (EIP-7892) changes the blob schedule, not the opcode table. -/
-def setForkCodeSpec : String :=
-  ".section __TEXT,__text,regular,pure_instructions\n" ++
-  ".global _eita_set_fork\n" ++
-  ".p2align 2\n" ++
-  "_eita_set_fork:\n" ++
-  "    mov   x1, #21\n" ++
-  "    cmp   x0, x1\n" ++
-  "    csel  x0, x0, x1, ls\n" ++
-  "    adrp  x1, _eita_fork_tables@PAGE\n" ++
-  "    add   x1, x1, _eita_fork_tables@PAGEOFF\n" ++
-  "    ldr   x1, [x1, x0, lsl #3]\n" ++
-  "    adrp  x2, _eita_dispatch_ptr@PAGE\n" ++
-  "    add   x2, x2, _eita_dispatch_ptr@PAGEOFF\n" ++
-  "    str   x1, [x2]\n" ++
-  "    ret\n"
-
--- `_eita_set_fork` as instructions (stage 4t).
-open Evm.CL.AsmCore in
 def setForkInstrs : List AInstr :=
   ([.textSection] : List AInstr) ++ Frame.header "_eita_set_fork" ++
   [ .movImm .x1 21, .cmpReg .x0 .x1, .csel .x0 .x0 .x1 .ls,
@@ -649,8 +632,6 @@ def setForkInstrs : List AInstr :=
     .loadSymAddr .x2 "_eita_dispatch_ptr", .strBase .x1 .x2, .ret ]
 
 def setForkCode : String := Frame.text setForkInstrs
-
-theorem setFork_derived : setForkCode = setForkCodeSpec := by native_decide
 
 -- The `Fork.ord`-indexed table of tables, as directives.
 open Evm.CL.AsmCore in
@@ -674,15 +655,6 @@ def forkDispatch : String :=
   dispatchTableNamed "_eita_dispatch_table_osaka" (handlerSymbol .osaka) ++
   Frame.text forkTablesInstrs ++
   setForkCode
-
-theorem forkTables_derived :
-    Frame.text forkTablesInstrs =
-      ".data\n.global _eita_fork_tables\n.p2align 3\n_eita_fork_tables:\n" ++
-      String.join (tableForks.map fun (_, nm) => s!"    .quad   _eita_dispatch_table_{nm}\n") ++
-      "    .quad   _eita_dispatch_table\n    .quad   _eita_dispatch_table\n" ++
-      "    .quad   _eita_dispatch_table_osaka\n    .quad   _eita_dispatch_table_osaka\n" ++
-      "    .quad   _eita_dispatch_table_osaka\n    .quad   _eita_dispatch_table_osaka\n" := by
-  native_decide
 
 /-- The full handlers.S text: runtime scaffolding (trampoline, next,
     sync_and_ret, fault stubs) + every handler (interp-tier charging

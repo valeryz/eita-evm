@@ -111,68 +111,8 @@ def movImm (reg : String) (v : Nat) : String := Id.run do
 
 The threaded convention: handler is just a label; ends with `br x27`. -/
 
-def hdrSpec (name : String) : String :=
-  s!".global _eita_handler_{name}\n" ++
-  s!".p2align 2\n" ++
-  s!"_eita_handler_{name}:\n"
-
 /-- The header, printed from `Frame.handlerHeader`. -/
 def hdr (name : String) : String := Frame.text (Frame.handlerHeader name)
-
-theorem hdr_derived :
-    ["add", "sstore", "call", "push32", "sstore_nosentry"].all
-      (fun n => hdr n == hdrSpec n) = true := by native_decide
-
-/-- Fault stubs: all halt + revert and exit via sync_and_ret. Crucially,
-    they restore `sp` from x28 (set by the eita_run prologue to the
-    post-callee-save SP) so handlers that allocated scratch frames
-    (sload/sstore/keccak/call/...) don't leave sync_and_ret reading
-    callee-saved registers from the wrong offset. -/
-def faultStubs : String :=
-  ".global _eita_oog\n" ++
-  ".p2align 2\n" ++
-  "_eita_oog:\n" ++
-  "    mov   sp, x28\n" ++                       -- restore SP from trampoline-saved
-  "    mov   x22, #0\n" ++                       -- gas = 0
-  "    mov   w14, #1\n" ++
-  "    strb  w14, [x20, #128]\n" ++              -- halted
-  "    strb  w14, [x20, #129]\n" ++              -- reverted
-  "    adrp  x27, _eita_sync_and_ret@PAGE\n" ++
-  "    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n" ++
-  "    br    x27\n" ++
-  ".global _eita_stack_overflow\n" ++
-  ".p2align 2\n" ++
-  "_eita_stack_overflow:\n" ++
-  "    mov   sp, x28\n" ++
-  "    mov   x22, #0\n" ++
-  "    mov   w14, #1\n" ++
-  "    strb  w14, [x20, #128]\n" ++
-  "    strb  w14, [x20, #129]\n" ++
-  "    adrp  x27, _eita_sync_and_ret@PAGE\n" ++
-  "    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n" ++
-  "    br    x27\n" ++
-  ".global _eita_stack_underflow\n" ++
-  ".p2align 2\n" ++
-  "_eita_stack_underflow:\n" ++
-  "    mov   sp, x28\n" ++
-  "    mov   x22, #0\n" ++
-  "    mov   w14, #1\n" ++
-  "    strb  w14, [x20, #128]\n" ++
-  "    strb  w14, [x20, #129]\n" ++
-  "    adrp  x27, _eita_sync_and_ret@PAGE\n" ++
-  "    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n" ++
-  "    br    x27\n" ++
-  ".global _eita_static_violation\n" ++
-  ".p2align 2\n" ++
-  "_eita_static_violation:\n" ++
-  "    mov   sp, x28\n" ++
-  "    mov   x22, #0\n" ++
-  "    mov   w14, #1\n" ++
-  "    strb  w14, [x20, #128]\n" ++
-  "    strb  w14, [x20, #129]\n" ++
-  "    adrp  x27, _eita_sync_and_ret@PAGE\n" ++
-  "    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n" ++
-  "    br    x27\n"
 
 /-! ## Per-shape handler emitters -/
 
@@ -181,7 +121,7 @@ def faultStubs : String :=
 def binArithHandler (name : String) (cost : Nat)
     (firstOp _midOp _lastOp : String) : String :=
   let k : AsmCore.ArithKind := if firstOp == "subs" then .sub else .add
-  hdr name ++ (AsmCore.arithBody k cost).emitDerived
+  hdr name ++ (AsmCore.arithBody k cost).emit
 
 /-- Bitwise: limb-wise AND/OR/EOR. ARM64 op is one of "and", "orr", "eor".
     Emitted from the typed DSL `Evm.CL.AsmCore`, where `bitwise_correct` proves
@@ -189,7 +129,7 @@ def binArithHandler (name : String) (cost : Nat)
     stack operands. Emit is byte-identical to the previous hand-written asm. -/
 def bitwiseHandler (name : String) (cost : Nat) (op : String) : String :=
   let bop : AsmCore.BitOp := if op == "orr" then .orr else if op == "eor" then .eor else .and
-  hdr name ++ (AsmCore.bitwiseBody bop cost).emitDerived
+  hdr name ++ (AsmCore.bitwiseBody bop cost).emit
 
 /-- Comparison: result is 0/1 in low limb. Cond is ARM64 code following a
     `subs` chain that computes (top - nos).
@@ -200,35 +140,35 @@ def bitwiseHandler (name : String) (cost : Nat) (op : String) : String :=
     the overall 256-bit result. EQ/GT/SGT use their own handlers that
     sidestep this. -/
 def cmpHandler (name : String) (cost : Nat) (cond : String) : String :=
-  hdr name ++ (AsmCore.cmpBody false (if cond == "lt" then .lt else .lo) cost).emitDerived
+  hdr name ++ (AsmCore.cmpBody false (if cond == "lt" then .lt else .lo) cost).emit
 
 /-- Like cmpHandler, but swaps operands so `cond` is applied to (nos - top)
     instead of (top - nos). Lets us use the reliable `lo`/`lt` conditions
     for GT/SGT (where "top > nos" = "nos < top"). -/
 def cmpHandlerSwapped (name : String) (cost : Nat) (cond : String) : String :=
-  hdr name ++ (AsmCore.cmpBody true (if cond == "lt" then .lt else .lo) cost).emitDerived
+  hdr name ++ (AsmCore.cmpBody true (if cond == "lt" then .lt else .lo) cost).emit
 
 /-- EQ: pop top + nos, push 1 if equal else 0.
     Cannot use the cmpHandler subs-chain because Z after sbcs reflects only
     the last limb. OR the per-limb XOR results and ISZERO that. -/
 def eqHandler (cost : Nat) : String :=
-  hdr "eq" ++ (AsmCore.eqBody cost).emitDerived
+  hdr "eq" ++ (AsmCore.eqBody cost).emit
 
 /-- ISZERO: pop top, push 1 if top = 0 else 0. Stack stays at same depth. -/
 def iszeroHandler (cost : Nat) : String :=
-  hdr "iszero" ++ (AsmCore.iszeroBody cost).emitDerived
+  hdr "iszero" ++ (AsmCore.iszeroBody cost).emit
 
 /-- NOT: bitwise complement of top. Stack depth unchanged. -/
 def notHandler (cost : Nat) : String :=
-  hdr "not" ++ (AsmCore.notBody cost).emitDerived
+  hdr "not" ++ (AsmCore.notBody cost).emit
 
 /-- CLZ (EIP-7939, Osaka+): count leading zeros of top. Stack depth unchanged. -/
 def clzHandler (cost : Nat) : String :=
-  hdr "clz" ++ (AsmCore.clzBody cost).emitDerived
+  hdr "clz" ++ (AsmCore.clzBody cost).emit
 
 /-- POP: discard top; NOS becomes new TOS. -/
 def popHandler (cost : Nat) : String :=
-  hdr "pop" ++ (AsmCore.popBody cost).emitDerived
+  hdr "pop" ++ (AsmCore.popBody cost).emit
 
 /-- STOP: set halted=1. Spec leaves pc unchanged; the trampoline
     pre-incremented it (mimicking `next`), so we undo that here.
@@ -238,7 +178,7 @@ def stopHandler : String :=
 
 /-- JUMPDEST: no-op; pc was already pre-incremented by `next`. -/
 def jumpdestHandler (cost : Nat) : String :=
-  hdr "jumpdest" ++ (AsmCore.jumpdestBody cost).emitDerived
+  hdr "jumpdest" ++ (AsmCore.jumpdestBody cost).emit
 
 /-- INVALID: brk. Caller debugs. -/
 def invalidHandler : String :=
@@ -252,7 +192,7 @@ def invalidHandler : String :=
     after sp increment, which means the old TOS at memory[sp-1] becomes
     the new NOS in memory[sp_new-2] = memory[sp_old-1], i.e., no move). -/
 def pushU256FromField (name : String) (cost : Nat) (offset : Nat) : String :=
-  hdr name ++ (AsmCore.envU256Body offset cost).emitDerived
+  hdr name ++ (AsmCore.envU256Body offset cost).emit
 
 /-- PREVRANDAO (0x44, formerly DIFFICULTY): pushes state.prev_randao (offset 512). -/
 def prevrandaoHandler (cost : Nat) : String := pushU256FromField "prevrandao" cost 512
@@ -265,21 +205,21 @@ def blobbasefeeHandler (cost : Nat) : String :=
 /-- BLOBHASH (0x49, Cancun, EIP-4844): pops the index, pushes the tx's versioned hash at
     that index from the table at state.blob_hashes (offset 552, count at 560), or 0. -/
 def blobhashHandler (cost : Nat) : String :=
-  hdr "blobhash" ++ (AsmCore.blobhashBody cost).emitDerived
+  hdr "blobhash" ++ (AsmCore.blobhashBody cost).emit
 
 /-- Push a u64 from a struct field as U256 (high limbs zero). -/
 def pushU64FromField (name : String) (cost : Nat) (offset : Nat) : String :=
-  hdr name ++ (AsmCore.envU64Body offset cost).emitDerived
+  hdr name ++ (AsmCore.envU64Body offset cost).emit
 
 /-- PC: pushes the *opcode* pc (i.e., x21 - 1, since `next` pre-incremented). -/
 -- PC pushes (pc of the PC op) = x21-1. Emitted from AsmCore (`pc_correct`).
 def pcHandler (cost : Nat) : String :=
-  hdr "pc" ++ (AsmCore.pcBody cost).emitDerived
+  hdr "pc" ++ (AsmCore.pcBody cost).emit
 
 /-- GAS: pushes (gasLeft - cost) after charging cost. Emitted from AsmCore
     (`gas_correct`); the gas charge goes through the OOG-checked combinator. -/
 def gasHandler (cost : Nat) : String :=
-  hdr "gas" ++ (AsmCore.gasBody cost).emitDerived
+  hdr "gas" ++ (AsmCore.gasBody cost).emit
 
 /-- MSIZE: pushes mp (always loaded from memory; not cached). -/
 -- MSIZE returns the *aligned* memory size — `memory_size` (#48, kept aligned by
@@ -289,7 +229,7 @@ def gasHandler (cost : Nat) : String :=
 -- `msize_bug_rejected` shows the `mp` version violates the spec). Emit is
 -- byte-identical to the previous hand-written asm.
 def msizeHandler (cost : Nat) : String :=
-  hdr "msize" ++ (AsmCore.msizeBody cost).emitDerived
+  hdr "msize" ++ (AsmCore.msizeBody cost).emit
 
 /-- SSTORE: arena-based journal bump. Pop slot (top) + val (nos);
     bump journal_count; write JournalEntry.
@@ -302,7 +242,7 @@ def msizeHandler (cost : Nat) : String :=
 def sstoreHandler (sentry : Nat) : String :=
   -- static-guard, optional EIP-1706 gas sentry, cb->sstore (returns gas),
   -- journal entry (type 0), pop slot+val, reload. See AsmCore.sstoreBody.
-  hdr "sstore" ++ (AsmCore.sstoreBody sentry).emitDerived
+  hdr "sstore" ++ (AsmCore.sstoreBody sentry).emit
 
 /-- Signed comparison: like cmpHandler but uses signed condition code.
     The `subs` chain on 256-bit values gives correct N+Z flags; for
@@ -323,24 +263,24 @@ with pointers to result/operands, calls the helper, then loads result back. -/
 /-- Binary compute helper: pop top + nos, call helper(result, top, nos),
     push result. cost is gas; helper_name is e.g. "_eita_helper_mul". -/
 def binComputeHandler (name : String) (cost : Nat) (helperName : String) : String :=
-  hdr name ++ (AsmCore.binComputeBody helperName cost).emitDerived
+  hdr name ++ (AsmCore.binComputeBody helperName cost).emit
 
 /-- CALLDATALOAD: pop off, push 32 BE bytes from calldata. Pure replace TOS. -/
 def calldataloadHandler (cost : Nat) : String :=
-  hdr "calldataload" ++ (AsmCore.calldataloadBody cost).emitDerived
+  hdr "calldataload" ++ (AsmCore.calldataloadBody cost).emit
 
 /-- 3-pop helper that calls a C function with (state, dst, src, len).
     Result is written to memory side-effect via the helper; just pop. -/
 def stateTernaryHandler (name : String) (cost : Nat) (helperName : String) : String :=
-  hdr name ++ (AsmCore.copyBody helperName cost).emitDerived
+  hdr name ++ (AsmCore.copyBody helperName cost).emit
 
 /-- MCOPY (#270): like stateTernaryHandler but memexp covers max(dst+len,src+len)
     since the source is memory too. -/
 def returndatacopyHandler (cost : Nat) : String :=
-  hdr "returndatacopy" ++ (AsmCore.returndatacopyBody cost).emitDerived
+  hdr "returndatacopy" ++ (AsmCore.returndatacopyBody cost).emit
 
 def mcopyHandler (name : String) (cost : Nat) (helperName : String) : String :=
-  hdr name ++ (AsmCore.mcopyBody helperName cost).emitDerived
+  hdr name ++ (AsmCore.mcopyBody helperName cost).emit
 
 /-! ## Callback-using handlers (vtable at EvmState.cb, offset 496)
 
@@ -373,7 +313,7 @@ def balanceHandler : String :=
 
 /-- SELFBALANCE: no pop, call cb->balance(ctx, &address, &result), push. -/
 def selfbalanceHandler (cost : Nat) : String :=
-  hdr "selfbalance" ++ (AsmCore.selfbalanceBody cost).emitDerived
+  hdr "selfbalance" ++ (AsmCore.selfbalanceBody cost).emit
 
 /-- EXTCODESIZE: pop addr, call cb->ext_code_size(ctx, &addr, &u64_result). -/
 def extcodesizeHandler : String :=
@@ -386,14 +326,14 @@ def extcodehashHandler : String :=
 /-- BLOCKHASH: pop n (U256), call cb->block_hash(ctx, &n, &result), push.
     Signature uses u256_t* for the key to match the spec's worldBlockHashByVal. -/
 def blockhashHandler (cost : Nat) : String :=
-  hdr "blockhash" ++ (AsmCore.blockhashBody cost).emitDerived
+  hdr "blockhash" ++ (AsmCore.blockhashBody cost).emit
 
 /-- EXTCODECOPY: pop addr, dst, src, len. Memory-side copy via callback. -/
 def extcodecopyHandler : String :=
   -- 4-pop (addr, dst, src, len): memexp(dst+len) gas up front, then the
   -- ext_code_copy host cb (slot #56) writes code → memory and returns the
   -- access gas. See AsmCore.extcodecopyBody.
-  hdr "extcodecopy" ++ (AsmCore.extcodecopyBody).emitDerived
+  hdr "extcodecopy" ++ (AsmCore.extcodecopyBody).emit
 
 
 /-! ## CALL family (host-callback recursive trampoline)
@@ -427,7 +367,7 @@ def extcodecopyHandler : String :=
 def callFamilyHandler (name : String) (kind : Nat) (staticpFlag : Nat) (withValue : Bool) : String :=
   -- memexp(max in/out range), build CallParams, cb->call, returndata→mem, pop
   -- args, push success, charge gas_used. See AsmCore.callFamilyBody.
-  hdr name ++ (AsmCore.callFamilyBody name kind staticpFlag withValue).emitDerived
+  hdr name ++ (AsmCore.callFamilyBody name kind staticpFlag withValue).emit
 
 -- Convenience aliases using the parametric helper.
 def callOp : String         := callFamilyHandler "call"         0 0 true
@@ -440,7 +380,7 @@ def delegatecallOp : String := callFamilyHandler "delegatecall" 2 0 false
 def selfdestructHandler (cost : Nat) : String :=
   -- static-guard, undo trampoline pc-inc, charge base cost, cb->selfdestruct
   -- (cold/new-account surcharge), halt, pop beneficiary. See AsmCore.selfdestructBody.
-  hdr "selfdestruct" ++ (AsmCore.selfdestructBody cost).emitDerived
+  hdr "selfdestruct" ++ (AsmCore.selfdestructBody cost).emit
 
 /-- CREATE: pop value, in_off, in_len. Deploy a contract using init code at
     memory[in_off..in_off+in_len]. Push deployed-contract address (or 0 on fail).
@@ -466,7 +406,7 @@ def keccak256Handler (cost : Nat) : String :=
   -- limb[0], so without these checks KECCAK256(huge_off, huge_len) whose low
   -- limbs fit would silently charge a modest cost instead of OOGing as mainnet.
   -- Gas = 30 + 6·⌈len/32⌉ + memExpand(off+len). See AsmCore.keccak256Body.
-  hdr "keccak256" ++ (AsmCore.keccak256Body cost).emitDerived
+  hdr "keccak256" ++ (AsmCore.keccak256Body cost).emit
 
 /-- EXP: same shape as binCompute but with variable gas
     (cost + byteCost * ceil(log256(e))). `byteCost` is the per-byte
@@ -476,12 +416,12 @@ def keccak256Handler (cost : Nat) : String :=
 def expHandler (cost byteCost : Nat) : String :=
   -- gas = cost + byteCost·ebytes (ebytes from exponent MSB via clz), then
   -- the exp C helper. See AsmCore.expBody.
-  hdr "exp" ++ (AsmCore.expBody cost byteCost).emitDerived
+  hdr "exp" ++ (AsmCore.expBody cost byteCost).emit
 
 /-- Ternary compute helper: pop top + nos + third, call helper(result, top, nos, third),
     push result. For ADDMOD/MULMOD. -/
 def ternaryComputeHandler (name : String) (cost : Nat) (helperName : String) : String :=
-  hdr name ++ (AsmCore.ternaryComputeBody helperName cost).emitDerived
+  hdr name ++ (AsmCore.ternaryComputeBody helperName cost).emit
 
 /-! ## Memory ops (preallocated; quadratic gas calculation in handler) -/
 
@@ -495,16 +435,16 @@ def ternaryComputeHandler (name : String) (cost : Nat) (helperName : String) : S
     starts zero-initialized, so past-end reads naturally give 0 IF the
     buffer is large enough). -/
 def mloadHandler (cost : Nat) : String :=
-  hdr "mload" ++ (AsmCore.mloadBody cost).emitDerived
+  hdr "mload" ++ (AsmCore.mloadBody cost).emit
 
 /-- MSTORE: pop offset (top), value (nos). Write 32 BE bytes to memory[off..off+32].
     sp -= 2; mp = max(mp, off+32); charge 3. -/
 def mstoreHandler (cost : Nat) : String :=
-  hdr "mstore" ++ (AsmCore.mstoreBody cost).emitDerived
+  hdr "mstore" ++ (AsmCore.mstoreBody cost).emit
 
 /-- MSTORE8: pop offset (top), value (nos). Write low byte of value to memory[off]. -/
 def mstore8Handler (cost : Nat) : String :=
-  hdr "mstore8" ++ (AsmCore.mstore8Body cost).emitDerived
+  hdr "mstore8" ++ (AsmCore.mstore8Body cost).emit
 
 /-! ## Halt with output (RETURN/REVERT) -/
 
@@ -526,20 +466,12 @@ def revertHandler : String :=
 def jumpHandler (cost : Nat) : String :=
   -- pop dest, bounds + JUMPDEST validate, set pc=dest, reload, charge.
   -- See AsmCore.jumpBody.
-  hdr "jump" ++ (AsmCore.jumpBody cost).emitDerived
+  hdr "jump" ++ (AsmCore.jumpBody cost).emit
 
 /-- JUMPI: pop dest + cond; if cond != 0 then JUMP semantics, else just bump pc.
     See AsmCore.jumpiBody. -/
 def jumpiHandler (cost : Nat) : String :=
-  hdr "jumpi" ++ (AsmCore.jumpiBody cost).emitDerived
-
-/-- Invalid-jump trap. Per spec, JUMP/JUMPI to a non-JUMPDEST (or out of
-    code bounds) is an exception that consumes all remaining gas. -/
-def invalidJumpStub : String :=
-  ".global _eita_invalid_jump\n" ++
-  ".p2align 2\n" ++
-  "_eita_invalid_jump:\n" ++
-  "    b     _eita_oog\n"
+  hdr "jumpi" ++ (AsmCore.jumpiBody cost).emit
 
 /-! ## TSTORE (arena bump like SSTORE; entry_type = 1) + LOG-N -/
 
@@ -558,7 +490,7 @@ def tstoreHandler : String :=
 def logHandler (n cost : Nat) : String :=
   -- static-guard, gas=cost+8·len+memexp, bump log_count, mp, pop 2+n, reload,
   -- charge. See AsmCore.logBody.
-  hdr s!"log{n}" ++ (AsmCore.logBody n cost).emitDerived
+  hdr s!"log{n}" ++ (AsmCore.logBody n cost).emit
 
 /-! ## PUSH-N (n = 0..32) -/
 
@@ -568,17 +500,17 @@ def logHandler (n cost : Nat) : String :=
 def pushHandler (n cost : Nat) : String :=
   -- overflow-guard, TOS→NOS, zero TOS, read n big-endian code bytes by wide
   -- loads, pc+=n, push, store, charge. See AsmCore.pushBody.
-  hdr s!"push{n}" ++ (AsmCore.pushBody n cost).emitDerived
+  hdr s!"push{n}" ++ (AsmCore.pushBody n cost).emit
 
 /-! ## DUP-n, SWAP-n (parametric) -/
 
 /-- DUP-n: copy stack[sp-n] to top. n in [1, 16]. -/
 def dupHandler (n cost : Nat) : String :=
-  hdr s!"dup{n}" ++ (AsmCore.dupBody n cost).emitDerived
+  hdr s!"dup{n}" ++ (AsmCore.dupBody n cost).emit
 
 /-- SWAP-n: swap top with stack[sp-1-n]. n in [1, 16]. -/
 def swapHandler (n cost : Nat) : String :=
-  hdr s!"swap{n}" ++ (AsmCore.swapBody n cost).emitDerived
+  hdr s!"swap{n}" ++ (AsmCore.swapBody n cost).emit
 
 /-! ## Trampoline + dispatch table
 
@@ -586,173 +518,11 @@ def swapHandler (n cost : Nat) : String :=
     instantiates the shape emitters above with static costs drawn from
     `IR.Op.metadata` / `IR.Terminator.metadata`. -/
 
-/-- `eita_run_one(state*, opcode_byte)`: set up cached state, dispatch
-    to the requested opcode handler, sync back on exit. -/
-def trampolineCode : String :=
-  ".global _eita_run_one\n" ++
-  ".p2align 2\n" ++
-  "_eita_run_one:\n" ++
-  -- Save callee-saved registers (we use x19-x28)
-  "    stp   x29, x30, [sp, #-96]!\n" ++
-  "    stp   x19, x20, [sp, #16]\n" ++
-  "    stp   x21, x22, [sp, #32]\n" ++
-  "    stp   x23, x24, [sp, #48]\n" ++
-  "    stp   x25, x26, [sp, #64]\n" ++
-  "    stp   x27, x28, [sp, #80]\n" ++
-  -- x0 = state, x1 = opcode
-  "    mov   x20, x0\n" ++
-  "    ldr   x21, [x0, #0]\n" ++             -- pc
-  "    ldr   x22, [x0, #8]\n" ++             -- gas
-  "    ldr   x23, [x0, #16]\n" ++            -- sp
-  "    ldr   x24, [x0, #32]\n" ++            -- stack base
-  "    ldr   x26, [x0, #64]\n" ++            -- code base
-  -- Load TOS into x6-x9 (if sp >= 1)
-  "    cmp   x23, #1\n" ++
-  "    b.lt  1f\n" ++
-  "    sub   x14, x23, #1\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x6, x7, [x14]\n" ++
-  "    ldp   x8, x9, [x14, #16]\n" ++
-  "1:\n" ++
-  -- Load NOS into x10-x13 (if sp >= 2)
-  "    cmp   x23, #2\n" ++
-  "    b.lt  2f\n" ++
-  "    sub   x14, x23, #2\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x10, x11, [x14]\n" ++
-  "    ldp   x12, x13, [x14, #16]\n" ++
-  "2:\n" ++
-  -- Pre-increment pc past the opcode being run (mimics `next`'s pre-inc)
-  "    add   x21, x21, #1\n" ++
-  -- Continuation = sync_and_ret
-  "    adrp  x27, _eita_sync_and_ret@PAGE\n" ++
-  "    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n" ++
-  -- Look up handler in the active fork's dispatch table
-  -- (_eita_dispatch_ptr is set by _eita_set_fork; defaults to Cancun)
-  "    adrp  x25, _eita_dispatch_ptr@PAGE\n" ++
-  "    ldr   x25, [x25, _eita_dispatch_ptr@PAGEOFF]\n" ++
-  "    ldr   x14, [x25, x1, lsl #3]\n" ++
-  "    br    x14\n"
-
-/-- `next`: production continuation. Fetches the opcode at x21, pre-increments
-    pc, dispatches through the table. Handlers end with `br x27`; in production
-    x27 = _eita_next, so the chain runs without per-opcode CFFI round-trip.
-
-    If `cb->trace_step` (at vtable offset 112) is non-null, calls it with
-    `(state, pc, gas, sp, opcode)` before dispatching. Tracing is opt-in
-    via the CL callback table; production runs leave the slot null and pay
-    only two loads + a cbz on the hot path. -/
-def nextCode : String :=
-  ".global _eita_next\n" ++
-  ".p2align 2\n" ++
-  "_eita_next:\n" ++
-  -- Tracing fast path: check cb->trace_step at offset 112; null skips.
-  "    ldr   x14, [x20, #496]\n" ++             -- cb table ptr
-  "    ldr   x14, [x14, #112]\n" ++             -- cb->trace_step
-  "    cbz   x14, 1f\n" ++
-  -- Save live registers across the BL.
-  "    stp   x29, x30, [sp, #-96]!\n" ++
-  "    stp   x6, x7, [sp, #16]\n" ++
-  "    stp   x8, x9, [sp, #32]\n" ++
-  "    stp   x10, x11, [sp, #48]\n" ++
-  "    stp   x12, x13, [sp, #64]\n" ++
-  -- Arguments: (state, pc, gas, sp, opcode_byte).
-  "    mov   x0, x20\n" ++
-  "    mov   x1, x21\n" ++
-  "    mov   x2, x22\n" ++
-  "    mov   x3, x23\n" ++
-  "    ldrb  w4, [x26, x21]\n" ++
-  "    blr   x14\n" ++
-  "    ldp   x6, x7, [sp, #16]\n" ++
-  "    ldp   x8, x9, [sp, #32]\n" ++
-  "    ldp   x10, x11, [sp, #48]\n" ++
-  "    ldp   x12, x13, [sp, #64]\n" ++
-  "    ldp   x29, x30, [sp], #96\n" ++
-  "1:\n" ++
-  "    ldrb  w14, [x26, x21]\n" ++
-  "    add   x21, x21, #1\n" ++
-  "    ldr   x14, [x25, x14, lsl #3]\n" ++
-  "    br    x14\n"
-
-/-- `eita_run(state*)`: production entry. Loads cached state, sets x27 = next,
-    starts dispatch. Runs until STOP/RETURN/REVERT branches to sync_and_ret. -/
-def runCode : String :=
-  ".global _eita_run\n" ++
-  ".p2align 2\n" ++
-  "_eita_run:\n" ++
-  "    stp   x29, x30, [sp, #-96]!\n" ++
-  "    stp   x19, x20, [sp, #16]\n" ++
-  "    stp   x21, x22, [sp, #32]\n" ++
-  "    stp   x23, x24, [sp, #48]\n" ++
-  "    stp   x25, x26, [sp, #64]\n" ++
-  "    stp   x27, x28, [sp, #80]\n" ++
-  -- Stash the post-prologue SP into x28. Fault stubs (OOG, stack
-  -- under/overflow, static-violation, invalid-jump) restore `sp` from x28
-  -- before branching to sync_and_ret, so handlers that pushed extra
-  -- scratch frames (sload/sstore/tload/.../keccak/call/create) don't leave
-  -- sync_and_ret reading callee-saved from the wrong offset.
-  "    mov   x28, sp\n" ++
-  "    mov   x20, x0\n" ++
-  "    ldr   x21, [x0, #0]\n" ++
-  "    ldr   x22, [x0, #8]\n" ++
-  "    ldr   x23, [x0, #16]\n" ++
-  "    ldr   x24, [x0, #32]\n" ++
-  "    ldr   x26, [x0, #64]\n" ++
-  "    cmp   x23, #1\n" ++
-  "    b.lt  10f\n" ++
-  "    sub   x14, x23, #1\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x6, x7, [x14]\n" ++
-  "    ldp   x8, x9, [x14, #16]\n" ++
-  "10:\n" ++
-  "    cmp   x23, #2\n" ++
-  "    b.lt  11f\n" ++
-  "    sub   x14, x23, #2\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x10, x11, [x14]\n" ++
-  "    ldp   x12, x13, [x14, #16]\n" ++
-  "11:\n" ++
-  "    adrp  x27, _eita_next@PAGE\n" ++
-  "    add   x27, x27, _eita_next@PAGEOFF\n" ++
-  "    adrp  x25, _eita_dispatch_ptr@PAGE\n" ++
-  "    ldr   x25, [x25, _eita_dispatch_ptr@PAGEOFF]\n" ++
-  "    ldrb  w14, [x26, x21]\n" ++
-  "    add   x21, x21, #1\n" ++
-  "    ldr   x14, [x25, x14, lsl #3]\n" ++
-  "    br    x14\n"
-
-/-- `sync_and_ret`: write cached state back to memory and return to the
-    C caller (both eita_run_one and eita_run share this exit). -/
-def syncAndRetCode : String :=
-  ".global _eita_sync_and_ret\n" ++
-  ".p2align 2\n" ++
-  "_eita_sync_and_ret:\n" ++
-  "    str   x21, [x20, #0]\n" ++
-  "    str   x22, [x20, #8]\n" ++
-  "    str   x23, [x20, #16]\n" ++
-  -- Sync TOS to memory (if sp >= 1)
-  "    cmp   x23, #1\n" ++
-  "    b.lt  3f\n" ++
-  "    sub   x14, x23, #1\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    stp   x6, x7, [x14]\n" ++
-  "    stp   x8, x9, [x14, #16]\n" ++
-  "3:\n" ++
-  "    cmp   x23, #2\n" ++
-  "    b.lt  4f\n" ++
-  "    sub   x14, x23, #2\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    stp   x10, x11, [x14]\n" ++
-  "    stp   x12, x13, [x14, #16]\n" ++
-  "4:\n" ++
-  -- Restore callee-saved and return
-  "    ldp   x27, x28, [sp, #80]\n" ++
-  "    ldp   x25, x26, [sp, #64]\n" ++
-  "    ldp   x23, x24, [sp, #48]\n" ++
-  "    ldp   x21, x22, [sp, #32]\n" ++
-  "    ldp   x19, x20, [sp, #16]\n" ++
-  "    ldp   x29, x30, [sp], #96\n" ++
-  "    ret\n"
+/-- The scaffolding's text, for the checks that read it (`Boundary`, `Fetch`):
+    printed from its `Frame` programs, the only source. -/
+def trampolineCode : String := Frame.text Frame.runOne
+def nextCode : String := Frame.text Frame.next
+def syncAndRetCode : String := Frame.text Frame.syncAndRet
 
 /-- Map of opcode byte (0..255) to registry handler name. Bytes not
     listed are undefined on every fork (→ invalid). -/
@@ -789,22 +559,11 @@ def opcodeNameMap : List (Nat × String) := [
     ++ (List.range 16 |>.map (fun i => (0x80 + i, s!"dup{i+1}")))
     ++ (List.range 16 |>.map (fun i => (0x90 + i, s!"swap{i+1}")))
 
-/-- Emit a 256-entry dispatch table named `symbol`. `resolve` maps a
+/-- A 256-entry dispatch table named `symbol`. `resolve` maps a
     registry handler name to the handler SYMBOL the entry should hold
     (the per-fork emitters route absent ops to `_eita_handler_invalid`
-    and repriced ops to variant bodies). -/
-def dispatchTableNamedSpec (symbol : String) (resolve : String → String) : String :=
-  let entries : List String := (List.range 256).map fun b =>
-    match opcodeNameMap.find? (fun (op, _) => op == b) with
-    | some (_, nm) => s!"    .quad   {resolve nm}"
-    | none         => "    .quad   _eita_handler_invalid"
-  ".data\n" ++
-  s!".global {symbol}\n" ++
-  ".p2align 3\n" ++
-  s!"{symbol}:\n" ++
-  String.intercalate "\n" entries ++ "\n"
-
-/-- The same table as directives (stage 4t). -/
+    and repriced ops to variant bodies). Bytes with no name hold
+    `_eita_handler_invalid`. -/
 def dispatchTableNamedInstrs (symbol : String) (resolve : String → String) : List Evm.CL.AsmCore.AInstr :=
   ([ .dataSection, .global symbol, .p2align3, .symLabel symbol ] : List Evm.CL.AsmCore.AInstr) ++
   (List.range 256).map fun b =>
@@ -814,10 +573,6 @@ def dispatchTableNamedInstrs (symbol : String) (resolve : String → String) : L
 
 def dispatchTableNamed (symbol : String) (resolve : String → String) : String :=
   Frame.text (dispatchTableNamedInstrs symbol resolve)
-
-theorem dispatchTableNamed_derived :
-    dispatchTableNamed "_t" (fun n => "_eita_handler_" ++ n) =
-      dispatchTableNamedSpec "_t" (fun n => "_eita_handler_" ++ n) := by native_decide
 
 /-- The `_eita_dispatch_ptr` cell. -/
 def dispatchPtrInstrs : List Evm.CL.AsmCore.AInstr :=
@@ -833,11 +588,6 @@ def dispatchTable (handlerNames : List (String × String)) (present : String →
     | some _ => if present opName then s!"_eita_handler_{opName}" else "_eita_handler_invalid"
     | none   => "_eita_handler_invalid") ++
   Frame.text dispatchPtrInstrs
-
-theorem dispatchPtr_derived :
-    Frame.text dispatchPtrInstrs =
-      ".global _eita_dispatch_ptr\n.p2align 3\n_eita_dispatch_ptr:\n    .quad   _eita_dispatch_table\n" := by
-  native_decide
 
 /-! ## Label suffixing (JIT flat-handler variants)
 
@@ -889,19 +639,6 @@ def suffixDefinedLabels (body : String) (suffix : String) : String := Id.run do
   if cur ≠ "" then
     out := out ++ (if names.contains cur then cur ++ suffix else cur)
   return out
-
-/-! ## The scaffolding is derived (stage 4r)
-
-The strings above are the specification; `Evm.CL.Frame` holds the same code
-as `AInstr` programs, and these identities are what let `emitWith` print the
-programs instead. -/
-
-theorem trampoline_derived : Frame.text Frame.runOne = trampolineCode := by native_decide
-theorem run_derived : Frame.text Frame.run = runCode := by native_decide
-theorem next_derived : Frame.text Frame.next = nextCode := by native_decide
-theorem syncAndRet_derived : Frame.text Frame.syncAndRet = syncAndRetCode := by native_decide
-theorem faultStubs_derived : Frame.text Frame.faultStubs = faultStubs := by native_decide
-theorem invalidJump_derived : Frame.text Frame.invalidJump = invalidJumpStub := by native_decide
 
 /-- Assemble the full handlers.S text from a handler registry
     (name → asm). The registry is built in `Evm.CL.ARM64.Interp`. The

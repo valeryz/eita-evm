@@ -41,110 +41,6 @@ namespace Evm.CL.ARM64.CallGas
 
 open Evm.Berlin.Vm.Effect (callGasPlan)
 
-def codeSpec : String :=
-  -- The constants come from `CallGasDenote`, which is also what
-  -- `plan_eq_spec` proves this routine's arithmetic equal to — so the numbers
-  -- the emitter materialises and the numbers the theorem is about cannot drift.
-  let baseWarm   := CallGasDenote.baseWarm
-  let baseCold   := CallGasDenote.baseCold
-  let valueFee   := CallGasDenote.valueFee
-  let newAcctFee := CallGasDenote.newAcctFee
-  let stipend    := CallGasDenote.stipendC
-  ".section __TEXT,__text,regular,pure_instructions\n" ++
-  ".global _eita_call_gas\n" ++
-  ".p2align 2\n" ++
-  "_eita_call_gas:\n" ++
-  movImm "x9"  baseWarm ++
-  movImm "x10" baseCold ++
-  "    tst   x1, #1\n" ++
-  "    csel  x9, x10, x9, ne\n" ++           -- base = isCold ? cold : warm
-  movImm "x10" valueFee ++
-  "    tst   x1, #2\n" ++
-  "    csel  x10, x10, xzr, ne\n" ++
-  "    add   x9, x9, x10\n" ++               -- + (chargesValue ? callValue : 0)
-  movImm "x10" newAcctFee ++
-  "    tst   x1, #4\n" ++
-  "    csel  x10, x10, xzr, ne\n" ++
-  "    add   x9, x9, x10\n" ++               -- + (chargesNewAccount ? newAccount : 0)
-  "    add   x9, x9, x2\n" ++                -- + delegatedCost  ⇒ charge
-  "    subs  x11, x4, x9\n" ++
-  "    csel  x11, xzr, x11, lo\n" ++         -- pool = avail ∸ charge
-  "    lsr   x12, x11, #6\n" ++
-  "    sub   x12, x11, x12\n" ++             -- pool - pool/64
-  "    cmp   x3, x12\n" ++
-  "    csel  x12, x3, x12, lo\n" ++          -- forward = min gasArg capped
-  movImm "x13" stipend ++
-  "    tst   x1, #2\n" ++
-  "    csel  x13, x13, xzr, ne\n" ++         -- stipend iff chargesValue
-  "    stp   x9, x12, [x0]\n" ++
-  "    str   x13, [x0, #16]\n" ++
-  "    ret\n" ++
-  -- _eita_call_gas_frontier — Frontier/Homestead (pre-EIP-150) plan,
-  -- evaluated from `Evm.Frontier.Vm.Effect.callGasPlan`. Same ABI;
-  -- bit0 (isCold) and x2 (delegatedCost) don't exist pre-Berlin and
-  -- are ignored, x4 (avail) is unused because there is NO forwarding
-  -- cap: forward = gasArg verbatim, and the HOST must OOG-check
-  -- charge + forward against the parent's gas.
-  frontierCode ++
-  -- _eita_call_gas_tangerine — TangerineWhistle..MuirGlacier (EIP-150)
-  -- plan, evaluated from `Evm.TangerineWhistle.Vm.Effect.callGasPlan`:
-  -- base 700, 63/64 cap, no cold/delegated terms.
-  tangerineCode
-where
-  frontierCode : String :=
-    let base       := CallGasDenote.fBase
-    let valueFee   := CallGasDenote.fValueFee
-    let newAcctFee := CallGasDenote.fNewAcctFee
-    let stipend    := CallGasDenote.fStipend
-    "\n.global _eita_call_gas_frontier\n" ++
-    ".p2align 2\n" ++
-    "_eita_call_gas_frontier:\n" ++
-    movImm "x9"  base ++
-    movImm "x10" valueFee ++
-    "    tst   x1, #2\n" ++
-    "    csel  x10, x10, xzr, ne\n" ++
-    "    add   x9, x9, x10\n" ++             -- + (chargesValue ? callValue : 0)
-    movImm "x10" newAcctFee ++
-    "    tst   x1, #4\n" ++
-    "    csel  x10, x10, xzr, ne\n" ++
-    "    add   x9, x9, x10\n" ++             -- + (chargesNewAccount ? newAccount : 0)
-    "    mov   x12, x3\n" ++                 -- forward = gasArg, uncapped
-    movImm "x13" stipend ++
-    "    tst   x1, #2\n" ++
-    "    csel  x13, x13, xzr, ne\n" ++       -- stipend iff chargesValue
-    "    stp   x9, x12, [x0]\n" ++
-    "    str   x13, [x0, #16]\n" ++
-    "    ret\n"
-  tangerineCode : String :=
-    let base       := CallGasDenote.tBase
-    let valueFee   := CallGasDenote.tValueFee
-    let newAcctFee := CallGasDenote.tNewAcctFee
-    let stipend    := CallGasDenote.tStipend
-    "\n.global _eita_call_gas_tangerine\n" ++
-    ".p2align 2\n" ++
-    "_eita_call_gas_tangerine:\n" ++
-    movImm "x9"  base ++
-    movImm "x10" valueFee ++
-    "    tst   x1, #2\n" ++
-    "    csel  x10, x10, xzr, ne\n" ++
-    "    add   x9, x9, x10\n" ++             -- + (chargesValue ? callValue : 0)
-    movImm "x10" newAcctFee ++
-    "    tst   x1, #4\n" ++
-    "    csel  x10, x10, xzr, ne\n" ++
-    "    add   x9, x9, x10\n" ++             -- + (chargesNewAccount ? newAccount : 0)  ⇒ charge
-    "    subs  x11, x4, x9\n" ++
-    "    csel  x11, xzr, x11, lo\n" ++       -- pool = avail ∸ charge
-    "    lsr   x12, x11, #6\n" ++
-    "    sub   x12, x11, x12\n" ++           -- pool - pool/64
-    "    cmp   x3, x12\n" ++
-    "    csel  x12, x3, x12, lo\n" ++        -- forward = min gasArg capped
-    movImm "x13" stipend ++
-    "    tst   x1, #2\n" ++
-    "    csel  x13, x13, xzr, ne\n" ++       -- stipend iff chargesValue
-    "    stp   x9, x12, [x0]\n" ++
-    "    str   x13, [x0, #16]\n" ++
-    "    ret\n"
-
 /-! ## The routines as instructions (stage 4t) -/
 
 section Instrs
@@ -188,7 +84,5 @@ def instrs : List AInstr := berlinA ++ frontierA ++ tangerineA
 end Instrs
 
 def code : String := Evm.CL.Frame.text instrs
-
-theorem code_derived : code = codeSpec := by native_decide
 
 end Evm.CL.ARM64.CallGas

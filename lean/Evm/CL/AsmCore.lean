@@ -593,33 +593,6 @@ def memExpandInstrs : List AInstr :=
     .addImm .x14 .x0 31, .lsrImm .x14 .x14 5, .lslImm .x14 .x14 5, .strOff .x14 .x20 48,
     .label "7" ]
 
-/-- Byte-identical to the former hand-written `memExpandStr` (so handlers.S is
-    unchanged); now generated from the structured `memExpandInstrs`. -/
-def memExpandStr : String := String.join (memExpandInstrs.map AInstr.emitARM64)
-
-/-- The full CALL/CREATE memexp prologue as structured asm: in-range end → x0,
-    out-range end → x14, max into x0, then the quadratic memexp gadget
-    (`memExpandStr`, the one remaining shared primitive — S2 will structify it). -/
-def callMemExpandEmit (inOffP inLenP outOffP outLenP : Nat) (name : String) : String :=
-  String.join ((memRangeInstrs inLenP inOffP .x0 s!".Lcfin0_{name}" s!".Lcfin1_{name}").map AInstr.emitARM64) ++
-  String.join ((memRangeInstrs outLenP outOffP .x14 s!".Lcfout0_{name}" s!".Lcfout1_{name}").map AInstr.emitARM64) ++
-  String.join ([AInstr.cmpReg .x0 .x14, AInstr.cselHi .x0 .x0 .x14, AInstr.movImm .x17 0,
-                AInstr.cbzLbl .x0 "4f"].map AInstr.emitARM64) ++
-  memExpandStr ++
-  "    subs  x22, x22, x17\n    b.lo  _eita_oog\n4:\n"
-
-/-- Single-region memexp for CREATE/CREATE2 (#266): charge memory expansion over
-    the init-code range [offset, offset+length). EELS create/create2 charge
-    `calculate_gas_extend_memory` over the init range ON TOP of GAS_CREATE — the
-    native createCore omitted it entirely, undercharging every CREATE whose init
-    code grows memory (offset+len past memory_size). `offP`/`lenP` are the
-    stack-depth positions of offset and length. -/
-def createMemExpandEmit (offP lenP : Nat) (name : String) : String :=
-  String.join ((memRangeInstrs lenP offP .x0 s!".Lcrin0_{name}" s!".Lcrin1_{name}").map AInstr.emitARM64) ++
-  String.join ([AInstr.movImm .x17 0, AInstr.cbzLbl .x0 "4f"].map AInstr.emitARM64) ++
-  memExpandStr ++
-  "    subs  x22, x22, x17\n    b.lo  _eita_oog\n4:\n    str   x22, [x20, #8]\n"
-
 /-- KECCAK256 gas: high-limb OOG on len (x10-13) and off (x6-9), 30 + 6·⌈len/32⌉ +
     memexp, charge. Structured (#238 S2); byte-identical to the former string. -/
 def keccakGasInstrs (cost : Nat) : List AInstr :=
@@ -805,13 +778,13 @@ inductive Op where
   -- host-callback marshaling (SLOAD/BALANCE/EXTCODE*/BLOCKHASH/TLOAD)
   | cbEnter (scratch : Nat)        -- sub sp,#scratch ; stp x29,x30,[sp,#-16]!
   | cbExit (scratch : Nat)         -- ldp x29,x30,[sp],#16 ; add sp,#scratch
-  | loadCtx (reg : Nat)            -- ldr x{reg},[x20,#504]                (arena)
-  | loadCtxVia14 (reg : Nat)       -- ldr x14,[x20,#504] ; mov x{reg},x14
-  | loadTxStateCtx (reg : Nat)     -- ldr x14,[x20,#504] ; ldr x{reg},[x14,#64]
-  | argStateField (reg off : Nat)  -- add x{reg},x20,#off
-  | argStackPtr (reg n : Nat)      -- sub x14,x23,#n ; add x{reg},x24,x14,lsl#5
-  | argScratch (reg : Nat)         -- add x{reg},sp,#16
-  | argStateBase (reg : Nat)       -- mov x{reg},x20   (pass &EvmState)
+  | loadCtx (reg : Fin 4)            -- ldr x{reg},[x20,#504]                (arena)
+  | loadCtxVia14 (reg : Fin 4)       -- ldr x14,[x20,#504] ; mov x{reg},x14
+  | loadTxStateCtx (reg : Fin 4)     -- ldr x14,[x20,#504] ; ldr x{reg},[x14,#64]
+  | argStateField (reg : Fin 4) (off : Nat)  -- add x{reg},x20,#off
+  | argStackPtr (reg : Fin 4) (n : Nat)      -- sub x14,x23,#n ; add x{reg},x24,x14,lsl#5
+  | argScratch (reg : Fin 4)         -- add x{reg},sp,#16
+  | argStateBase (reg : Fin 4)       -- mov x{reg},x20   (pass &EvmState)
   | cbSlot (slot : Nat)            -- ldr x14,[x20,#496] ; ldr x14,[x14,#slot] ; blr
   | cbDirect (name : String)       -- bl name
   | chargeGasX0                    -- subs x22,x22,x0 ; b.lo oog   (cb-returned gas)
@@ -883,399 +856,377 @@ inductive Op where
   deriving Repr, DecidableEq
 
 
-/-- Materialize a Nat into a register via movz + movk (16-bit fields).
-    Matches `ARM64.movImm` byte-for-byte. -/
-def movImmStr (reg : String) (v : Nat) : String := Id.run do
-  let mut s := s!"    movz  {reg}, #{v % 65536}\n"
-  for i in [1:4] do
-    let field := (v >>> (16 * i)) % 65536
-    if field > 0 then
-      s := s ++ s!"    movk  {reg}, #{field}, lsl #{16 * i}\n"
-  return s
+/-- The C-ABI argument register `x{i}` (an op's argument index is `Fin 4`, so an
+    index past the four the vocabulary uses is unrepresentable). -/
+def argReg : Fin 4 → Reg
+  | 0 => .x0 | 1 => .x1 | 2 => .x2 | 3 => .x3
 
-def Op.emit : Op → String
-  | .ovfGuard =>
-      "    cmp   x23, #1024\n    b.hs  _eita_stack_overflow\n"
-  | .underflow n =>
-      s!"    cmp   x23, #{n}\n    b.lo  _eita_stack_underflow\n"
-  | .tosToNos =>
-      "    mov   x10, x6\n    mov   x11, x7\n    mov   x12, x8\n    mov   x13, x9\n"
-  | .nosToTos =>
-      "    mov   x6, x10\n    mov   x7, x11\n    mov   x8, x12\n    mov   x9, x13\n"
-  | .loadFieldTos f =>
-      s!"    ldr   x6, [x20, #{f.offset}]\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .loadU64Off off =>
-      s!"    ldr   x6, [x20, #{off}]\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .loadU256Off off =>
-      if off + 16 ≤ 504 then
-        s!"    ldp   x6, x7, [x20, #{off}]\n    ldp   x8, x9, [x20, #{off + 16}]\n"
-      else
-        s!"    add   x14, x20, #{off}\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
-  | .loadZeroTos =>
-      "    mov   x6, #0\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .pcMinus1Tos =>
-      "    sub   x6, x21, #1\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
+/-- Single-region memexp for CREATE/CREATE2 (#266): charge memory expansion over
+    the init-code range [offset, offset+length). EELS create/create2 charge
+    `calculate_gas_extend_memory` over the init range ON TOP of GAS_CREATE — the
+    native createCore omitted it entirely, undercharging every CREATE whose init
+    code grows memory. `offP`/`lenP` are the stack-depth positions of offset and
+    length; the charged gas is written back to the state (`str x22, [x20, #8]`). -/
+def createMemExpandInstrs (offP lenP : Nat) (name : String) : List AInstr :=
+  memRangeInstrs lenP offP .x0 s!".Lcrin0_{name}" s!".Lcrin1_{name}" ++
+  [.movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
+  [.subsReg .x22 .x22 .x17, .bloOog, .label "4", .strOff .x22 .x20 8]
+
+/-- The CALL-family memexp prologue: in-range end → x0, out-range end → x14 (both
+    over the full u256, `memRangeInstrs`), max into x0, then the quadratic gadget and
+    the charge. Before #260 the prologue read the operands as u64 (limb0), and a huge
+    argsLen whose low limb is 0 wrapped to a 0-length CALL (block 4466928 relay). -/
+def callMemExpandInstrs (inOffP inLenP outOffP outLenP : Nat) (name : String) : List AInstr :=
+  memRangeInstrs inLenP inOffP .x0 s!".Lcfin0_{name}" s!".Lcfin1_{name}" ++
+  memRangeInstrs outLenP outOffP .x14 s!".Lcfout0_{name}" s!".Lcfout1_{name}" ++
+  [.cmpReg .x0 .x14, .cselHi .x0 .x0 .x14, .movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
+  [.subsReg .x22 .x22 .x17, .bloOog, .label "4"]
+
+/-- The ARM64 cache sync of both words, and the TOS reload, as used by every
+    frame body. -/
+def syncTosNos : List AInstr :=
+  [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
+    .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16 ]
+def reloadTos : List AInstr :=
+  [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
+def reloadNosIf2 (target lbl : String) : List AInstr :=
+  [ .cmpImm .x23 2, .bcLbl .lt target, .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
+    .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16, .label lbl ]
+
+
+/-- **The one source of every handler op's machine code.** Each op is a list of
+    structured `AInstr`s; the ARM64 text (`Op.emit`) is their printing, the x86-64
+    program (`OpInstrs.Op.instrsX86?`) is derived from them or written beside them,
+    and the instruction semantics (`AsmRun.run`) runs them — so `Op.denote` can be
+    stated as a theorem about what the instructions do (`OpSem`). -/
+def Op.toAInstrs : Op → List AInstr
+  | .ovfGuard         => [.cmpImm .x23 1024, .bSym .hs "_eita_stack_overflow"]
+  | .underflow n      => [.cmpImm .x23 n, .bSym .lo "_eita_stack_underflow"]
+  | .boundCheckHiTos  => [.orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzOog .x14]
+  | .newEndTos add    => [.addsImm .x0 .x6 add, .bcsOog]
+  | .setAcc base      => [.movImm .x17 base]
+  | .memExpand        => memExpandInstrs
+  | .chargeAcc        => [.subsReg .x22 .x22 .x17, .bloOog]
+  | .mstoreTail       =>
+      [ .addImm .x15 .x6 32, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
+        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
+        .ldrOff .x14 .x20 40, .addReg .x14 .x14 .x6,
+        .rev .x0 .x13, .rev .x1 .x12, .rev .x2 .x11, .rev .x3 .x10,
+        .strOff .x0 .x14 0, .strOff .x1 .x14 8, .strOff .x2 .x14 16, .strOff .x3 .x14 24,
+        .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
+  | .mloadTail        =>
+      [ .ldrOff .x14 .x20 40, .addImm .x15 .x6 32, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
+        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
+        .addReg .x14 .x14 .x6,
+        .ldrOff .x6 .x14 0, .ldrOff .x7 .x14 8, .ldrOff .x8 .x14 16, .ldrOff .x9 .x14 24,
+        .rev .x6 .x6, .rev .x7 .x7, .rev .x8 .x8, .rev .x9 .x9,
+        .movReg .x14 .x6, .movReg .x6 .x9, .movReg .x9 .x14,
+        .movReg .x14 .x7, .movReg .x7 .x8, .movReg .x8 .x14 ]
+  | .reloadNos        =>
+      [ .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16 ]
+  | .storeTos         =>
+      [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
+        .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ]
+  | .brCont           => [.brCont]
+  -- the C-ABI call family (stage 4m). ARM64 AAPCS: a 32-byte scratch below a
+  -- saved fp/lr, result pointer in x0, stack-word pointers in x1-x3.
+  | .binHelper h      =>
+      [ .spSub 32, .stpFpLr, .addSp .x0 16,
+        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
+        .blSym h,
+        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .ldpFpLr, .spAdd 32 ]
+  | .ternaryHelper h  =>
+      [ .spSub 32, .stpFpLr, .addSp .x0 16,
+        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
+        .subImm .x14 .x23 3, .addLsl5 .x3 .x24 .x14,
+        .blSym h,
+        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .ldpFpLr, .spAdd 32 ]
+  | .cbEnter s        => [.spSub s, .stpFpLr]
+  | .cbExit s         => [.ldpFpLr, .spAdd s]
+  | .loadScratchTos   => [.addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16]
+  | .loadScratchU64Tos => [.ldrSp .x6 16, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
+  | .chargeGasX0      => [.subsReg .x22 .x22 .x0, .bloOog]
+  -- environment loads (stage 4n)
+  | .loadFieldTos f   => [.ldrOff .x6 .x20 f.offset, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
+  | .loadU64Off off   => [.ldrOff .x6 .x20 off, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
+  | .loadU256Off off  =>
+      (if off + 16 ≤ 504 then [.ldpOff .x6 .x7 .x20 off, .ldpOff .x8 .x9 .x20 (off + 16)]
+       else [.addImm .x14 .x20 off, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16])
+  | .pcMinus1Tos      => [.subImm .x6 .x21 1, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
   | .chargeGasPushTos c =>
-      s!"    subs  x22, x22, #{c}\n    b.lo  _eita_oog\n    mov   x6, x22\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .bitwise op =>
-      let m := op.mnem
-      s!"    {m}   x10, x10, x6\n    {m}   x11, x11, x7\n    {m}   x12, x12, x8\n    {m}   x13, x13, x9\n" ++
-      "    mov   x6, x10\n    mov   x7, x11\n    mov   x8, x12\n    mov   x9, x13\n"
-  | .arith k =>
-      let (f, mid, l) := k.mnems
-      s!"    {f}  x10, x6, x10\n    {mid}  x11, x7, x11\n    {mid}  x12, x8, x12\n    {l}   x13, x9, x13\n" ++
-      "    mov   x6, x10\n    mov   x7, x11\n    mov   x8, x12\n    mov   x9, x13\n"
-  | .cmpChain swapped cond =>
-      (if swapped then
-        "    subs  xzr, x10, x6\n    sbcs  xzr, x11, x7\n    sbcs  xzr, x12, x8\n    sbcs  xzr, x13, x9\n"
-       else
-        "    subs  xzr, x6, x10\n    sbcs  xzr, x7, x11\n    sbcs  xzr, x8, x12\n    sbcs  xzr, x9, x13\n") ++
-      s!"    cset  x6, {cond.mnem}\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .eqReduce =>
-      "    eor   x14, x6, x10\n    eor   x15, x7, x11\n    orr   x14, x14, x15\n" ++
-      "    eor   x15, x8, x12\n    orr   x14, x14, x15\n    eor   x15, x9, x13\n    orr   x14, x14, x15\n" ++
-      "    cmp   x14, #0\n    cset  x6, eq\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .iszeroReduce =>
-      "    orr   x14, x6, x7\n    orr   x15, x8, x9\n    orr   x14, x14, x15\n" ++
-      "    cmp   x14, #0\n    cset  x6, eq\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .clzReduce => String.join (clzReduceInstrs.map AInstr.emitARM64)
-  | .notLimbs =>
-      "    mvn   x6, x6\n    mvn   x7, x7\n    mvn   x8, x8\n    mvn   x9, x9\n"
-  | .spInc =>
-      "    add   x23, x23, #1\n"
-  | .spDec =>
-      "    sub   x23, x23, #1\n"
-  | .spDec2 =>
-      "    sub   x23, x23, #2\n"
-  | .binHelper helper =>
-      "    sub   sp, sp, #32\n    stp   x29, x30, [sp, #-16]!\n    add   x0, sp, #16\n" ++
-      "    sub   x14, x23, #1\n    add   x1, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x2, x24, x14, lsl #5\n" ++
-      s!"    bl    {helper}\n" ++
-      "    add   x14, sp, #16\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n" ++
-      "    ldp   x29, x30, [sp], #16\n    add   sp, sp, #32\n"
-  | .ternaryHelper helper =>
-      "    sub   sp, sp, #32\n    stp   x29, x30, [sp, #-16]!\n    add   x0, sp, #16\n" ++
-      "    sub   x14, x23, #1\n    add   x1, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x2, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #3\n    add   x3, x24, x14, lsl #5\n" ++
-      s!"    bl    {helper}\n" ++
-      "    add   x14, sp, #16\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n" ++
-      "    ldp   x29, x30, [sp], #16\n    add   sp, sp, #32\n"
-  | .cbEnter scratch    => s!"    sub   sp, sp, #{scratch}\n    stp   x29, x30, [sp, #-16]!\n"
-  | .cbExit scratch     => s!"    ldp   x29, x30, [sp], #16\n    add   sp, sp, #{scratch}\n"
-  | .loadCtx reg        => s!"    ldr   x{reg}, [x20, #504]\n"
-  | .loadCtxVia14 reg   => s!"    ldr   x14, [x20, #504]\n    mov   x{reg}, x14\n"
-  | .loadTxStateCtx reg => s!"    ldr   x14, [x20, #504]\n    ldr   x{reg}, [x14, #64]\n"
-  | .argStateField reg off => s!"    add   x{reg}, x20, #{off}\n"
-  | .argStackPtr reg n  => s!"    sub   x14, x23, #{n}\n    add   x{reg}, x24, x14, lsl #5\n"
-  | .argScratch reg     => s!"    add   x{reg}, sp, #16\n"
-  | .argStateBase reg   => s!"    mov   x{reg}, x20\n"
-  | .cbSlot slot        => s!"    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #{slot}]\n    blr   x14\n"
-  | .cbDirect name      => s!"    bl    {name}\n"
-  | .chargeGasX0        => "    subs  x22, x22, x0\n    b.lo  _eita_oog\n"
-  | .chargeGasX0Via14   => "    mov   x14, x0\n    subs  x22, x22, x14\n    b.lo  _eita_oog\n"
-  | .chargeFixed n      => s!"    mov   x14, #{n}\n    subs  x22, x22, x14\n    b.lo  _eita_oog\n"
-  | .loadScratchTos     => "    add   x14, sp, #16\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
-  | .loadScratchU64Tos  => "    ldr   x6, [sp, #16]\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n"
-  | .boundCheckHiTos    => "    orr   x14, x7, x8\n    orr   x14, x14, x9\n    cbnz  x14, _eita_oog\n"
-  | .newEndTos add      => s!"    adds  x0, x6, #{add}\n    b.cs  _eita_oog\n"
-  | .setAcc base        => s!"    mov   x17, #{base}\n"
-  | .memExpand          => memExpandStr
-  | .chargeAcc          => "    subs  x22, x22, x17\n    b.lo  _eita_oog\n"
-  | .mloadTail          =>
-      "    ldr   x14, [x20, #40]\n    add   x15, x6, #32\n    ldr   x16, [x20, #24]\n    cmp   x15, x16\n    csel  x16, x15, x16, hi\n    str   x16, [x20, #24]\n" ++
-      "    add   x14, x14, x6\n    ldr   x6, [x14, #0]\n    ldr   x7, [x14, #8]\n    ldr   x8, [x14, #16]\n    ldr   x9, [x14, #24]\n" ++
-      "    rev   x6, x6\n    rev   x7, x7\n    rev   x8, x8\n    rev   x9, x9\n" ++
-      "    mov   x14, x6\n    mov   x6, x9\n    mov   x9, x14\n    mov   x14, x7\n    mov   x7, x8\n    mov   x8, x14\n"
-  | .mstoreTail         =>
-      "    add   x15, x6, #32\n    ldr   x16, [x20, #24]\n    cmp   x15, x16\n    csel  x16, x15, x16, hi\n    str   x16, [x20, #24]\n" ++
-      "    ldr   x14, [x20, #40]\n    add   x14, x14, x6\n" ++
-      "    rev   x0, x13\n    rev   x1, x12\n    rev   x2, x11\n    rev   x3, x10\n" ++
-      "    str   x0, [x14, #0]\n    str   x1, [x14, #8]\n    str   x2, [x14, #16]\n    str   x3, [x14, #24]\n" ++
-      "    sub   x23, x23, #2\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
-  | .mstore8Tail        =>
-      "    ldr   x14, [x20, #40]\n    add   x15, x6, #1\n    ldr   x16, [x20, #24]\n    cmp   x15, x16\n    csel  x16, x15, x16, hi\n    str   x16, [x20, #24]\n" ++
-      "    strb  w10, [x14, x6]\n" ++
-      "    sub   x23, x23, #2\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
+      [.subsImm .x22 .x22 c, .bloOog, .movReg .x6 .x22, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
+  | .chargeFixed n    => [.movImm .x14 n, .subsReg .x22 .x22 .x14, .bloOog]
+  | .chargeGasX0Via14 => [.movReg .x14 .x0, .subsReg .x22 .x22 .x14, .bloOog]
+  -- host callbacks: ARM64 passes args in x0-x3 (`argReg`)
+  | .argStateBase r   => [.movReg (argReg r) .x20]
+  | .argStateField r off => [.addImm (argReg r) .x20 off]
+  | .argStackPtr r n  => [.subImm .x14 .x23 n, .addLsl5 (argReg r) .x24 .x14]
+  | .argScratch r     => [.addSp (argReg r) 16]
+  | .loadCtx r        => [.ldrOff (argReg r) .x20 504]
+  | .loadCtxVia14 r   => [.ldrOff .x14 .x20 504, .movReg (argReg r) .x14]
+  | .loadTxStateCtx r => [.ldrOff .x14 .x20 504, .ldrOff (argReg r) .x14 64]
+  | .cbDirect name    => [.blSym name]
+  | .cbSlot slot      => [.ldrOff .x14 .x20 496, .ldrOff .x14 .x14 slot, .blr .x14]
+  -- the gas gadgets, already AInstr (stage 4o)
+  | .copyGasCharge c  => (copyGasInstrs c)
+  | .returndataBounds => returndataBoundsInstrs
+  | .staticValueGuard => staticValueGuardInstrs
+  | .keccakGasCharge c => (keccakGasInstrs c)
+  | .mcopyGasCharge c => (mcopyGasInstrs c)
+  | .extcodecopyGasMem => extcodecopyGasInstrs
+  | .expGasCharge c b => (expGasInstrs c b)
+  | .blobhashLookup   => blobHashInstrs
+  -- control flow, halting, output
+  | .pcDec            => [.subImm .x21 .x21 1]
+  | .branchOOG        => [.bSymU "_eita_oog"]
+  | .staticGuard      => [.ldrbOff .x14 .x20 130, .cbnzSymW .x14 "_eita_static_violation"]
+  | .setHalted        => [.movImmW .x14 1, .strbOff .x14 .x20 128]
+  | .setReverted      => [.strbOff .x14 .x20 129]
+  | .setOutput        =>
+      [ .strOff .x10 .x20 120, .ldrOff .x14 .x20 40, .addReg .x14 .x14 .x6, .strOff .x14 .x20 112,
+        .addReg .x15 .x6 .x10, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16, .cselHi .x16 .x15 .x16,
+        .strOff .x16 .x20 24 ]
+  | .jumpSyncRet      => [.loadSymAddr .x27 "_eita_sync_and_ret", .brReg .x27]
+  -- The destination is looked up in the host's valid-JUMPDEST map (EvmState #136), not
+  -- in the code: a 0x5b byte inside a PUSH immediate is not a JUMPDEST (EELS
+  -- `get_valid_jump_destinations`). See `jumpDestInstrs`.
+  | .jumpValidate     =>
+      ([ .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzSym .x14 "_eita_invalid_jump",
+        .ldrOff .x14 .x20 72, .cmpReg .x6 .x14, .bSym .hs "_eita_invalid_jump" ] ++
+      jumpDestInstrs ++ [ .movReg .x21 .x6 ])
+  | .jumpiCheck       =>
+      ([ .orr3 .x14 .x10 .x11, .orr3 .x15 .x12 .x13, .orr3 .x14 .x14 .x15, .cbzLbl .x14 "_eita_jumpi_fallthrough",
+        .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzSym .x14 "_eita_invalid_jump",
+        .ldrOff .x14 .x20 72, .cmpReg .x6 .x14, .bSym .hs "_eita_invalid_jump" ] ++
+      jumpDestInstrs ++ [ .movReg .x21 .x6, .label "_eita_jumpi_pop" ])
+  | .jumpiTailGas c   =>
+      [ .subsImm .x22 .x22 c, .bloOog, .brCont, .label "_eita_jumpi_fallthrough", .bLbl "_eita_jumpi_pop" ]
+  | .sstoreSentry n   => movImmInstrs .x14 n ++ [.cmpReg .x22 .x14, .bSym .ls "_eita_oog"]
+  | .mstore8Tail      =>
+      [ .ldrOff .x14 .x20 40, .addImm .x15 .x6 1, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16,
+        .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24, .strbReg .x10 .x14 .x6,
+        .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
   | .memExpandIfLen tag =>
-      -- WAS: `cbz x10, 4f ; add x0, x6, x10` — the length's LOW LIMB decided
-      -- "zero length", so a RETURN/REVERT of 2^64 bytes (low limb 0) skipped
-      -- the expansion entirely and returned empty with gas to spare, where
-      -- EELS charges an unaffordable expansion and OOGs. The #260 bug, in a
-      -- different op. Now the range goes through `memRangeInstrs` (off at
-      -- sp-1, len at sp-2), whose full-u256 semantics are proved against EELS
-      -- in MemExpandSpec.
-      String.join ((memRangeInstrs 2 1 .x0 s!".Lro{tag}0" s!".Lro{tag}1").map AInstr.emitARM64) ++
-      "    mov   x17, #0\n    cbz   x0, 4f\n" ++
-      memExpandStr ++
-      "    subs  x22, x22, x17\n    b.lo  _eita_oog\n4:\n"
-  | .setOutput          =>
-      "    str   x10, [x20, #120]\n    ldr   x14, [x20, #40]\n    add   x14, x14, x6\n    str   x14, [x20, #112]\n" ++
-      "    add   x15, x6, x10\n    ldr   x16, [x20, #24]\n    cmp   x15, x16\n    csel  x16, x15, x16, hi\n    str   x16, [x20, #24]\n"
-  | .setReverted        => "    strb  w14, [x20, #129]\n"
-  | .copyGasCharge cost => String.join ((copyGasInstrs cost).map AInstr.emitARM64)
-  | .returndataBounds => String.join (returndataBoundsInstrs.map AInstr.emitARM64)
-  | .staticValueGuard => String.join (staticValueGuardInstrs.map AInstr.emitARM64)
-  | .mcopyGasCharge cost => String.join ((mcopyGasInstrs cost).map AInstr.emitARM64)
-  | .copyCbPop3 helper  =>
-      "    stp   x29, x30, [sp, #-16]!\n    mov   x0, x20\n" ++
-      "    sub   x14, x23, #1\n    add   x1, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x2, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #3\n    add   x3, x24, x14, lsl #5\n" ++
-      s!"    bl    {helper}\n    ldp   x29, x30, [sp], #16\n" ++
-      "    sub   x23, x23, #3\n    cmp   x23, #1\n    b.lt  7f\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n7:\n" ++
-      "    cmp   x23, #2\n    b.lt  8f\n    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n8:\n"
-  | .keccakGasCharge cost => String.join ((keccakGasInstrs cost).map AInstr.emitARM64)
-  | .keccakCbPop1 =>
-      "    sub   sp, sp, #32\n    stp   x29, x30, [sp, #-16]!\n    mov   x0, x20\n" ++
-      "    sub   x14, x23, #1\n    add   x1, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x2, x24, x14, lsl #5\n" ++
-      "    add   x3, sp, #16\n    bl    _eita_helper_keccak256\n" ++
-      "    add   x14, sp, #16\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n" ++
-      "    ldp   x29, x30, [sp], #16\n    add   sp, sp, #32\n    sub   x23, x23, #1\n"
-  | .extcodecopyGasMem => String.join (extcodecopyGasInstrs.map AInstr.emitARM64)
-  | .extcodecopyCb =>
-      "    stp   x29, x30, [sp, #-16]!\n    ldr   x0, [x20, #504]\n" ++
-      "    sub   x14, x23, #1\n    add   x1, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n" ++
-      "    ldr   x16, [x20, #40]\n    add   x2, x16, x15\n" ++
-      "    sub   x14, x23, #3\n    add   x14, x24, x14, lsl #5\n    ldr   x3, [x14]\n" ++
-      -- src is a u256: any high limb ⇒ pass 2^64-1 (past any code, so the host zero-fills;
-      -- the low limb alone wrapped 2^160 to 0 and copied code byte 0 — randomStatetest571)
-      "    ldr   x15, [x14, #8]\n    ldr   x16, [x14, #16]\n    orr   x15, x15, x16\n" ++
-      "    ldr   x16, [x14, #24]\n    orr   x15, x15, x16\n    cbz   x15, 94f\n" ++
-      "    mov   x3, #0\n    sub   x3, x3, #1\n94:\n" ++
-      -- len (the FIFTH argument, x4) is loaded HERE, by the op that passes it. It used
-      -- to be inherited from `extcodecopyGasInstrs`, whose old form left len.l0 in x4;
-      -- f812945 rebuilt that gadget on `memRangeInstrs` (len.l0 in x16, then clobbered)
-      -- and x4 reached the host stale — a wrong copy length, wrong access gas and a
-      -- memset past the memory arena (mainnet 4,972,698 tx 17). The low limb is exact:
-      -- len ≥ 2^64 is already OOG in the gas gadget. `handler_callback_args_defined`
-      -- now forbids any callback argument that an earlier op left behind.
-      "    sub   x14, x23, #4\n    add   x14, x24, x14, lsl #5\n    ldr   x4, [x14]\n" ++
-      "    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #56]\n    blr   x14\n" ++
-      "    subs  x22, x22, x0\n    b.lo  _eita_oog\n    ldp   x29, x30, [sp], #16\n" ++
-      "    sub   x23, x23, #4\n" ++
-      "    cmp   x23, #1\n    b.lt  91f\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n91:\n" ++
-      "    cmp   x23, #2\n    b.lt  92f\n    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n92:\n"
-  | .jumpValidate =>
-      -- The destination is a u256 in x6-x9 and `cmp x6, x14` compares the LOW
-      -- LIMB ONLY, so a dest of 2^64+k whose low limb lands on a real JUMPDEST
-      -- used to jump where the spec (dest.toNat ≥ code_size → invalid) halts.
-      -- Fold the high limbs first — the #260 / chained-sbcs family.
-      "    orr   x14, x7, x8\n    orr   x14, x14, x9\n    cbnz  x14, _eita_invalid_jump\n" ++
-      "    ldr   x14, [x20, #72]\n    cmp   x6, x14\n    b.hs  _eita_invalid_jump\n" ++
-      String.join (jumpDestInstrs.map AInstr.emitARM64) ++ "    mov   x21, x6\n"
-  | .jumpiCheck =>
-      -- The CONDITION is folded over all four limbs (any nonzero word takes the
-      -- branch); the DESTINATION was not — same single-limb compare as JUMP.
-      "    orr   x14, x10, x11\n    orr   x15, x12, x13\n    orr   x14, x14, x15\n    cbz   x14, _eita_jumpi_fallthrough\n" ++
-      "    orr   x14, x7, x8\n    orr   x14, x14, x9\n    cbnz  x14, _eita_invalid_jump\n" ++
-      "    ldr   x14, [x20, #72]\n    cmp   x6, x14\n    b.hs  _eita_invalid_jump\n" ++
-      String.join (jumpDestInstrs.map AInstr.emitARM64) ++ "    mov   x21, x6\n" ++
-      "_eita_jumpi_pop:\n"
-  | .jumpiTailGas cost =>
-      s!"    subs  x22, x22, #{cost}\n    b.lo  _eita_oog\n    br    x27\n" ++
-      "_eita_jumpi_fallthrough:\n    b     _eita_jumpi_pop\n"
-  | .blobhashLookup => String.join (blobHashInstrs.map AInstr.emitARM64)
-  | .staticGuard =>
-      "    ldrb  w14, [x20, #130]\n    cbnz  w14, _eita_static_violation\n"
-  | .sstoreSentry sentry =>
-      movImmStr "x14" sentry ++ "    cmp   x22, x14\n    b.ls  _eita_oog\n"
+      (memRangeInstrs 2 1 .x0 s!".Lro{tag}0" s!".Lro{tag}1" ++
+       [.movImm .x17 0, .cbzLbl .x0 "4f"] ++ memExpandInstrs ++
+       [.subsReg .x22 .x22 .x17, .bloOog, .label "4"])
+  | .copyCbPop3 h     =>
+      [ .stpFpLr, .movReg .x0 .x20,
+        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
+        .subImm .x14 .x23 3, .addLsl5 .x3 .x24 .x14,
+        .blSym h, .ldpFpLr,
+        .subImm .x23 .x23 3, .cmpImm .x23 1, .bcLbl .lt "7f",
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .label "7", .cmpImm .x23 2, .bcLbl .lt "8f",
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16,
+        .label "8" ]
+  | .keccakCbPop1     =>
+      [ .spSub 32, .stpFpLr, .movReg .x0 .x20,
+        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x2 .x24 .x14,
+        .addSp .x3 16, .blSym "_eita_helper_keccak256",
+        .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .ldpFpLr, .spAdd 32, .subImm .x23 .x23 1 ]
+  -- the write-side callbacks (stage 4p): sync the caches to the stack, call
+  -- the host with pointers, charge the returned gas
+  | .selfdestructCb   =>
+      [ .stpFpLr,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
+        .ldrOff .x0 .x20 504, .addImm .x1 .x20 144, .movReg .x2 .x14,
+        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 104, .blr .x14,
+        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr ]
+  | .tstoreCb         =>
+      [ .stpFpLr,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16,
+        .ldrOff .x1 .x20 504, .ldrOff .x0 .x1 64, .addImm .x2 .x20 144,
+        .subImm .x14 .x23 1, .addLsl5 .x3 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x4 .x24 .x14,
+        .blSym "_eita_ts_tstore", .ldpFpLr,
+        .subImm .x23 .x23 2,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16 ]
+  | .sstoreCb         =>
+      [ .stpFpLr,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .stpOff .x10 .x11 .x14 0, .stpOff .x12 .x13 .x14 16,
+        .ldrOff .x0 .x20 504, .addImm .x1 .x20 144,
+        .subImm .x14 .x23 1, .addLsl5 .x2 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x3 .x24 .x14,
+        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 8, .blr .x14,
+        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr,
+        .ldrOff .x14 .x20 504, .ldrOff .x15 .x14 0, .ldrOff .x16 .x14 16, .movImm .x17 104, .madd .x0 .x15 .x17 .x16,
+        .strZr .x0 0, .ldpOff .x1 .x2 .x20 144, .ldpOff .x3 .x4 .x20 160, .stpOff .x1 .x2 .x0 8, .stpOff .x3 .x4 .x0 24,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16,
+        .stpOff .x6 .x7 .x0 40, .stpOff .x8 .x9 .x0 56, .stpOff .x10 .x11 .x0 72, .stpOff .x12 .x13 .x0 88,
+        .ldrOff .x14 .x20 504, .addImm .x15 .x15 1, .strOff .x15 .x14 0,
+        .subImm .x23 .x23 2,
+        .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
+  | .extcodecopyCb    =>
+      [ .stpFpLr, .ldrOff .x0 .x20 504,
+        .subImm .x14 .x23 1, .addLsl5 .x1 .x24 .x14,
+        .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14,
+        .ldrOff .x16 .x20 40, .addReg .x2 .x16 .x15,
+        .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x3 .x14,
+        .ldrOff .x15 .x14 8, .ldrOff .x16 .x14 16, .orr3 .x15 .x15 .x16,
+        .ldrOff .x16 .x14 24, .orr3 .x15 .x15 .x16, .cbzLbl .x15 "94f",
+        .movImm .x3 0, .subImm .x3 .x3 1, .label "94",
+        -- len (fifth argument) loaded by this op, never inherited from the gas gadget
+        .subImm .x14 .x23 4, .addLsl5 .x14 .x24 .x14, .ldrBase .x4 .x14,
+        .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 56, .blr .x14,
+        .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr,
+        .subImm .x23 .x23 4,
+        .cmpImm .x23 1, .bcLbl .lt "91f", .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .label "91",
+        .cmpImm .x23 2, .bcLbl .lt "92f", .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16, .label "92" ]
+  -- the frame bodies (stage 4q): LOG, CREATE, CREATE2, the CALL family
+  | .logEmit n cost   =>
+      (syncTosNos ++
+       [ .orr3 .x14 .x11 .x12, .orr3 .x14 .x14 .x13, .cbnzOog .x14,
+         .movImm .x17 cost, .addLsl .x17 .x17 .x10 3, .cbzLbl .x10 "4f",
+         .orr3 .x14 .x7 .x8, .orr3 .x14 .x14 .x9, .cbnzOog .x14,
+         .adds .x0 .x6 .x10, .bcsOog ] ++
+       memExpandInstrs ++
+       [ .label "4",
+         .ldrOff .x14 .x20 504, .ldrOff .x15 .x14 8, .addImm .x15 .x15 1, .strOff .x15 .x14 8,
+         .addReg .x15 .x6 .x10, .ldrOff .x16 .x20 24, .cmpReg .x15 .x16, .cselHi .x16 .x15 .x16, .strOff .x16 .x20 24,
+         .subImm .x23 .x23 (2 + n),
+         .subsReg .x22 .x22 .x17, .bloOog,
+         .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 72, .cbzLbl .x14 "7f",
+         .stpFpLr,
+         .ldrOff .x0 .x20 504, .addImm .x1 .x20 144,
+         .movImm .x2 n,
+         .addLsl5 .x3 .x24 .x23,
+         .addImm .x15 .x23 (n + 1),
+         .addLsl5 .x15 .x24 .x15, .ldrBase .x15 .x15, .ldrOff .x4 .x20 40, .addReg .x4 .x4 .x15,
+         .addImm .x15 .x23 n,
+         .addLsl5 .x15 .x24 .x15, .ldrBase .x5 .x15,
+         .blr .x14, .ldpFpLr,
+         .label "7",
+         .cmpImm .x23 1, .bcLbl .lt "5f" ] ++ reloadTos ++ [ .label "5" ] ++
+       reloadNosIf2 "6f" "6" ++ [ .brCont ])
+  | .createCore       =>
+      ([ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
+       createMemExpandInstrs 2 3 "create" ++
+       [ .movImmW .x0 4, .strWSp .x0 16, .strWzrSp 20, .stpZrSp 24, .stpZrSp 40,
+         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72,
+         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
+         .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
+         .strSp .x22 104, .stpZrSp 112, .stpZrSp 128,
+         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 96, .blr .x14,
+         .ldrSp .x14 152, .strOff .x14 .x20 96, .ldrSp .x14 160, .strOff .x14 .x20 104,
+         .ldrWSp .x15 144, .cbzWLbl .x15 "L_create_fail",
+         .addSp .x14 176, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .bLbl "L_create_done",
+         .label "L_create_fail", .movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
+         .label "L_create_done", .ldrSp .x0 168, .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog,
+         .subImm .x23 .x23 2, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
+       reloadNosIf2 "L_create_done2" "L_create_done2" ++ [ .ldpFpLr, .spAdd 192, .brCont ])
+  | .create2Core      =>
+      ([ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
+       createMemExpandInstrs 2 3 "create2" ++
+       [ .movImmW .x0 5, .strWSp .x0 16, .strWzrSp 20, .stpZrSp 24, .stpZrSp 40,
+         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72,
+         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
+         .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
+         .strSp .x22 104,
+         .subImm .x14 .x23 4, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 112, .stpSp .x2 .x3 128,
+         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 96, .blr .x14,
+         .ldrSp .x14 152, .strOff .x14 .x20 96, .ldrSp .x14 160, .strOff .x14 .x20 104,
+         .ldrWSp .x15 144, .cbzWLbl .x15 "L_create2_fail",
+         .addSp .x14 176, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .bLbl "L_create2_done",
+         .label "L_create2_fail", .movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
+         .label "L_create2_done", .ldrSp .x0 168, .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog,
+         .subImm .x23 .x23 3, .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
+       reloadNosIf2 "L_create2_done2" "L_create2_done2" ++ [ .ldpFpLr, .spAdd 192, .brCont ])
   | .callFamilyCore name kind staticpFlag withValue =>
       let argsCount : Nat := if withValue then 7 else 6
-      let inOffStackPos : Nat := if withValue then 4 else 3
-      let inLenStackPos : Nat := if withValue then 5 else 4
-      let outOffStackPos : Nat := if withValue then 6 else 5
-      let outLenStackPos : Nat := if withValue then 7 else 6
-      -- Memexp over the in/out ranges, full-u256, via the STRUCTURED AInstr IR
-      -- (`callMemExpandEmit`) — no opaque asm blob; the full-u256 OOG guard is in
-      -- `memRangeInstrs`/`memRangeEnd`, proved vs EELS in MemExpandSpec. Before
-      -- this, the prologue read operands as u64 (limb0) and a huge argsLen whose
-      -- low limb is 0 wrapped to a 0-length CALL (block 4466928 relay). (#260)
-      callMemExpandEmit inOffStackPos inLenStackPos outOffStackPos outLenStackPos name ++
-      "    sub   sp, sp, #192\n    stp   x29, x30, [sp, #-16]!\n" ++
-      "    str   x21, [x20, #0]\n    str   x22, [x20, #8]\n    str   x23, [x20, #16]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      s!"    mov   w0, #{kind}\n    str   w0, [sp, #16]\n" ++
-      s!"    mov   w0, #{staticpFlag}\n    str   w0, [sp, #20]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n    stp   x0, x1, [sp, #24]\n    stp   x2, x3, [sp, #40]\n" ++
-      (if withValue then
-        "    sub   x14, x23, #3\n    add   x14, x24, x14, lsl #5\n    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n    stp   x0, x1, [sp, #56]\n    stp   x2, x3, [sp, #72]\n"
-       else
-        "    stp   xzr, xzr, [sp, #56]\n    stp   xzr, xzr, [sp, #72]\n") ++
-      s!"    sub   x14, x23, #{inOffStackPos}\n" ++
-      "    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    ldr   x16, [x20, #40]\n    add   x15, x16, x15\n    str   x15, [sp, #88]\n" ++
-      s!"    sub   x14, x23, #{inLenStackPos}\n" ++
-      "    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    str   x15, [sp, #96]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x15, x16, [x14]\n    ldp   x0, x1, [x14, #16]\n    orr   x16, x16, x0\n    orr   x16, x16, x1\n    cmp   x16, #0\n    csinv x15, x15, xzr, eq\n    str   x15, [sp, #104]\n" ++
-      "    stp   xzr, xzr, [sp, #112]\n    stp   xzr, xzr, [sp, #128]\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, sp, #16\n    add   x2, sp, #144\n    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #88]\n    blr   x14\n" ++
-      "    ldr   x0, [sp, #152]\n    str   x0, [x20, #96]\n    ldr   x0, [sp, #160]\n    str   x0, [x20, #104]\n" ++
-      s!"    sub   x14, x23, #{outOffStackPos}\n" ++
-      "    add   x14, x24, x14, lsl #5\n    ldr   x1, [x14]\n" ++
-      s!"    sub   x14, x23, #{outLenStackPos}\n" ++
-      "    add   x14, x24, x14, lsl #5\n    ldr   x2, [x14]\n    mov   x0, x20\n    bl    _eita_helper_returndata_to_mem\n" ++
-      "    ldr   w15, [sp, #144]\n    ldr   x0, [sp, #168]\n" ++
-      s!"    sub   x23, x23, #{argsCount - 1}\n" ++
-      "    mov   x6, x15\n    and   x6, x6, #0xff\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      s!"    cmp   x23, #2\n    b.lt  L_callret_{name}\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n" ++
-      s!"L_callret_{name}:\n" ++
-      "    ldr   x22, [x20, #8]\n    subs  x22, x22, x0\n    b.lo  _eita_oog\n    ldp   x29, x30, [sp], #16\n    add   sp, sp, #192\n    br    x27\n"
-  | .createCore =>
-      "    sub   sp, sp, #192\n    stp   x29, x30, [sp, #-16]!\n" ++
-      "    str   x21, [x20, #0]\n    str   x22, [x20, #8]\n    str   x23, [x20, #16]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      -- #266: charge memexp over the init-code range [offset, offset+length)
-      -- (operands now spilled to the stack arena). EELS create charges this.
-      createMemExpandEmit 2 3 "create" ++
-      "    mov   w0, #4\n    str   w0, [sp, #16]\n    str   wzr, [sp, #20]\n" ++
-      "    stp   xzr, xzr, [sp, #24]\n    stp   xzr, xzr, [sp, #40]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n    stp   x0, x1, [sp, #56]\n    stp   x2, x3, [sp, #72]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    ldr   x16, [x20, #40]\n    add   x15, x16, x15\n    str   x15, [sp, #88]\n" ++
-      "    sub   x14, x23, #3\n    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    str   x15, [sp, #96]\n" ++
-      "    str   x22, [sp, #104]\n    stp   xzr, xzr, [sp, #112]\n    stp   xzr, xzr, [sp, #128]\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, sp, #16\n    add   x2, sp, #144\n    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #96]\n    blr   x14\n" ++
-      -- EELS `create`: the frame's return data becomes the child's output — the init
-      -- code's REVERT bytes on failure, empty on success (cb-create sets both cases).
-      "    ldr   x14, [sp, #152]\n    str   x14, [x20, #96]\n    ldr   x14, [sp, #160]\n    str   x14, [x20, #104]\n" ++
-      "    ldr   w15, [sp, #144]\n    cbz   w15, L_create_fail\n" ++
-      "    add   x14, sp, #176\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n    b     L_create_done\n" ++
-      "L_create_fail:\n    mov   x6, #0\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n" ++
-      "L_create_done:\n    ldr   x0, [sp, #168]\n    ldr   x22, [x20, #8]\n    subs  x22, x22, x0\n    b.lo  _eita_oog\n" ++
-      "    sub   x23, x23, #2\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    cmp   x23, #2\n    b.lt  L_create_done2\n    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n" ++
-      "L_create_done2:\n    ldp   x29, x30, [sp], #16\n    add   sp, sp, #192\n    br    x27\n"
-  | .create2Core =>
-      "    sub   sp, sp, #192\n    stp   x29, x30, [sp, #-16]!\n" ++
-      "    str   x21, [x20, #0]\n    str   x22, [x20, #8]\n    str   x23, [x20, #16]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      -- #266: memexp over init range [offset, offset+length) — same omission as
-      -- CREATE. (CREATE2 keccak word cost is already in spec-create-gas.)
-      createMemExpandEmit 2 3 "create2" ++
-      "    mov   w0, #5\n    str   w0, [sp, #16]\n    str   wzr, [sp, #20]\n" ++
-      "    stp   xzr, xzr, [sp, #24]\n    stp   xzr, xzr, [sp, #40]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n    stp   x0, x1, [sp, #56]\n    stp   x2, x3, [sp, #72]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    ldr   x16, [x20, #40]\n    add   x15, x16, x15\n    str   x15, [sp, #88]\n" ++
-      "    sub   x14, x23, #3\n    add   x14, x24, x14, lsl #5\n    ldr   x15, [x14]\n    str   x15, [sp, #96]\n" ++
-      "    str   x22, [sp, #104]\n" ++
-      "    sub   x14, x23, #4\n    add   x14, x24, x14, lsl #5\n    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n    stp   x0, x1, [sp, #112]\n    stp   x2, x3, [sp, #128]\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, sp, #16\n    add   x2, sp, #144\n    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #96]\n    blr   x14\n" ++
-      -- EELS `create2`: same return-data rule as CREATE.
-      "    ldr   x14, [sp, #152]\n    str   x14, [x20, #96]\n    ldr   x14, [sp, #160]\n    str   x14, [x20, #104]\n" ++
-      "    ldr   w15, [sp, #144]\n    cbz   w15, L_create2_fail\n" ++
-      "    add   x14, sp, #176\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n    b     L_create2_done\n" ++
-      "L_create2_fail:\n    mov   x6, #0\n    mov   x7, #0\n    mov   x8, #0\n    mov   x9, #0\n" ++
-      "L_create2_done:\n    ldr   x0, [sp, #168]\n    ldr   x22, [x20, #8]\n    subs  x22, x22, x0\n    b.lo  _eita_oog\n" ++
-      "    sub   x23, x23, #3\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    cmp   x23, #2\n    b.lt  L_create2_done2\n    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n" ++
-      "L_create2_done2:\n    ldp   x29, x30, [sp], #16\n    add   sp, sp, #192\n    br    x27\n"
-  | .expGasCharge cost byteCost => String.join ((expGasInstrs cost byteCost).map AInstr.emitARM64)
-  | .selfdestructCb =>
-      "    stp   x29, x30, [sp, #-16]!\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, x20, #144\n    mov   x2, x14\n" ++
-      "    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #104]\n    blr   x14\n" ++
-      "    subs  x22, x22, x0\n    b.lo  _eita_oog\n    ldp   x29, x30, [sp], #16\n"
-  | .sstoreCb =>
-      "    stp   x29, x30, [sp, #-16]!\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, x20, #144\n" ++
-      "    sub   x14, x23, #1\n    add   x2, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x3, x24, x14, lsl #5\n" ++
-      "    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #8]\n    blr   x14\n" ++
-      "    subs  x22, x22, x0\n    b.lo  _eita_oog\n    ldp   x29, x30, [sp], #16\n" ++
-      "    ldr   x14, [x20, #504]\n    ldr   x15, [x14, #0]\n    ldr   x16, [x14, #16]\n    mov   x17, #104\n    madd  x0, x15, x17, x16\n" ++
-      "    str   xzr, [x0, #0]\n    ldp   x1, x2, [x20, #144]\n    ldp   x3, x4, [x20, #160]\n    stp   x1, x2, [x0, #8]\n    stp   x3, x4, [x0, #24]\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n" ++
-      "    stp   x6, x7, [x0, #40]\n    stp   x8, x9, [x0, #56]\n    stp   x10, x11, [x0, #72]\n    stp   x12, x13, [x0, #88]\n" ++
-      "    ldr   x14, [x20, #504]\n    add   x15, x15, #1\n    str   x15, [x14, #0]\n" ++
-      "    sub   x23, x23, #2\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
-  | .logEmit n cost =>
-      -- Spill the register-cached TOS/NOS (off, len) so the stack memory the
-      -- host will be pointed at is current (same discipline as sstoreCb).
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      -- len ≥ 2^64 ⇒ OOG (8·len alone exceeds any gas); len = 0 ⇒ no memexp, any
-      -- offset (EELS skips size 0); else off ≥ 2^64 or off+len ≥ 2^64 ⇒ OOG.
-      "    orr   x14, x11, x12\n    orr   x14, x14, x13\n    cbnz  x14, _eita_oog\n" ++
-      s!"    mov   x17, #{cost}\n" ++
-      "    add   x17, x17, x10, lsl #3\n" ++
-      "    cbz   x10, 4f\n" ++
-      "    orr   x14, x7, x8\n    orr   x14, x14, x9\n    cbnz  x14, _eita_oog\n" ++
-      "    adds  x0, x6, x10\n    b.cs  _eita_oog\n" ++
-      memExpandStr ++
-      "4:\n" ++
-      "    ldr   x14, [x20, #504]\n    ldr   x15, [x14, #8]\n    add   x15, x15, #1\n    str   x15, [x14, #8]\n" ++
-      "    add   x15, x6, x10\n    ldr   x16, [x20, #24]\n    cmp   x15, x16\n    csel  x16, x15, x16, hi\n    str   x16, [x20, #24]\n" ++
-      s!"    sub   x23, x23, #{2 + n}\n" ++
-      "    subs  x22, x22, x17\n    b.lo  _eita_oog\n" ++
-      -- Deliver the log to the host (vtable slot 9, cb->log) — the observation seam.
-      -- Null slot ⇒ skip: replays that do not collect logs are byte-identical.
-      -- After the pop the popped slots still hold the operands: off at sp+n+1,
-      -- len at sp+n, topic_i at sp+n-1-i (so x3 → topic_{n-1}, ascending to topic_0).
-      -- Args: x0 ctx, x1 &address, x2 n, x3 topics, x4 memory+off, x5 len.
-      "    ldr   x14, [x20, #496]\n    ldr   x14, [x14, #72]\n    cbz   x14, 7f\n" ++
-      "    stp   x29, x30, [sp, #-16]!\n" ++
-      "    ldr   x0, [x20, #504]\n    add   x1, x20, #144\n" ++
-      s!"    mov   x2, #{n}\n" ++
-      "    add   x3, x24, x23, lsl #5\n" ++
-      s!"    add   x15, x23, #{n + 1}\n" ++
-      "    add   x15, x24, x15, lsl #5\n    ldr   x15, [x15]\n    ldr   x4, [x20, #40]\n    add   x4, x4, x15\n" ++
-      s!"    add   x15, x23, #{n}\n" ++
-      "    add   x15, x24, x15, lsl #5\n    ldr   x5, [x15]\n" ++
-      "    blr   x14\n    ldp   x29, x30, [sp], #16\n" ++
-      "7:\n" ++
-      "    cmp   x23, #1\n    b.lt  5f\n    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n5:\n" ++
-      "    cmp   x23, #2\n    b.lt  6f\n    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n6:\n" ++
-      "    br    x27\n"
-  | .pushImm n =>
-      -- `pushWideInstrs`: wide big-endian loads, no per-byte branch (the code
-      -- image's zero padding supplies the bytes past code_size).
-      String.join ((pushWideInstrs n).map AInstr.emitARM64)
-  | .tstoreCb =>
-      "    stp   x29, x30, [sp, #-16]!\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    stp   x10, x11, [x14]\n    stp   x12, x13, [x14, #16]\n" ++
-      "    ldr   x1, [x20, #504]\n    ldr   x0, [x1, #64]\n    add   x2, x20, #144\n" ++
-      "    sub   x14, x23, #1\n    add   x3, x24, x14, lsl #5\n" ++
-      "    sub   x14, x23, #2\n    add   x4, x24, x14, lsl #5\n" ++
-      "    bl    _eita_ts_tstore\n    ldp   x29, x30, [sp], #16\n" ++
-      "    sub   x23, x23, #2\n" ++
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n" ++
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n"
-  | .storeTos =>
-      "    sub   x14, x23, #1\n    add   x14, x24, x14, lsl #5\n    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n"
-  | .reloadNos =>
-      "    sub   x14, x23, #2\n    add   x14, x24, x14, lsl #5\n    ldp   x10, x11, [x14]\n    ldp   x12, x13, [x14, #16]\n"
-  | .brCont =>
-      "    br    x27\n"
-  | .exitGas c =>
-      s!"    subs  x22, x22, #{c}\n    b.lo  _eita_oog\n    br    x27\n"
-  | .pcDec =>
-      "    sub   x21, x21, #1\n"
-  | .setHalted =>
-      "    mov   w14, #1\n    strb  w14, [x20, #128]\n"
-  | .jumpSyncRet =>
-      "    adrp  x27, _eita_sync_and_ret@PAGE\n    add   x27, x27, _eita_sync_and_ret@PAGEOFF\n    br    x27\n"
-  | .branchOOG =>
-      "    b     _eita_oog\n"
-  | .dupLoad n =>
-      s!"    sub   x14, x23, #{n}\n    add   x14, x24, x14, lsl #5\n    ldp   x6, x7, [x14]\n    ldp   x8, x9, [x14, #16]\n"
-  | .swapPartner n =>
-      s!"    sub   x14, x23, #{n + 1}\n    add   x14, x24, x14, lsl #5\n" ++
-      "    ldp   x0, x1, [x14]\n    ldp   x2, x3, [x14, #16]\n" ++
-      "    stp   x6, x7, [x14]\n    stp   x8, x9, [x14, #16]\n" ++
-      "    mov   x6, x0\n    mov   x7, x1\n    mov   x8, x2\n    mov   x9, x3\n"
+      let inOff : Nat := if withValue then 4 else 3
+      let inLen : Nat := if withValue then 5 else 4
+      let outOff : Nat := if withValue then 6 else 5
+      let outLen : Nat := if withValue then 7 else 6
+      (callMemExpandInstrs inOff inLen outOff outLen name ++
+       [ .spSub 192, .stpFpLr, .strOff .x21 .x20 0, .strOff .x22 .x20 8, .strOff .x23 .x20 16 ] ++ syncTosNos ++
+       [ .movImmW .x0 kind, .strWSp .x0 16, .movImmW .x0 staticpFlag, .strWSp .x0 20,
+         .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 24, .stpSp .x2 .x3 40 ] ++
+       (if withValue then
+          [ .subImm .x14 .x23 3, .addLsl5 .x14 .x24 .x14, .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16, .stpSp .x0 .x1 56, .stpSp .x2 .x3 72 ]
+        else [ .stpZrSp 56, .stpZrSp 72 ]) ++
+       [ .subImm .x14 .x23 inOff, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .ldrOff .x16 .x20 40, .addReg .x15 .x16 .x15, .strSp .x15 88,
+         .subImm .x14 .x23 inLen, .addLsl5 .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 96,
+         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .ldpOff .x15 .x16 .x14 0, .ldpOff .x0 .x1 .x14 16,
+         .orr3 .x16 .x16 .x0, .orr3 .x16 .x16 .x1, .cmpImm .x16 0, .csinvEqZr .x15 .x15, .strSp .x15 104,
+         .stpZrSp 112, .stpZrSp 128,
+         .ldrOff .x0 .x20 504, .addSp .x1 16, .addSp .x2 144, .ldrOff .x14 .x20 496, .ldrOff .x14 .x14 88, .blr .x14,
+         .ldrSp .x0 152, .strOff .x0 .x20 96, .ldrSp .x0 160, .strOff .x0 .x20 104,
+         .subImm .x14 .x23 outOff, .addLsl5 .x14 .x24 .x14, .ldrBase .x1 .x14,
+         .subImm .x14 .x23 outLen, .addLsl5 .x14 .x24 .x14, .ldrBase .x2 .x14, .movReg .x0 .x20, .blSym "_eita_helper_returndata_to_mem",
+         .ldrWSp .x15 144, .ldrSp .x0 168,
+         .subImm .x23 .x23 (argsCount - 1),
+         .movReg .x6 .x15, .andImmHex .x6 .x6 0xff, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0,
+         .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14, .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ] ++
+       reloadNosIf2 s!"L_callret_{name}" s!"L_callret_{name}" ++
+       [ .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr, .spAdd 192, .brCont ])
+  | .clzReduce        => clzReduceInstrs
+  -- the stack family (stage 4l). On x86-64 `tosToNos` vanishes (spScale drops
+  -- NOS writes: the old TOS is already in memory by the invariant that every
+  -- TOS-producing handler ends with storeTos) and `nosToTos` becomes four
+  -- loads from stack[sp-2], which is exactly the per-instruction lowering of
+  -- `mov x6, x10` with a NOS source.
+  | .tosToNos         => [.movReg .x10 .x6, .movReg .x11 .x7, .movReg .x12 .x8, .movReg .x13 .x9]
+  | .nosToTos         => [.movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13]
+  | .spInc            => [.addImm .x23 .x23 1]
+  | .spDec2           => [.subImm .x23 .x23 2]
+  | .loadZeroTos      => [.movImm .x6 0, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
+  | .dupLoad n        =>
+      [ .subImm .x14 .x23 n, .addLsl5 .x14 .x24 .x14, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16 ]
+  | .swapPartner n    =>
+      [ .subImm .x14 .x23 (n + 1), .addLsl5 .x14 .x24 .x14,
+        .ldpOff .x0 .x1 .x14 0, .ldpOff .x2 .x3 .x14 16,
+        .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16,
+        .movReg .x6 .x0, .movReg .x7 .x1, .movReg .x8 .x2, .movReg .x9 .x3 ]
+  | .pushImm n        => (pushWideInstrs n)
+  | .spDec            => [.subImm .x23 .x23 1]
+  | .exitGas c        => [.subsImm .x22 .x22 c, .bloOog, .brCont]
+  | .notLimbs         => [.mvn .x6 .x6, .mvn .x7 .x7, .mvn .x8 .x8, .mvn .x9 .x9]
+  | .eqReduce         =>
+      [ .eor3 .x14 .x6 .x10, .eor3 .x15 .x7 .x11, .orr3 .x14 .x14 .x15,
+        .eor3 .x15 .x8 .x12, .orr3 .x14 .x14 .x15, .eor3 .x15 .x9 .x13, .orr3 .x14 .x14 .x15,
+        .cmpImm .x14 0, .cset .x6 .eq, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+  | .iszeroReduce     =>
+      [ .orr3 .x14 .x6 .x7, .orr3 .x15 .x8 .x9, .orr3 .x14 .x14 .x15,
+        .cmpImm .x14 0, .cset .x6 .eq, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ]
+  | .cmpChain swapped cond =>
+      ((if swapped then
+          [ .subsZr .x10 .x6, .sbcsZr .x11 .x7, .sbcsZr .x12 .x8, .sbcsZr .x13 .x9 ]
+        else
+          [ .subsZr .x6 .x10, .sbcsZr .x7 .x11, .sbcsZr .x8 .x12, .sbcsZr .x9 .x13 ]) ++
+       [ .cset .x6 (match cond with | .lo => .lo | .lt => .lt),
+         .movImm .x7 0, .movImm .x8 0, .movImm .x9 0 ])
+  | .arith .add       =>
+      [ .adds .x10 .x6 .x10, .adcs .x11 .x7 .x11, .adcs .x12 .x8 .x12, .adc .x13 .x9 .x13,
+        .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ]
+  | .arith .sub       =>
+      [ .subsReg .x10 .x6 .x10, .sbcs .x11 .x7 .x11, .sbcs .x12 .x8 .x12, .sbc .x13 .x9 .x13,
+        .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ]
+  | .bitwise op       =>
+      (let f : Reg → Reg → Reg → AInstr := match op with
+         | .and => .and3 | .orr => .orr3 | .eor => .eor3
+       [ f .x10 .x10 .x6, f .x11 .x11 .x7, f .x12 .x12 .x8, f .x13 .x13 .x9,
+         .movReg .x6 .x10, .movReg .x7 .x11, .movReg .x8 .x12, .movReg .x9 .x13 ])
+
+/-- The ARM64 text of an op: its instructions, printed. -/
+def Op.emit (o : Op) : String := String.join (o.toAInstrs.map AInstr.emitARM64)
+
 
 /-- Effect of an op. A trap (`oog`/`trap`) sets its flag; the real handler then
     branches to a fault label, discarding the rest, so post-trap register state
@@ -1706,12 +1657,12 @@ def create2Body : Prog :=
 `calculate_gas_extend_memory` over `[offset, offset+length)`), undercharging
 every CREATE that grew memory (a consensus-state bug — it shifts the sender
 refund and coinbase fee, moving the state root). The fix routes through
-`createMemExpandEmit`, which reuses the SAME `.memExpand` gadget the (verified)
+`createMemExpandInstrs`, which reuses the SAME `.memExpand` gadget the (verified)
 copy/keccak ops use. Two checked guarantees pin it:
 
 1. `memExpand_charges_eels`: the gadget charges EXACTLY the EELS expansion delta.
 2. A build-time regression guard: the charge is PRESENT in the emit, so the
-   omission is unrepresentable — deleting `createMemExpandEmit` fails the build.
+   omission is unrepresentable — deleting `createMemExpandInstrs` fails the build.
 
 (Full denotation modelling of the create/call memexp as structured Ops — so the
 fork-equivalence proof itself catches the omission, not just a presence guard —
@@ -1720,7 +1671,7 @@ is the remaining #238-stage-2 decomposition. This is the scoped close.) -/
 /-- EELS memory cost: `memCost w = 3·w + ⌊w²/512⌋`. -/
 def memCost (w : Nat) : Nat := 3 * w + w * w / 512
 
-/-- The `.memExpand` gadget (used by `createMemExpandEmit`) charges exactly the
+/-- The `.memExpand` gadget (used by `createMemExpandInstrs`) charges exactly the
     EELS memory-expansion delta into the `acc` gas accumulator. -/
 theorem memExpand_charges_eels (m : Mach)
     (hcap  : ¬ m.memCap < m.scratch)
@@ -1730,7 +1681,7 @@ theorem memExpand_charges_eels (m : Mach)
   simp only [Op.denote, memCost, hcap, hgrow, ite_false]
 
 -- Regression guard: createCore/create2Core MUST emit the init-range memexp.
--- The `.Lcrin0_*` label is produced ONLY by createMemExpandEmit; removing the
+-- The `.Lcrin0_*` label is produced ONLY by createMemExpandInstrs; removing the
 -- #266 fix deletes it and fails this build-time check.
 example : 1 < (createBody.emit.splitOn ".Lcrin0_create").length := by native_decide
 example : 1 < (create2Body.emit.splitOn ".Lcrin0_create2").length := by native_decide

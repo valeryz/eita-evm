@@ -722,13 +722,7 @@ def emitRegionFlush (r : Region) : String := Id.run do
 /-- Set x27 (continuation) = sync_and_ret. GOT-indirect because the
     symbol lives in the handlers dylib, not this image — adrp@PAGE
     can't reach across images. -/
-private def syncContSpec : String :=
-  "    adrp  x27, _eita_sync_and_ret@GOTPAGE\n" ++
-  "    ldr   x27, [x27, _eita_sync_and_ret@GOTPAGEOFF]\n"
-
 private def syncCont : String := Frame.text Frame.syncCont
-
-theorem syncCont_derived : syncCont = syncContSpec := by native_decide
 
 /-- Instructions whose HANDLER reads the *instantaneous* `gas_left`, so the chunk-head
     pre-charge of strictly-later ops must be handed back before the handler runs and
@@ -910,7 +904,7 @@ def textOut : ChunkOut String where
 /-! ## The algebra at `List AInstr` (stage 4s)
 
 The text algebra above and the item algebra below were written twice, in two
-vocabularies — the duplication the handler work retired (`Op.instrs?`). This
+vocabularies — the duplication the handler work retired (`Op.toAInstrs`). This
 section is the chunk emitter written ONCE as `AInstr`; `emitChunk` prints it
 and `emitChunkItems` lowers it through `AsmItems`. `textOut` stays as the
 specification (`chunk_text_derived` gates the fixture corpus character for
@@ -1225,50 +1219,8 @@ theorem chunk_text_derived :
      | none => false) = true := by native_decide
 
 
-/-- `eita_run_chunk(state*, chunk_fn)`: same prologue as `eita_run`
-    (cache state into registers, stash post-prologue SP in x28 for the
-    fault stubs), then enter the chunk. The chunk's terminator exits
-    through sync_and_ret, which restores callee-saved and returns. -/
-def runChunkCodeSpec : String :=
-  ".global _eita_run_chunk\n" ++
-  ".p2align 2\n" ++
-  "_eita_run_chunk:\n" ++
-  "    stp   x29, x30, [sp, #-96]!\n" ++
-  "    stp   x19, x20, [sp, #16]\n" ++
-  "    stp   x21, x22, [sp, #32]\n" ++
-  "    stp   x23, x24, [sp, #48]\n" ++
-  "    stp   x25, x26, [sp, #64]\n" ++
-  "    stp   x27, x28, [sp, #80]\n" ++
-  "    mov   x28, sp\n" ++
-  "    mov   x20, x0\n" ++
-  "    ldr   x21, [x0, #0]\n" ++
-  "    ldr   x22, [x0, #8]\n" ++
-  "    ldr   x23, [x0, #16]\n" ++
-  "    ldr   x24, [x0, #32]\n" ++
-  "    ldr   x26, [x0, #64]\n" ++
-  "    cmp   x23, #1\n" ++
-  "    b.lt  20f\n" ++
-  "    sub   x14, x23, #1\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x6, x7, [x14]\n" ++
-  "    ldp   x8, x9, [x14, #16]\n" ++
-  "20:\n" ++
-  "    cmp   x23, #2\n" ++
-  "    b.lt  21f\n" ++
-  "    sub   x14, x23, #2\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x10, x11, [x14]\n" ++
-  "    ldp   x12, x13, [x14, #16]\n" ++
-  "21:\n" ++
-  "    adrp  x25, _eita_dispatch_ptr@GOTPAGE\n" ++
-  "    ldr   x25, [x25, _eita_dispatch_ptr@GOTPAGEOFF]\n" ++
-  "    ldr   x25, [x25]\n" ++
-  "    br    x1\n"
-
 /-- The entry, printed from `Frame.runChunk` (stage 4r). -/
 def runChunkCode : String := Frame.text Frame.runChunk
-
-theorem runChunkCode_derived : runChunkCode = runChunkCodeSpec := by native_decide
 
 /-- First-occurrence-wins dedup of `Program.chunks` (overlapping-chunk
     compilation may list an entry twice; emitting twice would define

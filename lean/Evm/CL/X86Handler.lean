@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86Handler — a whole handler through the x86-64 pipeline.
 
-  Stage 4 of #238. `OpInstrs.Op.instrs?` gives MLOAD and MSTORE an `AInstr`
+  Stage 4 of #238. `AsmCore.Op.toAInstrs` gives MLOAD and MSTORE an `AInstr`
   body text-identical to the ARM64 one. Lowering that body for x86-64 needs
   one more thing the per-instruction lowering cannot see: the stage-4d
   decision that `sp` is a BYTE offset on x86-64. In the ARM64 body `x23` counts
@@ -21,7 +21,7 @@
   `AInstr`: immediates on x23 scale by 32, the stack-address idiom becomes a
   plain add, and NOS-destination instructions vanish. Everything else passes
   through untouched (`spScale_touches_only_sp_and_nos`). It is applied at the
-  handler level, between `Op.instrs?` and `x86Items`, so the per-instruction
+  handler level, between `Op.toAInstrs` and `x86Items`, so the per-instruction
   lowering stays faithful and the refinement decision lives in one place.
 
   `mstoreX86` wraps the result in the stage-4d frame with `_eita_oog` and
