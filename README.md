@@ -86,7 +86,9 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   call-gas and SSTORE gas routines; PUSH-n wide loads; the JIT code arena's safety; the
   header-validity rules. The axiom closure of the audited theorems is checked against a
   committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms only. The native
-  slot table is proved in Velvet for every capacity and printed to C (`verify/velvet-slots/`).
+  slot table is proved in Velvet for every capacity and printed to C (`verify/velvet-slots/`). The state layer's
+  concurrent protocols (layer GC, compaction, root checks, rollback) are Veil models whose citations of the Lisp are
+  checked (`verify/protocols/`).
 - **Generated, not hand-written**: `c/handlers.S`, `c/handlers-x86-elf.S` and
   `src/generated/host.lisp` are committed and must be byte-identical to what the
   emitters produce (`scripts/verify-host-emit.sh`).
@@ -229,6 +231,7 @@ interface, documented there.
 | `lean/Evm/Trie`, `Persist`, `Parallel` | state trie (streaming root), layered snapshots and recovery, Block-STM (spec + proofs) |
 | `lean/*.lean` | executables: emitters, test-vector generators, the Lean interpreter's own replay (`lake exe replay`, `lean/REPLAY.md`) |
 | `verify/velvet-slots/` | the slot table's Velvet proofs and its C printer (own Lake package; `scripts/verify-velvet-slots.sh`) |
+| `verify/protocols/` | Veil models of the state layer's concurrent protocols and their code check (`; @veil` markers); own Lake package; `scripts/verify-protocols.sh` |
 | `c/`, `lean/c/` | libeita: the emitted handlers, per-tx state tables, precompiles |
 | `eita.asd`, `ocicl.csv` | the ASDF systems (`eita`, `eita/chains`, `eita/fixtures`, `eita/cli`, `eita/test`), the pinned Lisp dependencies |
 | `src/native/`, `src/core/` | where the native libraries are and their FFI; u256, hex, RLP, keccak |

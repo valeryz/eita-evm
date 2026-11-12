@@ -113,6 +113,24 @@ was unsound five ways (`rejects_*`). It assumes, and does not prove:
 harness), `lean/c/csu_shim.c` (a glibc ≥ 2.34 link shim). A bug here can crash a run but cannot
 change a result silently.
 
+## Concurrency protocols of the state layer: modelled in Veil (`verify/protocols/`)
+
+**Modelled, not derived.** The layer stack's protocols (freeze, the layer writer and GC's pins, minor and major
+compaction and their swaps, background root checks, `rollback-to!`, the background fence) are Veil transition systems,
+one action per step of the code they cite.
+
+- **Proved:** `LayerGcFixed` (`ic3_safe`, kernel-checked); `Compaction` and `CompactionDeepReorg` (an inductive
+  invariant, every verification condition a proof term rebuilt by lean-smt with `veil.smt.trust false`,
+  kernel-checked). Axioms: propext, Classical.choice, Quot.sound only.
+- **Violations of the old variants:** `LayerGcOld` has a kernel-checked `ic3_unsafe`; `LayerGcSwapped` and
+  `CompactionDeepReorgOld` rest on Veil's explicit-state model checker and cvc5 1.3.2's `sat trace` (trusted).
+- **Trusted, not proved:** that each action faithfully abstracts its code (kept current by `CheckCode.lean`: the
+  `; @veil` markers in the Lisp and 9 structural ordering checks); the atomicity each action assumes; sequential
+  consistency (ARM64 publication order is argued from the write barriers, which an ordering check enforces); for
+  `Compaction` only, the caller's fork bound (`CompactionDeepReorg` holds without it).
+- `scripts/verify-protocols.sh --quick` runs in CI (the code check and four models, under 14 GB); `CompactionDeepReorg`
+  (over 32 GB) runs by hand on a large machine.
+
 ## Third-party libraries
 
 | Library | Used for | License |
