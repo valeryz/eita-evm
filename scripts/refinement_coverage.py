@@ -37,6 +37,11 @@ relation, classified per fork. Section B (informational): every
 registered relation, fully qualified, with its resolving theorem, its
 structural-only lemmas, or its gap status.
 
+With --stats-md PATH it also writes the per-component Lean statistics
+(scripts/generated/verification-stats.md: statement / proof lines,
+theorems, sorry, native_decide, axiom closure; counting rules in
+STATS_RULES, printed with the table); verify-coverage.sh drift-checks both.
+
 Relation registry: Prop-style declarations in Spec files — names
 starting with `Is`, plus any Spec-declared name concluded by a
 `*_sound`/`*_sound_shape` theorem (catches non-Is names like
@@ -660,6 +665,9 @@ def main():
         if n_s:
             per_file[os.path.relpath(pth, lean_root)] = n_s
     n_all = sum(per_file.values())
+    if "--stats-md" in sys.argv:
+        with open(sys.argv[sys.argv.index("--stats-md") + 1], "w") as fh:
+            fh.write(stats_markdown(lean_stats(n_all)))
     n_rel = tot.get("SORRY", 0)
     rest = ", ".join(f"`{k[:-5]}` ({v})" for k, v in sorted(per_file.items()))
     out.append(f"Reconciliation with the repo-wide {n_all} sorries: Section A")
@@ -724,6 +732,407 @@ def main():
     print("\n".join(out))
 
 
+
+# ---------------------------------------------------------------------------
+# Lean statistics (--stats-md PATH): per-component statement / proof line
+# counts, theorems, sorry, native_decide and axiom closure
+# (scripts/generated/verification-stats.md). Same comment stripping as the matrix's sorry
+# reconciliation, so the two sorry counts agree by construction (asserted).
+
+REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+GH_TREE = "https://github.com/valeryz/eita-evm/tree/main/"
+
+ETH_FORKS = ("Frontier Homestead DaoFork TangerineWhistle SpuriousDragon Byzantium "
+             "Constantinople Petersburg Istanbul MuirGlacier Berlin London ArrowGlacier "
+             "GrayGlacier Paris Shanghai Cancun Prague Osaka Amsterdam").split()
+_CL = "lean/Evm/CL/"
+# (id, title, link path, fnmatch patterns over repo-relative paths; `<Fork>` = each of
+# ETH_FORKS, `CL/` = lean/Evm/CL/). First match wins; a .lean file no component claims
+# fails the generator, so a new file is assigned deliberately.
+COMPONENTS = [
+    ("chains", "Chain specs (Arc, OP Stack)", "lean/Evm/Optimism",
+     "lean/Evm/Arc/* lean/Evm/Optimism/*"),
+    ("refinement", "Opcode refinement relations", "lean/Evm/Frontier/Spec",
+     "lean/Evm/<Fork>/Spec/*"),
+    ("spec", "EVM spec, Frontier to Osaka (Amsterdam staged)", "lean/Evm",
+     "lean/Evm/<Fork>/* lean/Evm/BaseTypes.lean lean/Evm/Forks.lean"),
+    ("effect", "Effect layer (callbacks, apply-tx, settlement, journal)", "lean/Evm/CL",
+     "CL/Effect* CL/Journal* CL/StorageCache.lean CL/WordOps.lean CL/LimbC.lean"),
+    ("ir", "IR compiler (chunks, symbolic execution)", "lean/Evm/IR", "lean/Evm/IR/*"),
+    ("x86", "x86-64 backend", "lean/Evm/CL/X86", "CL/X86* CL/X86/* CL/OpInstrs.lean"),
+    ("emit", "Gas, header and host emitters", "lean/Evm/CL",
+     "CL/GasEmit* CL/HostEmit.lean CL/HeaderEmit.lean CL/ForkEmit.lean CL/RepriceEmit.lean "
+     "CL/Extract.lean CL/MacroSpec.lean"),
+    ("slots", "Native slot table (Velvet)", "verify/velvet-slots",
+     "verify/velvet-slots/* CL/WorldSlotsModel.lean"),
+    ("arm64", "ARM64 backend and shared lowering", "lean/Evm/CL/ARM64",
+     "CL/ARM64.lean CL/ARM64/* CL/Asm* CL/OpSem.lean CL/CacheSound.lean CL/Arena.lean CL/CodeArena.lean "
+     "CL/Boundary.lean CL/DispatchTable.lean CL/Fetch.lean CL/Flags.lean CL/Frame.lean "
+     "CL/JumpDest.lean CL/Lowering.lean CL/MemExpandSpec.lean CL/ChunkMemExpand.lean "
+     "CL/Pressure.lean CL/PushWide.lean CL/Relax.lean CL/StackOps.lean CL/StaticGuard.lean "
+     "CL/Target.lean CL/BlobEnv.lean"),
+    ("parallel", "Block-STM", "lean/Evm/Parallel", "lean/Evm/Parallel/*"),
+    ("persist", "Persistence (layered state, recovery)", "lean/Evm/Persist",
+     "lean/Evm/Persist/*"),
+    ("crypto", "Crypto oracles and precompile contracts", "lean/Evm/Crypto",
+     "lean/Evm/Crypto/*"),
+    ("trie", "Trie and RLP", "lean/Evm/Trie", "lean/Evm/Trie/* lean/Evm/Trie.lean lean/Evm/Rlp.lean"),
+    ("protocols", "State-layer protocols (Veil)", "verify/protocols", "verify/protocols/*"),
+    ("tooling", "Tools: emitter drivers, test vectors, replay executables", "lean",
+     "lean/*.lean"),
+]
+
+
+def _claims(rel, pats):
+    """A pattern ending in /* claims a subtree; elsewhere * stays within one path segment."""
+    for p in pats.split():
+        p = p.replace("CL/", _CL, 1) if p.startswith("CL/") else p
+        for q in ([p.replace("<Fork>", f) for f in ETH_FORKS] if "<Fork>" in p else [p]):
+            rx = re.escape(q[:-2]) + "/.*" if q.endswith("/*") else \
+                re.escape(q).replace(r"\*", "[^/]*")
+            if re.fullmatch(rx, rel):
+                return True
+    return False
+
+
+PAGE_ORDER = ("spec refinement effect ir arm64 x86 emit parallel persist crypto chains trie "
+              "slots protocols tooling").split()
+
+STATS_RULES = {   # printed under "Counting rules" (markdown)
+    "Files": "every `.lean` file under `lean/Evm`, `lean/*.lean`, `verify/velvet-slots` and "
+             "`verify/protocols` (no `.lake`); each belongs to exactly one component (first "
+             "matching path pattern; an unclaimed file fails the generator)",
+    "Lines": "physical lines after removing comments (`--`, `/- -/`, docstrings) and blank "
+             "lines; each line counted once",
+    "Declarations": "a declaration starts at a column-0 command keyword (attributes and "
+                    "modifiers allowed) and runs to the next one; column-0 continuations "
+                    "(`|` arms, `where`, `termination_by`, `deriving`) stay with it",
+    "Theorem statement lines": "`theorem`/`lemma` from the keyword to the line holding the "
+                               "first `:=` outside brackets (a `let`/`have` inside the "
+                               "statement skipped), or to the line before a leading `|` arm; "
+                               "a line shared with the proof counts here",
+    "Proof lines": "the rest of a theorem; a Velvet `prove_correct` block entirely; `example` "
+                   "blocks split like theorems",
+    "Definition lines": "`def`, `abbrev`, `structure`, `inductive`, `instance`, `class`, "
+                        "`opaque`, `axiom`, macros and notation, Velvet `method`, and in "
+                        "`verify/protocols` the Veil model text (`veil module`, `action`, "
+                        "`invariant`, `safety`, ...)",
+    "Statement lines": "definition lines + theorem statement lines: the statements and the "
+                       "definitions they rely on",
+    "Other lines": "`import`, `namespace`/`section`/`end`, `open`, `variable`, `set_option`, "
+                   "`attribute`, `#` commands: in neither column",
+    "Theorems": "`theorem`/`lemma` declarations plus Velvet `prove_correct` blocks; `example` "
+                "blocks are not counted",
+    "Totals": "the claim rows only; the tools row (`lean/*.lean` executables) is listed but "
+              "not totalled",
+    "sorry": "`\\bsorry\\b` in the comment-stripped text (the coverage matrix's rule)",
+    "native_decide": "occurrences in the comment-stripped text",
+    "Axioms": "`lean/Evm` theorems: their closures in `scripts/generated/axiom-audit.txt` "
+              "(`scripts/verify-axioms.sh`); standard = only `propext`, `Classical.choice`, "
+              "`Quot.sound`; with `native_decide` = the closure has a "
+              "`._native.native_decide` auxiliary axiom. `verify/velvet-slots`: the "
+              "`#print axioms` of `Slots/Axioms.lean`, which `verify-velvet-slots.sh` requires "
+              "to be standard. `verify/protocols`: the axiom checks `verify-protocols.sh` "
+              "requires to be standard",
+    "veil": "Veil's verification conditions are generated by `#gen_theorems` when a model is "
+            "checked and are not in the source: the row counts the model text as definition "
+            "lines and reports the number of models (`veil module`) and the written "
+            "`invariant`/`safety` clauses (shared ones counted once, where written)",
+}
+
+_MODS = r"(?:(?:@\[[^\]]*\]|private|protected|noncomputable|partial|unsafe|nonrec|scoped|local|set_option\s+\S+\s+\S+\s+in)\s+)*"
+_DEF_KW = ("def abbrev structure inductive instance class opaque axiom method macro_rules "
+           "macro syntax elab notation infixl infixr infix prefix postfix").split()
+_VEIL_KW = ("veil action invariant safety relation individual function type procedure "
+            "after_init ghost instantiate assumption immutable enum").split()
+_OTHER_RE = re.compile(r"^(import|namespace|end|section|noncomputable\s+section|open|variable|"
+                       r"universe|set_option|attribute|export|initialize|builtin_initialize|"
+                       r"omit|include|mutual|run_cmd|run_meta|#\w+)\b")
+_HEAD_RE = re.compile(r"^" + _MODS + r"(theorem|lemma|example|prove_correct|"
+                      + "|".join(_DEF_KW) + r")\b(.*)")
+_VEIL_RE = re.compile(r"^(" + "|".join(_VEIL_KW) + r")\b")
+_ATTR_ONLY = re.compile(r"^" + _MODS + r"$")
+_NAME_RE = re.compile(r"\s*([^\s:({\[⦃⟨]+)")
+
+
+def strip_comments_keep_lines(text):
+    """strip_comments, keeping line structure (a block comment becomes its newlines)."""
+    text = re.sub(r"/-.*?-/", lambda m: "\n" * m.group().count("\n"), text, flags=re.S)
+    return re.sub(r"--[^\n]*", "", text)
+
+
+def _statement_end(lines):
+    """Index of the last statement line of a theorem block (see STATS_RULES)."""
+    depth, lets = 0, 0   # lets: open depth-0 `let`/`have` binders inside the statement
+    for i, ln in enumerate(lines):
+        if i > 0 and depth == 0 and ln.lstrip().startswith("| "):
+            return i - 1
+        j = 0
+        while j < len(ln):
+            c = ln[j]
+            if c in "([{⟨⦃":
+                depth += 1
+            elif c in ")]}⟩⦄":
+                depth = max(0, depth - 1)
+            elif depth == 0 and re.match(r"(?<![\w.'])(let|have)\s", ln[j:]) and \
+                    (j == 0 or not (ln[j - 1].isalnum() or ln[j - 1] in "_.'")):
+                lets += 1
+            elif depth == 0 and ln.startswith(":=", j):
+                if lets == 0:
+                    return i
+                lets -= 1
+            j += 1
+    return len(lines) - 1
+
+
+def lean_file_stats(path, rel):
+    """Per-file counts and the qualified names of its theorems."""
+    text = strip_comments_keep_lines(open(path, encoding="utf-8").read())
+    protocols = rel.startswith("verify/protocols/")
+    st = dict(definition_lines=0, theorem_statement_lines=0, proof_lines=0,
+              other_lines=0, theorems=0, examples=0,
+              sorry=len(re.findall(r"\bsorry\b", text)),
+              native_decide=len(re.findall(r"\bnative_decide\b", text)))
+    quals, ns = [], []
+    blocks, cur, pending = [], None, []   # cur = [kind, lines]
+    for ln in text.split("\n"):
+        if not ln.strip():
+            continue
+        if ln[0] not in " \t":
+            m = _HEAD_RE.match(ln)
+            if ln.startswith("@[") and _ATTR_ONLY.match(ln.rstrip() + " "):
+                pending.append(ln)
+                continue
+            if m:
+                kind = {"lemma": "theorem"}.get(m.group(1), m.group(1))
+                kind = kind if kind in ("theorem", "example", "prove_correct") else "def"
+                cur = [kind, pending + [ln]]
+                blocks.append(cur)
+                pending = []
+                if kind == "theorem":
+                    nm = _NAME_RE.match(m.group(2))
+                    if nm:
+                        n = nm.group(1)
+                        quals.append(n[len("_root_."):] if n.startswith("_root_.")
+                                     else ".".join([x for e in ns for x in e] + [n]))
+                continue
+            if protocols and _VEIL_RE.match(ln):
+                cur = ["def", pending + [ln]]
+                blocks.append(cur)
+                pending = []
+                continue
+            o = _OTHER_RE.match(ln)
+            if o:
+                w = ln.split()
+                if w[0] == "namespace" and len(w) > 1:
+                    ns.append(w[1].split("."))
+                elif w[0] == "section":
+                    ns.append([])
+                elif w[0] == "end" and ns:
+                    ns.pop()
+                cur = ["other", pending + [ln]]
+                blocks.append(cur)
+                pending = []
+                continue
+        if cur is None:
+            cur = ["other", []]
+            blocks.append(cur)
+        cur[1].append(ln)
+    if pending:
+        blocks.append(["other", pending])
+    for kind, lines in blocks:
+        if kind == "def":
+            st["definition_lines"] += len(lines)
+        elif kind == "other":
+            st["other_lines"] += len(lines)
+        elif kind == "prove_correct":
+            st["proof_lines"] += len(lines)
+            st["theorems"] += 1
+        else:
+            k = _statement_end(lines) + 1
+            st["theorem_statement_lines"] += k
+            st["proof_lines"] += len(lines) - k
+            st["theorems" if kind == "theorem" else "examples"] += 1
+    return st, quals
+
+
+def parse_axiom_audit(path):
+    """[(qualified theorem, [axioms])] from the committed audit."""
+    t = open(path, encoding="utf-8").read()
+    out = []
+    for m in re.finditer(r"^'([^']+)' (?:depends on axioms: \[(.*?)\]|does not depend on any axioms)",
+                         t, re.M | re.S):
+        axs = [a.strip() for a in (m.group(2) or "").split(",") if a.strip()]
+        out.append((m.group(1), axs))
+    return out
+
+
+STANDARD_AXIOMS = {"propext", "Classical.choice", "Quot.sound"}
+STAT_KEYS = ["files", "statement_lines", "definition_lines", "theorem_statement_lines",
+             "proof_lines", "other_lines", "theorems", "examples", "sorry", "native_decide"]
+
+
+def lean_stats(matrix_sorry):
+    files = []
+    for top in ("lean/Evm", "verify/velvet-slots", "verify/protocols"):
+        for p in glob.glob(os.path.join(REPO, top, "**", "*.lean"), recursive=True):
+            if "/.lake/" not in p:
+                files.append(p)
+    files += glob.glob(os.path.join(REPO, "lean", "*.lean"))
+    comps = {c[0]: dict(id=c[0], title=c[1], paths=c[3].split(), link=GH_TREE + c[2],
+                        **{k: 0 for k in STAT_KEYS},
+                        axioms=dict(audited=0, standard_only=0, native_decide=0, other=0))
+             for c in COMPONENTS}
+    owner, unassigned, evm_sorry = {}, [], 0
+    for p in sorted(set(files)):
+        rel = os.path.relpath(p, REPO).replace(os.sep, "/")
+        cid = next((c[0] for c in COMPONENTS if _claims(rel, c[3])), None)
+        if cid is None:
+            unassigned.append(rel)
+            continue
+        st, quals = lean_file_stats(p, rel)
+        if rel.startswith("lean/Evm/"):
+            evm_sorry += st["sorry"]
+        c = comps[cid]
+        c["files"] += 1
+        for k, v in st.items():
+            c[k] += v
+        for q in quals:
+            owner.setdefault(q, cid)
+        if rel == "verify/velvet-slots/Slots/Axioms.lean":
+            n = len(re.findall(r"^#print axioms", open(p).read(), re.M))
+            c["axioms"]["audited"] += n
+            c["axioms"]["standard_only"] += n
+        if rel.startswith("verify/protocols/EitaVeil/"):
+            src = strip_comments(open(p).read())
+            n = len(re.findall(r"^(?:#print axioms|report_axioms)\b", src, re.M))
+            c["axioms"]["audited"] += n
+            c["axioms"]["standard_only"] += n
+            c.setdefault("veil", dict(models=0, written_clauses=0))
+            c["veil"]["models"] += len(re.findall(r"^veil module\b", src, re.M))
+            c["veil"]["written_clauses"] += len(re.findall(r"^\s*(?:invariant|safety)\s*\[", src, re.M))
+    if unassigned:
+        sys.exit("lean-stats: no component claims " + ", ".join(unassigned)
+                 + " (assign it in COMPONENTS, scripts/refinement_coverage.py)")
+    if evm_sorry != matrix_sorry:
+        sys.exit(f"lean-stats: lean/Evm sorry {evm_sorry} != matrix {matrix_sorry}")
+    unmapped = []
+    for name, axs in parse_axiom_audit(os.path.join(REPO, "scripts", "generated",
+                                                    "axiom-audit.txt")):
+        cid = owner.get(name)
+        if cid is None:
+            unmapped.append(name)
+            continue
+        a = comps[cid]["axioms"]
+        a["audited"] += 1
+        if all(x in STANDARD_AXIOMS for x in axs):
+            a["standard_only"] += 1
+        elif all(x in STANDARD_AXIOMS or "._native.native_decide." in x for x in axs):
+            a["native_decide"] += 1
+        else:
+            a["other"] += 1
+    if unmapped:
+        sys.exit("lean-stats: audited theorems with no declaring file: " + ", ".join(unmapped))
+    rows = [comps[c] for c in PAGE_ORDER]
+    for r in rows:
+        r["statement_lines"] = r["definition_lines"] + r["theorem_statement_lines"]
+    claim = [r for r in rows if r["id"] != "tooling"]   # tools are not part of the claim
+    total = {k: sum(r[k] for r in claim) for k in STAT_KEYS}
+    total["axioms"] = {k: sum(r["axioms"][k] for r in claim)
+                       for k in ("audited", "standard_only", "native_decide", "other")}
+    readme = os.path.join(REPO, "verify", "protocols", "README.md")
+    if "veil" in comps["protocols"] and os.path.exists(readme):
+        # the measured results, quoted from the README's model table
+        comps["protocols"]["veil"]["readme_results"] = {
+            m.group(1): m.group(2).strip()
+            for m in re.finditer(r"^\| `(\w+)` \|[^|\n]*\|([^|\n]*)\|\s*$",
+                                 open(readme).read(), re.M)}
+    tc = open(os.path.join(REPO, "lean", "lean-toolchain")).read().strip()
+    return dict(
+        lean_toolchain=tc, rules=STATS_RULES, components=rows, total=total,
+        reconciliation=dict(
+            sorry_lean_evm=evm_sorry, sorry_coverage_matrix=matrix_sorry,
+            sorry_outside_lean_evm=sum(r["sorry"] for r in rows) - evm_sorry,
+            axiom_audit_entries=total["axioms"]["audited"]
+            - comps["slots"]["axioms"]["audited"] - comps["protocols"]["axioms"]["audited"]))
+
+
+def stats_markdown(d):
+    """docs for the stats: the table, the rules, the reconciliation (deterministic)."""
+    n = "{:,}".format
+    t, rows = d["total"], d["components"]
+    claim = [r for r in rows if r["id"] != "tooling"]
+    tools = [r for r in rows if r["id"] == "tooling"]
+
+    def ax(a):
+        if not a["audited"]:
+            return "—"
+        return (f"{a['audited']}: {a['standard_only']} standard"
+                + (f", {a['native_decide']} with `native_decide`" if a["native_decide"] else ""))
+
+    def line(r, name):
+        th = ("— (" + n(r["veil"]["models"]) + " models)") if "veil" in r else n(r["theorems"])
+        return (f"| {name} | {n(r['statement_lines'])} ({n(r['definition_lines'])} + "
+                f"{n(r['theorem_statement_lines'])}) | {n(r['proof_lines'])} | {th} | "
+                f"{r['sorry']} | {n(r['native_decide'])} | {ax(r['axioms'])} |")
+
+    def comp(r):
+        return (f"[{r['title']}]({r['link']})<br>"
+                + ", ".join(f"`{p}`" for p in r["paths"]))
+    rec = d["reconciliation"]
+    out = ["# Verification statistics", "",
+           "GENERATED by `scripts/refinement_coverage.py --stats-md` — do not edit by hand;",
+           "`scripts/verify-coverage.sh` regenerates it in CI and fails on drift. Lean "
+           + d["lean_toolchain"].split(":")[-1] + ". Overview: [`docs/VERIFIED.md`]"
+           "(../../docs/VERIFIED.md).", "",
+           "Statement lines are what a reader has to trust: the theorem statements and the "
+           "definitions they rely on (shown as definitions + theorem statements). Proof lines "
+           "are machine-checked. The axiom column covers the audited theorems only: "
+           f"{n(t['axioms']['audited'])} of the {n(t['theorems'])} theorems.", "",
+           "| Component | Statement lines (definitions + theorem statements) | Proof lines "
+           "| Theorems | `sorry` | `native_decide` | Axioms (audited theorems only: "
+           f"{n(t['axioms']['audited'])} of {n(t['theorems'])}) |",
+           "|---|---:|---:|---:|---:|---:|---|"]
+    out += [line(r, comp(r)) for r in claim]
+    out.append(line(t, "**Total**"))
+    out += ["", "Tools, not part of the claim and not in the totals:", "",
+            "| Component | Statement lines | Proof lines | Theorems | `sorry` | `native_decide` "
+            "| Axioms |", "|---|---:|---:|---:|---:|---:|---|"]
+    out += [line(r, comp(r)) for r in tools]
+    out += ["", "`native_decide` trusts the Lean compiler's evaluation of a decision "
+            "procedure (an extra axiom per use): see "
+            "[`docs/trusted-surface.md`](../../docs/trusted-surface.md#native_decide).", ""]
+    v = next((r["veil"] for r in rows if "veil" in r), None)
+    if v:
+        out += ["**State-layer protocols (Veil).** " + rules_text(d, "veil")
+                + f" {v['models']} models, {v['written_clauses']} written clauses. Results "
+                "(quoted from `verify/protocols/README.md`):", ""]
+        out += [f"- `{k}`: {val}" for k, val in v.get("readme_results", {}).items()]
+        out.append("")
+    out += ["## Counting rules", ""]
+    out += [f"- **{k}**: {rules_text(d, k)}" for k in d["rules"] if k != "veil"]
+    sor = ", ".join(f"{r['title'].split(' (')[0]} {r['sorry']}" for r in rows if r["sorry"])
+    ex = sum(r["examples"] for r in rows)
+    out += ["", "## Reconciliation", "",
+            f"- `sorry`: {rec['sorry_lean_evm']} in `lean/Evm`, equal to the "
+            f"{rec['sorry_coverage_matrix']} of `scripts/generated/refinement-coverage.md` "
+            f"(the generator fails otherwise); {rec['sorry_outside_lean_evm']} elsewhere. "
+            f"By component: {sor}.",
+            f"- Axioms: all {rec['axiom_audit_entries']} entries of "
+            "`scripts/generated/axiom-audit.txt` map to their declaring file (the generator "
+            "fails otherwise); the Velvet and Veil rows count their own gates' checks.",
+            f"- Theorems: {n(t['theorems'])} in the claim rows, plus "
+            f"{n(sum(r['theorems'] for r in tools))} in the tools; {n(ex)} `example` blocks "
+            "are counted as statement/proof lines but not as theorems.",
+            f"- Files: {n(t['files'])} in the claim rows, "
+            f"{n(sum(r['files'] for r in tools))} tools; other lines (imports, namespaces, "
+            f"`#` commands): {n(t['other_lines'])}.", ""]
+    return "\n".join(out)
+
+
+def rules_text(d, k):
+    return d["rules"][k][0].upper() + d["rules"][k][1:] + "." if k == "veil" \
+        else d["rules"][k] + "."
 
 
 SELFTEST_TREE = {
@@ -902,6 +1311,39 @@ def selftest():
         dd = Decl("theorem", tname, "Q", tstmt, "  trivial", None, [], 0)
         dd.prop = prop_of(dd.statement)
         check(f"shape: {name}", discharges(dd, rel) == want)
+
+    # lean-stats line classification
+    import tempfile as _tf
+    src = """import Foo
+namespace A.B
+/-- doc
+spanning -/
+@[simp]
+theorem t1 (x : Nat) :
+    let y := x  -- a let in the statement
+    y = x := by
+  intro y
+  rfl
+def d : Nat := 1
+  -- comment only
+theorem t2 : ∀ n : Nat, n = n
+  | 0 => rfl
+  | _ + 1 => rfl
+example : 1 = 1 := rfl
+end A.B
+theorem _root_.C.t3 : True := trivial
+"""
+    with _tf.NamedTemporaryFile("w", suffix=".lean", delete=False) as fh:
+        fh.write(src)
+    st, quals = lean_file_stats(fh.name, "lean/Evm/X.lean")
+    os.unlink(fh.name)
+    check("stats: statement lines (attr + let-binder + pattern theorem + one-liners)",
+          st["theorem_statement_lines"] == 4 + 1 + 1 + 1)
+    check("stats: proof lines", st["proof_lines"] == 2 + 2)
+    check("stats: definition / other lines",
+          st["definition_lines"] == 1 and st["other_lines"] == 3)
+    check("stats: theorems / examples", st["theorems"] == 3 and st["examples"] == 1)
+    check("stats: qualified names", quals == ["A.B.t1", "A.B.t2", "C.t3"])
 
     # end-to-end: reviewer repro on the synthetic tree
     root = tempfile.mkdtemp(prefix="refcov-selftest-")

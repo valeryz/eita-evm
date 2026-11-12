@@ -6,7 +6,7 @@
 |---|---|
 | `scripts/verify-host-emit.sh` | the committed generated files (`src/generated/host.lisp`, `c/handlers.S`, `c/handlers-x86-elf.S`) are byte-identical to what the Lean emitters produce now; the effect-layer proofs (`Evm.CL.Effect*Proof`) check, with no `sorry`; no gas-schedule constant copied by hand into the Lisp (`scripts/check-derived-gas.py`); the interpreter runs against checking callbacks (`c/test_interp`) |
 | `scripts/verify-axioms.sh` | the axiom closure of the audited theorems (`lean/AxiomAudit.lean`) matches the committed baseline (`scripts/generated/axiom-audit.txt`): no new axiom, `sorry` or `native_decide` slips in |
-| `scripts/verify-coverage.sh` | the refinement-coverage ratchet (`scripts/refinement_coverage.py`): the count of open refinement obligations may only go down |
+| `scripts/verify-coverage.sh` | the refinement-coverage ratchet (`scripts/refinement_coverage.py`): the count of open refinement obligations may only go down; the same generator writes `scripts/generated/verification-stats.md` (per-component statement / proof lines, theorems, `sorry`, axiom closure) and the gate fails on its drift |
 | `scripts/verify-jit-emit.sh`, `verify-asm-*.sh`, `verify-x86-*.sh` | the ARM64 and x86-64 encoders, instruction items and handler gadgets against their Lean denotations and test vectors |
 
 ## The Lisp test suites

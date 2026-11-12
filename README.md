@@ -99,6 +99,8 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 
 ## Status
 
+- **What is proved, checked and trusted**: [`docs/VERIFIED.md`](docs/VERIFIED.md); the numbers per
+  component in [`scripts/generated/verification-stats.md`](scripts/generated/verification-stats.md).
 - **ethereum/tests**: the Cancun battery (`LegacyTests/Cancun/BlockchainTests`, 111,983
   tests, Frontier..Cancun) passes on both tiers, the threaded interpreter and the JIT:
   `pass=111835 fail=0 skip=40 xfail=108`, every expected failure listed with its reason

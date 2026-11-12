@@ -147,6 +147,15 @@ Other trusted pieces outside C, for completeness: the SBCL runtime and compiler,
 and the emitters' printers (the emitted text is what runs), and the Common Lisp host code that is
 not yet emitted from Lean (listed in `scripts/generated/refinement-coverage.md`).
 
+## `native_decide`
+
+A proof by `native_decide` trusts the Lean compiler: the decision procedure is compiled and run, and its
+answer is admitted through an auxiliary axiom (`…._native.native_decide.ax_…` in an axiom closure). Eita uses
+it for finite checks over emitted code and tables (counts per component in
+`scripts/generated/verification-stats.md`); `lean/AxiomAudit.lean`'s extern rule fails if such a proof
+runs an `@[extern]` / `@[implemented_by]` constant outside its short reviewed list, so what is evaluated is
+Lean code, not a C library.
+
 ## Planned: the native storage path (owner note 6; docs/native-storage.md)
 
 Each section is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
