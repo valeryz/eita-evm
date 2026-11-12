@@ -1,0 +1,5 @@
+# The pinned statements of the headline theorems (scripts/verify-comparator.sh,
+# docs/trusted-surface.md): a change needs the owner's review.
+/lean/Comparator/ @valeryz
+/scripts/generated/comparator-challenge.sha256 @valeryz
+/scripts/verify-comparator.sh @valeryz

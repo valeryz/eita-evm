@@ -245,3 +245,9 @@ lean_exe recoveryVectors where
 lean_exe cryptoTests where
   root := `CryptoTests
 
+
+/-- The Lean comparator's challenge (the owner-reviewed statements of the headline theorems)
+    and its solution (each proved by the real theorem). Not a default target: only
+    `scripts/verify-comparator.sh` builds it, through `lake comparator`. -/
+lean_lib Comparator where
+  globs := #[.andSubmodules `Comparator]
