@@ -1,0 +1,19 @@
+name = "velvetSlots"
+defaultTargets = ["Slots"]
+
+# verse-lab/velvet main at b2a349a (2026-11-05; Apache-2.0), on core's toolchain (lean-toolchain is a
+# link to ../../lean/lean-toolchain). Velvet needs only plausible; core's lean/ package is not
+# required (that would pull Mathlib in), so core's main build gains no dependency.
+[[require]]
+name = "velvet"
+git = "https://github.com/verse-lab/velvet"
+rev = "b2a349a57021b6d4e24ab403365b404db1ce7e08"
+
+# Core's slot-table model, compiled here from core's own file (the one copy): it imports nothing.
+[[lean_lib]]
+name = "WorldSlotsModel"
+srcDir = "../../lean"
+roots = ["Evm.CL.WorldSlotsModel"]
+
+[[lean_lib]]
+name = "Slots"

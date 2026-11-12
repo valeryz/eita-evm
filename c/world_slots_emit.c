@@ -1,8 +1,8 @@
 /* world_slots_emit.c: GENERATED, do not edit. Printed by Eita's Velvet C printer from the slot
    table's Velvet methods, each proved (in Lean, with Velvet) against the slot-table model for every
    capacity: find, place, remove, next, create, rehash, grow, put, lookup, dirGrow, copyArrs, fresh.
-   The proofs and the printer are in Eita's separate velvet-slots package (to be published); a drift
-   check there regenerates this file and fails if it differs. Glue: world_slots.c. */
+   The proofs and the printer: verify/velvet-slots/ (its own Lake package); scripts/verify-velvet-slots.sh
+   regenerates this file and fails if it differs. Glue: world_slots.c. */
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>

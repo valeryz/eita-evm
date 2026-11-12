@@ -39,7 +39,7 @@ tables are THE copy: the Lisp `slots` struct and its table code are deleted. Lis
 (state/world.lisp), which pass limbs, so bignums are made only where Lisp needs an integer.
 
 Since the Velvet swap the table is no longer hand-written: `c/world_slots_emit.c` is printed from Velvet methods
-proved for every capacity against `WorldSlotsModel` (proofs in a separate Velvet package, to be published), and
+proved for every capacity against `WorldSlotsModel` (proofs and printer: `verify/velvet-slots/`, checked by `scripts/verify-velvet-slots.sh`), and
 `c/world_slots.c` is the glue (struct packing, frees, the directory's pointer array); the ABI, the CBMC harness and
 the tests are unchanged. Trust: docs/trusted-surface.md, "Table primitives".
 

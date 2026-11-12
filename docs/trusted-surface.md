@@ -204,9 +204,10 @@ the 4-entry fresh table, the directory size rule (aborts only for an id >= 2^40)
 level, the glue's operations (touch, put, remove, drop, get, has-table, copy) are proved equal to the model's
 under the abstraction, the walk visits exactly the present (key, value) pairs in index order, and every abort
 condition is stated exactly. The printer indexes arrays only under a proved bound, so every array access in the
-emitted C is in bounds by proof. The proofs, the printer and a drift check that regenerates
-`c/world_slots_emit.c` and fails on any difference live in Eita's separate Velvet package (its own Lean toolchain;
-core gains no Lean dependency); they will be published.
+emitted C is in bounds by proof. The proofs and the printer are `verify/velvet-slots/`, a Lake
+package of its own (Velvet, on core's toolchain; `lean/` gains no dependency) that compiles core's
+`WorldSlotsModel.lean` in place; `scripts/verify-velvet-slots.sh` (in CI) builds every proof, checks the axioms,
+regenerates `c/world_slots_emit.c` and fails on any difference.
 
 **Still trusted.**
 - The Velvet C printer: Lean method bodies -> C, the same class as the effect IR's printers.
@@ -214,7 +215,7 @@ core gains no Lean dependency); they will be published.
   aborts keep capacities and ids below 2^40, so `8·cap`, `4·(used+1)` and the directory size cannot wrap.
 - The glue `c/world_slots.c` (135 lines, 90 of code): packs and unpacks the struct, frees the arrays a grow replaced,
   keeps the directory's pointer array, calls the map callback. It makes no table decision; the package's
-  world-level proofs mirror it line by line, but the glue itself is hand-written C.
+  world-level proofs (`verify/velvet-slots/Slots/World.lean`) mirror it line by line, but the glue itself is hand-written C.
 
 **Still checked** (unchanged, now on the emitted C). CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
 table of capacity 4 or 8 satisfying the probing invariant, get, place, remove and grow are memory-safe (bounds,

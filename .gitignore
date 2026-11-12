@@ -7,6 +7,7 @@
 
 # Lean build and local corpora (ethereum/tests checkouts, block files)
 lean/.lake/
+verify/velvet-slots/.lake/
 lean/external/
 data/
 

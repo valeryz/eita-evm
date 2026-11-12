@@ -88,6 +88,17 @@ jobs:
       - name: Emitted-artifact drift, effect proofs, derived-gas lint, test_interp
         run: scripts/verify-host-emit.sh
 
+      - name: Cache verify/velvet-slots/.lake (Velvet + plausible, the slot-table proofs)
+        uses: actions/cache@v4
+        with:
+          path: verify/velvet-slots/.lake
+          key: velvet-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'verify/velvet-slots/lake-manifest.json') }}-${{ hashFiles('verify/velvet-slots/**/*.lean', 'lean/Evm/CL/WorldSlotsModel.lean') }}
+          restore-keys: |
+            velvet-${{ runner.os }}-${{ hashFiles('lean/lean-toolchain', 'verify/velvet-slots/lake-manifest.json') }}-
+
+      - name: The slot table's Velvet proofs; c/world_slots_emit.c = the printer's output
+        run: scripts/verify-velvet-slots.sh
+
       - name: Native slot tables (ASan/UBSan unit test, the Lean model's trace, CBMC proofs)
         run: |
           make -C c test_world_slots test_world_slots_model

@@ -29,6 +29,7 @@ from, or tests against the following works. Their licenses apply to those parts.
 | package | license |
 |---|---|
 | [Mathlib](https://github.com/leanprover-community/mathlib4) and its dependencies (batteries, aesop, Qq, ProofWidgets, plausible, importGraph, LeanSearchClient, Cli) | Apache-2.0 |
+| [Velvet](https://github.com/verse-lab/velvet) (verse-lab; `verify/velvet-slots/lake-manifest.json`, with plausible) — the slot table's proofs, not linked into anything | Apache-2.0 |
 | Lean 4 toolchain | Apache-2.0 |
 
 ## Common Lisp dependencies (ocicl, pinned by digest in `ocicl.csv`; fetched, not vendored)
