@@ -93,7 +93,7 @@
    first touch)."
   (incf (getf *snap-stats* :acct-faults))
   (multiple-value-bind (found nonce balance codehash exists-empty code)
-      (eita.state.snapshot:view-account *layers* *base* addr)
+      (eita.state.snapshot:view-account *layers* *base* addr) ; @veil snap-fault-account/view
     (when found
       (with-acct (tb a) *current-world* addr
         (when (plusp nonce) (setf (acct-nonce tb a) nonce))
@@ -102,7 +102,7 @@
           (setf (acct-code tb a)
                 (or code
                       (gethash codehash *code-intern*)
-                      (let ((code (eita.state.snapshot:view-code *layers* *base* codehash)))
+                      (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
                         (unless code
                           (error "account ~X names code ~X that no layer and no base holds" addr codehash))
                         ;; seed the JIT cache's memo: no keccak for code read by hash
@@ -116,7 +116,7 @@
    is 0, and stays present when set to 0."
   (with-acct (tb a) *current-world* addr
     (incf (getf *snap-stats* :slot-faults))
-    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot)))))
+    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot))))) ; @veil snap-fault-slot/view
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
 
@@ -125,7 +125,7 @@
    not faulted (and so not overridden), unless ADDR's storage was wiped since the freeze."
   (with-acct (tb a) *current-world* addr
    (unless (acct-flag-p tb a +acct-wiped+)
-    (eita.state.snapshot:view-map-account-storage
+    (eita.state.snapshot:view-map-account-storage ; @veil snap-cold-storage-map/view
      *layers* *base* addr (lambda (slot v)
                             (unless (acct-slot-present-p tb a slot)
                               (funcall fn slot v)))))))
@@ -206,8 +206,8 @@
                                                   full p n (engine-code-version)))
       ;; the subscribers' state at N is durable before the layer at N is (I5 with layers)
       (when (ram-layer-ready l) (funcall (ram-layer-ready l)))
-      (eita.state.snapshot:snap-publish dir n tmp :final final)
-      (eita.state.snapshot:snap-open final))))
+      (eita.state.snapshot:snap-publish dir n tmp :final final) ; @veil write-ram-tables/publish
+      (eita.state.snapshot:snap-open final)))) ; @veil write-ram-tables/open
 
 ;;; ---------------------------------------------------------------- the writer thread
 
@@ -231,11 +231,11 @@
 (defun write-layer! (l)
   (let (below base)
     (sb-thread:with-mutex (*stack-lock*)
-      (setf *writer-busy* t below (stack-below l) base *base*))
-    (when (some #'ram-layer-p below) (error "writer: a RAM layer below ~D" (ram-layer-block l)))
-    (let ((snap (write-ram-tables l below base)))
+      (setf *writer-busy* t below (stack-below l) base *base*)) ; @veil write-layer!/take
+    (when (some #'ram-layer-p below) (error "writer: a RAM layer below ~D" (ram-layer-block l))) ; @veil write-layer!/ram-below
+    (let ((snap (write-ram-tables l below base))) ; @veil write-layer!/write
       (sb-thread:with-mutex (*stack-lock*)
-        (let ((new (substitute snap l *layers*)))
+        (let ((new (substitute snap l *layers*))) ; @veil write-layer!/swap
           (sb-thread:barrier (:write))
           (setf *layers* new *writer-busy* nil
                 *written* (cons (+ (ram-layer-bytes l) (or (car *written*) 0)) (cons l (cdr *written*)))))))))
@@ -256,9 +256,9 @@
    conservative root); their native slot tables go with them (finalizers). A full GC at
    ~2 GB live costs 1-2 s."
   (let ((w (and *written* (>= (car *written*) (floor (hot-budget-bytes) 4))
-                (sb-thread:with-mutex (*stack-lock*) (shiftf *written* '())))))
+                (sb-thread:with-mutex (*stack-lock*) (shiftf *written* '()))))) ; @veil collect-written!/take
     (when w
-      (dolist (l (cdr w)) (setf (ram-layer-accts l) nil))
+      (dolist (l (cdr w)) (setf (ram-layer-accts l) nil)) ; @veil collect-written!/cut
       (sb-ext:gc :full t)
       (format t "~&[layers] dropped ~D written hot sets (~,1F MB); heap ~,1F MB after a full GC~%"
               (length (cdr w)) (/ (car w) 1048576.0) (/ (sb-kernel:dynamic-usage) 1048576.0))
@@ -297,14 +297,14 @@
    to the writer) and the world continues on an empty one. O(1); waits only when four
    frozen layers are already queued (bounded memory)."
   (ensure-writer!)
-  (let ((l (make-ram-layer :block n :parent (stack-top-block) :root root-hex
+  (let ((l (make-ram-layer :block n :parent (stack-top-block) :root root-hex ; @veil freeze!/make
                            :accts (world-accts world) :ready ready
                            :bytes (multiple-value-call #'+ (acct-table-bytes (world-accts world))))))
     (clear-hot! world)
     (sb-thread:with-mutex (*stack-lock*)
-      (let ((new (cons l *layers*))) (sb-thread:barrier (:write)) (setf *layers* new)))
+      (let ((new (cons l *layers*))) (sb-thread:barrier (:write)) (setf *layers* new))) ; @veil freeze!/push
     (incf (getf *snap-stats* :freezes))
-    (pipe-put *writer-pipe* l)
+    (pipe-put *writer-pipe* l) ; @veil freeze!/pipe
     l))
 
 (defun stack-composition (n)
@@ -328,14 +328,14 @@
    APPEND reads the RAM layers before the snaps; in the other order the writer's swap of
    layer N between the two reads drops N from both (a Veil protocol model, 10 steps)."
   (multiple-value-bind (base layers)
-      (sb-thread:with-mutex (*stack-lock*) (values *base* *layers*))
+      (sb-thread:with-mutex (*stack-lock*) (values *base* *layers*)) ; @veil live-components/read
    (append
-    (loop for l in layers when (ram-layer-p l) collect (list :layer (ram-layer-parent l) (ram-layer-block l)))
+    (loop for l in layers when (ram-layer-p l) collect (list :layer (ram-layer-parent l) (ram-layer-block l))) ; @veil live-components/ram
     (mapcar (lambda (c) (subseq c 0 (1- (length c))))
-            (append (mapcar #'eita.state.snapshot:component-of (remove-if-not #'eita.state.snapshot:snap-p (cons base layers)))
-                    (and *pending-root* (fifth *pending-root*))))
+            (append (mapcar #'eita.state.snapshot:component-of (remove-if-not #'eita.state.snapshot:snap-p (cons base layers))) ; @veil live-components/snaps
+                    (and *pending-root* (fifth *pending-root*)))) ; @veil live-components/pending
     (and *compacting-base* (list (list :base (eita.state.snapshot:snap-block *compacting-base*))))
-    (and *compactor-job*
+    (and *compactor-job* ; @veil live-components/job
          (ecase (first *compactor-job*)
            (:minor (list (list :layer (third *compactor-job*) (fourth *compactor-job*))))
            (:major (list (list :base (third *compactor-job*)))))))))
@@ -352,9 +352,9 @@
   (format t "~&[layers] ~(~A~) compaction of ~D layers to block ~D started~%"
           (first job) (length (second job)) (car (last job)))
   (force-output)
-  (setf *compactor-job* job *compactor-result* nil)
-  (let ((base *base*))
-    (setf *compactor*
+  (setf *compactor-job* job *compactor-result* nil) ; @veil start-compaction!/job
+  (let ((base *base*)) ; @veil start-compaction!/base
+    (setf *compactor* ; @veil start-compaction!/thread
           (sb-thread:make-thread
            (lambda ()
              (handler-case
@@ -365,22 +365,22 @@
                             (destructuring-bind (run p n) (rest job)
                               (let ((tmp (eita.state.snapshot:layer-tmp-path dir p n)) (fin (eita.state.snapshot:layer-path dir p n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root)
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
                                                           run nil :parent p
                                                           :provenance (format nil "eita minor compaction ~D-~D, code ~A" p n (engine-code-version)))
-                                (eita.state.snapshot:snap-publish dir n tmp :final fin)
-                                (list :minor run (eita.state.snapshot:snap-open fin)))))
+                                (eita.state.snapshot:snap-publish dir n tmp :final fin) ; @veil start-compaction!/publish
+                                (list :minor run (eita.state.snapshot:snap-open fin))))) ; @veil start-compaction!/open
                            (:major
                             (destructuring-bind (run n) (rest job)
                               (let ((tmp (eita.state.snapshot:snap-tmp-path dir n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root)
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
                                                           run base
                                                           :provenance (format nil "eita major compaction to ~D over ~D, code ~A"
                                                                               n (eita.state.snapshot:snap-block base) (engine-code-version)))
-                                (eita.state.snapshot:snap-publish dir n tmp)
+                                (eita.state.snapshot:snap-publish dir n tmp) ; @veil start-compaction!/publish
                                 ;; opened here: its fence is built off the replay thread
-                                (list :major run (eita.state.snapshot:snap-open (eita.state.snapshot:snap-path dir n)))))))))
+                                (list :major run (eita.state.snapshot:snap-open (eita.state.snapshot:snap-path dir n))))))))) ; @veil start-compaction!/open
                (error (e)
                  (setf *compactor-error* e)
                  (format *error-output* "~&[layers] compaction ~S failed: ~A~%" (subseq job 0 1) e))))
@@ -412,8 +412,8 @@
    the next job when one is due. PENDING-ANCHORS: blocks whose root checks are still to
    run (they must stay layer boundaries). Returns a block whose compacted base needs its
    root check, or NIL."
-  (when (and *compactor* (not (sb-thread:thread-alive-p *compactor*)))
-    (sb-thread:join-thread *compactor* :default nil)
+  (when (and *compactor* (not (sb-thread:thread-alive-p *compactor*))) ; @veil compaction-step!/take
+    (sb-thread:join-thread *compactor* :default nil) ; @veil compaction-step!/join
     (setf *compactor* nil)
     (writer-check!)
     (let ((r *compactor-result*))
@@ -423,23 +423,23 @@
          (destructuring-bind (run composed) (rest r)
            (sb-thread:with-mutex (*stack-lock*)
              (let* ((pos (position (first run) *layers*))
-                    (new (append (subseq *layers* 0 pos) (list composed) (nthcdr (+ pos (length run)) *layers*))))
+                    (new (append (subseq *layers* 0 pos) (list composed) (nthcdr (+ pos (length run)) *layers*)))) ; @veil compaction-step!/splice
                (sb-thread:barrier (:write))
                (setf *layers* new)))
-           (setf *retired* (append run *retired*))
+           (setf *retired* (append run *retired*)) ; @veil compaction-step!/retire
            (format t "~&[layers] composed ~D layers into layer-~D-~D~%" (length run)
                    (eita.state.snapshot:snap-parent composed) (eita.state.snapshot:snap-block composed))
            (prune-dumps!)))
         (:major
          ;; the new base replaces the old one only once its own root check passed
-         (setf *compacting-base* (third r))
+         (setf *compacting-base* (third r)) ; @veil compaction-step!/cbase
          (return-from compaction-step! (eita.state.snapshot:snap-block (third r)))))))
-  (unless (or *compactor* *compacting-base* *no-new-compaction*)
-    (let* ((disk (remove-if #'ram-layer-p *layers*))          ; newest first
+  (unless (or *compactor* *compacting-base* *no-new-compaction*) ; @veil compaction-step!/guard
+    (let* ((disk (remove-if #'ram-layer-p *layers*))          ; newest first; @veil compaction-step!/disk
            (old (reverse disk))
-           (horizon (- n (reorg-window)))
+           (horizon (- n (reorg-window))) ; @veil compaction-step!/horizon
            (fence (and pending-anchors (reduce #'min pending-anchors))))
-      (let ((run (and (> (length disk) +max-layers+)
+      (let ((run (and (> (length disk) +max-layers+) ; @veil compaction-step!/minor-run
                       (minor-run (loop for l in old
                                        while (and (<= (eita.state.snapshot:snap-block l) horizon)
                                                   (or (null fence) (<= (eita.state.snapshot:snap-block l) fence)))
@@ -449,18 +449,18 @@
           ;; layers of like size composed into one, never past a pending anchor or into the
           ;; reorg window — the stack stays shallow for reads whatever the layers' spans
           (run                                  ; RUN: newest first
-           (start-compaction! (list :minor run (eita.state.snapshot:snap-parent (car (last run)))
+           (start-compaction! (list :minor run (eita.state.snapshot:snap-parent (car (last run))) ; @veil compaction-step!/minor
                                     (eita.state.snapshot:snap-block (first run)))))
           ;; major: the layers outweigh an eighth of the base. Strictly below a queued
           ;; anchor: a base AT it would take the anchor's boundary out of the stack before
           ;; its own check, which then never runs (`stack-composition` NIL; the twin)
           ((and *base* disk
                 (> (reduce #'+ disk :key #'layer-bytes) (floor (layer-bytes *base*) 8)))
-           (let ((run (remove-if (lambda (l) (or (> (eita.state.snapshot:snap-block l) horizon)
+           (let ((run (remove-if (lambda (l) (or (> (eita.state.snapshot:snap-block l) horizon) ; @veil compaction-step!/major-run
                                                  (and fence (>= (eita.state.snapshot:snap-block l) fence))))
                                  disk)))
              (when run
-               (start-compaction! (list :major run (eita.state.snapshot:snap-block (first run)))))))))))
+               (start-compaction! (list :major run (eita.state.snapshot:snap-block (first run))))))))))) ; @veil compaction-step!/major
   nil)
 
 (defun discard-compacting-base! (why)
@@ -468,12 +468,12 @@
    replace the base: its due check is forgotten, the snap closed and its directory deleted
    (no passed check names it: it is no resume point), and compaction and GC resume (both
    wait while it is set). Its root check, if running, was stopped first (`rollback-to!`)."
-  (let ((s (shiftf *compacting-base* nil)))
+  (let ((s (shiftf *compacting-base* nil))) ; @veil discard-compacting-base!/forget
     (when s
       (let ((m (eita.state.snapshot:snap-block s)))
-        (when (eql *base-check-due* m) (setf *base-check-due* nil))
-        (eita.state.snapshot:snap-close s)
-        (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir s)))) :search t)
+        (when (eql *base-check-due* m) (setf *base-check-due* nil)) ; @veil discard-compacting-base!/due
+        (eita.state.snapshot:snap-close s) ; @veil discard-compacting-base!/close
+        (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir s)))) :search t) ; @veil discard-compacting-base!/rm
         (format t "~&[layers] compacted base snap-~D DISCARDED: ~A~%" m why)
         (force-output)))))
 
@@ -483,18 +483,18 @@
    reorg below M discards it first (`rollback-to!`), so this refusal is a second line: it
    never installs a base that would sit under layers of another branch."
   (let ((s *compacting-base*))
-    (unless (and s (eql m (eita.state.snapshot:snap-block s)) (member m *layers* :key #'layer-block))
+    (unless (and s (eql m (eita.state.snapshot:snap-block s)) (member m *layers* :key #'layer-block)) ; @veil compaction-swap!/refuse
       (format *error-output* "~&[layers] REFUSED to swap in compacted base snap-~D: ~:[none is pending~;~:*block ~D is not a layer boundary of the stack (a rollback went below it)~]~%"
               m (and s (eita.state.snapshot:snap-block s)))
-      (when s (discard-compacting-base! (format nil "block ~D is not in the stack" m)))
+      (when s (discard-compacting-base! (format nil "block ~D is not in the stack" m))) ; @veil compaction-swap!/discard
       (return-from compaction-swap! nil))
     (sb-thread:with-mutex (*stack-lock*)
-      (let ((gone (cons *base* (member m *layers* :key #'layer-block)))
-            (keep (ldiff *layers* (member m *layers* :key #'layer-block))))
-        (setf *retired* (append gone *retired*))
+      (let ((gone (cons *base* (member m *layers* :key #'layer-block))) ; @veil compaction-swap!/gone
+            (keep (ldiff *layers* (member m *layers* :key #'layer-block)))) ; @veil compaction-swap!/keep
+        (setf *retired* (append gone *retired*)) ; @veil compaction-swap!/retire
         (sb-thread:barrier (:write))
-        (setf *base* s *layers* keep)))
-    (setf *compacting-base* nil)
+        (setf *base* s *layers* keep))) ; @veil compaction-swap!/install
+    (setf *compacting-base* nil) ; @veil compaction-swap!/done
     (format t "~&[layers] base is now snap-~D (~D layers above it)~%" m (length *layers*))
     t))
 
@@ -508,8 +508,8 @@
 
 (defun close-retired! ()
   "Close swapped-out snaps once neither background thread can be reading them."
-  (when (and *retired* (not *writer-busy*) (null *compactor*))
-    (mapc #'eita.state.snapshot:snap-close *retired*)
+  (when (and *retired* (not *writer-busy*) (null *compactor*)) ; @veil close-retired!/guard
+    (mapc #'eita.state.snapshot:snap-close *retired*) ; @veil close-retired!/close
     (setf *retired* '())))
 
 ;;; ---------------------------------------------------------------- reorg rollback
@@ -519,31 +519,31 @@
    every layer above T (frozen or on disk), the hot set, and the root check and pending
    compacted base above T. Returns T; the caller re-executes T+1..B and then the new
    branch. Lean: `rollback_view`."
-  (writer-drain!)
+  (writer-drain!) ; @veil rollback-to!/drain
   ;; a running compaction finishes first (its result is taken at the next poll); it never
   ;; touches the newest `reorg-window` blocks, so a reorg within the window leaves it valid
-  (when *compactor* (sb-thread:join-thread *compactor* :default nil))
-  (when (and *compactor-job* (> (layer-block (first (second *compactor-job*))) b))
+  (when *compactor* (sb-thread:join-thread *compactor* :default nil)) ; @veil rollback-to!/join
+  (when (and *compactor-job* (> (layer-block (first (second *compactor-job*))) b)) ; @veil rollback-to!/job-guard
     (error "rollback to ~D: a compaction covered blocks up to ~D (the reorg is deeper than the window)"
            b (layer-block (first (second *compactor-job*)))))
-  (let* ((keep (member-if (lambda (l) (<= (layer-block l) b)) *layers*))
+  (let* ((keep (member-if (lambda (l) (<= (layer-block l) b)) *layers*)) ; @veil rollback-to!/keep
          (drop (ldiff *layers* keep))
-         (top (if keep (layer-block (first keep)) (eita.state.snapshot:snap-block *base*))))
-    (when (and (null keep) (> (eita.state.snapshot:snap-block *base*) b))
+         (top (if keep (layer-block (first keep)) (eita.state.snapshot:snap-block *base*)))) ; @veil rollback-to!/top
+    (when (and (null keep) (> (eita.state.snapshot:snap-block *base*) b)) ; @veil rollback-to!/base-guard
       (error "rollback to ~D: below the base snap-~D (the reorg is deeper than the layers)" b (eita.state.snapshot:snap-block *base*)))
     ;; everything above TOP belongs to the abandoned branch: a root check in flight (of an
     ;; anchor, or of a compacted base) and a finished compaction's base waiting for its check.
     ;; Left set, a killed base check stalled compaction, GC and `finish-anchors!` for good; a
     ;; check not yet started passed later (against snap-M's own root) and installed the old
     ;; branch's snap-M under the kept layers (a Veil model, CompactionDeepReorg, 17 steps)
-    (when (and *pending-root* (> (first *pending-root*) top))
+    (when (and *pending-root* (> (first *pending-root*) top)) ; @veil rollback-to!/kill
       (kill-root-check!))
-    (when (and *compacting-base* (> (eita.state.snapshot:snap-block *compacting-base*) top))
+    (when (and *compacting-base* (> (eita.state.snapshot:snap-block *compacting-base*) top)) ; @veil rollback-to!/discard
       (discard-compacting-base! (format nil "rollback to ~D" top)))
-    (sb-thread:with-mutex (*stack-lock*) (sb-thread:barrier (:write)) (setf *layers* keep))
+    (sb-thread:with-mutex (*stack-lock*) (sb-thread:barrier (:write)) (setf *layers* keep)) ; @veil rollback-to!/publish
     (dolist (l drop)
-      (eita.state.snapshot:snap-close l)
-      (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir l)))) :search t))
+      (eita.state.snapshot:snap-close l) ; @veil rollback-to!/close
+      (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring (eita.state.snapshot:snap-dir l)))) :search t)) ; @veil rollback-to!/rm
     (clear-hot! world)
     (format t "~&[layers] rolled back to block ~D (~D layers dropped)~%" top (length drop))
     (force-output)

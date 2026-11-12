@@ -1,0 +1,17 @@
+name = "eitaProtocols"
+defaultTargets = ["EitaVeil"]
+
+# verse-lab/veil at 22cbf1a (Apache-2.0; it brings lean-smt and the cvc5 bindings, Apache-2.0,
+# and fetches cvc5's BSD-3 release binary), on core's toolchain (lean-toolchain is a link to
+# ../../lean/lean-toolchain). lake-manifest.json pins every dependency by full SHA. Core's lean/
+# package is not required: core's main build gains no dependency.
+[[require]]
+name = "veil"
+git = "https://github.com/verse-lab/veil.git"
+rev = "22cbf1affc1c4b6ab3fe290e773313dba7499165"
+
+# The models' shared parts and the code check; the models themselves (EitaVeil/*.lean) are
+# elaborated one at a time by scripts/verify-protocols.sh (minutes and GBs each), not built.
+[[lean_lib]]
+name = "EitaVeil"
+roots = ["EitaVeil.Code", "EitaVeil.LayerGc", "EitaVeil.CompactionParts"]

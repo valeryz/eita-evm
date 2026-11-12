@@ -30,6 +30,8 @@ from, or tests against the following works. Their licenses apply to those parts.
 |---|---|
 | [Mathlib](https://github.com/leanprover-community/mathlib4) and its dependencies (batteries, aesop, Qq, ProofWidgets, plausible, importGraph, LeanSearchClient, Cli) | Apache-2.0 |
 | [Velvet](https://github.com/verse-lab/velvet) (verse-lab; `verify/velvet-slots/lake-manifest.json`, with plausible) — the slot table's proofs, not linked into anything | Apache-2.0 |
+| [Veil](https://github.com/verse-lab/veil) (verse-lab; `verify/protocols/lake-manifest.json`, with Loom, Lentil, Lasso, VerifiedHAMT, lean-auto, [lean-smt](https://github.com/verse-lab/lean-smt) and the [cvc5 bindings](https://github.com/abdoo8080/lean-cvc5)) — the protocol models, not linked into anything | Apache-2.0 |
+| [cvc5](https://cvc5.github.io) 1.3.2, the release binary lean-cvc5 fetches at build time (not redistributed; statically links GMP, LGPL-3, and CaDiCaL, MIT) — the models' SMT solver | BSD-3-Clause |
 | Lean 4 toolchain | Apache-2.0 |
 
 ## Common Lisp dependencies (ocicl, pinned by digest in `ocicl.csv`; fetched, not vendored)

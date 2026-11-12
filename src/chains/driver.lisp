@@ -222,13 +222,13 @@
   "Forget everything above the newest layer boundary T <= FORK: layers, the running root
    check and a pending compacted base (`rollback-to!`), queued root checks, observers'
    records (the stream's :rollback), block hashes and the source's blocks. Returns T+1."
-  (let ((top (rollback-to! world fork)))
+  (let ((top (rollback-to! world fork))) ; @veil rollback-chain!/rollback
     ;; an anchor above TOP belongs to the abandoned branch
     (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*))
     (stream-rollback! top)
     (loop for b being the hash-keys of *block-hashes* when (> b top) do (remhash b *block-hashes*))
     (source-call #'block-source-forget-above top)
-    (1+ top)))
+    (1+ top))) ; @veil rollback-chain!/resume
 
 ;;; --- Starting state ----------------------------------------------------------------
 (defun composition-sealed-p (comps)

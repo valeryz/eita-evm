@@ -106,7 +106,7 @@
   "Blocks a reorg may undo (the chain-spec's; Ethereum finality is two epochs). At the tip
    every block within it is a layer; compaction never touches those layers, and an anchor
    there is root-checked only once its block is this deep."
-  (if *chain-spec* (chain-spec-reorg-depth *chain-spec*) 64))
+  (if *chain-spec* (chain-spec-reorg-depth *chain-spec*) 64)) ; @veil reorg-window/depth
 (defvar *tip-freeze* nil "True while following the tip: freeze after every block (reorgs).")
 (defvar *compacting-base* nil
   "A compacted base waiting for its root check (a snap, opened by the compactor).")
@@ -162,7 +162,7 @@
    every base or layer that no kept resume point (the two newest verified, up to two
    unverified above them) is made of."
   ;; not while a compacted base waits for its root check: no point names it yet
-  (unless *compacting-base*
+  (unless *compacting-base* ; @veil prune-dumps!/not-compacting
     (let ((gone (eita.state.recovery:run-gc (state-dir) :pinned (live-components))))
       (when gone (format t "~&[anchor] gc: deleted ~{~A~^ ~}~%" gone) (force-output)))))
 
@@ -206,12 +206,12 @@
                (ok (and cl-root (string-equal cl-root (root-strip-0x expected-hex))))
                (computed (or cl-root text)))
           ;; `eita check-root` exits 1 on a mismatch, so its root line decides, not the code
-          (unless cl-root
+          (unless cl-root ; @veil root-check-finish!/norun
             (ignore-errors (delete-file out))
             (format t "~&[anchor] block ~D root check could NOT RUN (eita check-root exited ~A) — not a root mismatch (its stderr: state-~D.rootout.err). Anchor UNVERIFIED, no anchors line written; replay continues.~%"
                     n code n)
             (force-output)
-            (when (eq kind :base)                                 ; a later compaction retries
+            (when (eq kind :base)                                 ; a later compaction retries; @veil root-check-finish!/norun-base
               (eita.state.snapshot:snap-close (shiftf *compacting-base* nil)))
             (prune-dumps!)
             (return-from root-check-finish! nil))
@@ -222,10 +222,10 @@
           (format t "~&[anchor] block ~D~:[~; (compacted base)~] root ~A ~A~%" n (eq kind :base)
                   (if ok "OK" "MISMATCH") (string-trim '(#\Newline) text))
           (force-output)
-          (unless ok
+          (unless ok ; @veil root-check-finish!/mismatch
             (error "state-root MISMATCH at block ~D~:[~; in a COMPACTED BASE (the stack checked fine: a compaction bug)~] (last good anchor ~A): densify+bisect the range ~A..~D"
                    n (eq kind :base) *last-good-anchor* *last-good-anchor* n))
-          (if (eq kind :base)
+          (if (eq kind :base) ; @veil root-check-finish!/swap
               (compaction-swap! n)
               (setf *last-good-anchor* n))
           (prune-dumps!)
@@ -302,23 +302,23 @@
    layer, a compaction), collect a finished root check, start the next one, prune."
   (writer-check!)
   (root-check-finish!)
-  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*))))
+  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*)))) ; @veil root-check-poll!/compact
     (when m (setf *base-check-due* m)))
-  (unless *pending-root*
-    (if *base-check-due*
+  (unless *pending-root* ; @veil root-check-poll!/idle
+    (if *base-check-due* ; @veil root-check-poll!/base-due
         (let* ((m (shiftf *base-check-due* nil))
                (path (eita.state.snapshot:snap-path (snapshot-dir) m))
                (manifest (eita.state.snapshot:read-manifest path)))
-          (spawn-root-check! m (getf manifest :state-root)
+          (spawn-root-check! m (getf manifest :state-root) ; @veil root-check-poll!/manifest-root
                              (list (list :base m (getf manifest :content-hash))) :base))
-        (let ((a (first *anchor-queue*)))
+        (let ((a (first *anchor-queue*))) ; @veil root-check-poll!/anchor
           (when a
             (destructuring-bind (b expected) a
               (let ((comps (and (or (not *tip-freeze*) (>= n (+ b (reorg-window))))
-                                (stack-composition b))))
+                                (stack-composition b)))) ; @veil root-check-poll!/compose
                 (when comps
                   (pop *anchor-queue*)
-                  (spawn-root-check! b expected comps :stack))))))))
+                  (spawn-root-check! b expected comps :stack)))))))) ; @veil root-check-poll!/spawn-stack
   (close-retired!)
   (collect-written!))
 

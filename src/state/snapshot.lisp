@@ -297,18 +297,18 @@
                              :acct (mf "accounts.dat") :slot-map (mf "storage.dat")
                              :code-map (mf "code.dat") :code-idx (mf "code.idx")
                              :n-accounts (getf c :accounts) :n-slots (getf c :slots) :n-codes (getf c :codes))))
-          (flet ((fences ()
+          (flet ((fences () ; @veil snap-open/fences
                    ;; each published whole: its contents before the pointer to it (the
                    ;; replay's lookups read it without a lock; ARM64 orders their dependent loads)
-                   (let ((f (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s))))
+                   (let ((f (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s)))) ; @veil snap-open/build
                      (sb-thread:barrier (:write))
-                     (setf (snap-acct-fence s) f))
-                   (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s))))
+                     (setf (snap-acct-fence s) f)) ; @veil snap-open/publish
+                   (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s)))) ; @veil snap-open/build
                      (sb-thread:barrier (:write))
-                     (setf (snap-slot-fence s) f))))
+                     (setf (snap-slot-fence s) f)))) ; @veil snap-open/publish
             (case fence
               ((nil))
-              (:background
+              (:background ; @veil snap-open/background
                (setf (snap-fence-thread s)
                      (sb-thread:make-thread
                       (lambda ()
@@ -330,7 +330,7 @@
 (defun snap-close (s)
   (when s
     ;; a fence still being built reads the mappings
-    (when (snap-fence-thread s) (sb-thread:join-thread (snap-fence-thread s) :default nil))
+    (when (snap-fence-thread s) (sb-thread:join-thread (snap-fence-thread s) :default nil)) ; @veil snap-close/join
     (dolist (m (list (snap-acct s) (snap-slot-map s) (snap-code-map s) (snap-code-idx s)))
       (unmap m))))
 
@@ -1112,9 +1112,9 @@
   (let* ((fin (string-right-trim "/" (namestring final)))
          (old (format nil "~A/.old-~A" (string-right-trim "/" (namestring (pathname parent)))
                       (subseq fin (1+ (position #\/ fin :from-end t))))))
-    (when (probe-file final)
-      (sb-posix:rename fin old))
-    (sb-posix:rename (string-right-trim "/" (namestring tmpdir)) fin)
+    (when (probe-file final) ; @veil snap-publish/probe
+      (sb-posix:rename fin old)) ; @veil snap-publish/aside
+    (sb-posix:rename (string-right-trim "/" (namestring tmpdir)) fin) ; @veil snap-publish/rename
     (fsync-path parent)
     (when (probe-file old)
       (sb-ext:run-program "rm" (list "-rf" old) :search t))

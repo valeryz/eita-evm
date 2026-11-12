@@ -230,12 +230,12 @@
    say). Deleting less never moves the resume point (Lean `gcFiles_preserves_resume`
    holds for any subset). Prints and returns their names."
   (sync-view dir)
-  (multiple-value-bind (anchors dumps files points) (read-view dir)
+  (multiple-value-bind (anchors dumps files points) (read-view dir) ; @veil run-gc/scan
     (declare (ignore dumps))
-    (let ((gone (set-difference (gc-files anchors files points) pinned :test #'equal)))
+    (let ((gone (set-difference (gc-files anchors files points) pinned :test #'equal))) ; @veil run-gc/victims
       (dolist (c gone)
         (let ((sp (eita.state.snapshot:component-path dir c)))
           (when (probe-file sp)
-            (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring sp))) :search t))))
+            (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring sp))) :search t)))) ; @veil run-gc/rm
       (format t "~{~A~^ ~}~%" (mapcar #'component-name gone))
       (mapcar #'component-name gone))))
