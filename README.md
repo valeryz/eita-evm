@@ -85,7 +85,9 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   each fork's `processTransaction`, `SELFDESTRUCT`, system calls and block rewards; the
   call-gas and SSTORE gas routines; PUSH-n wide loads; the JIT code arena's safety; the
   header-validity rules. The axiom closure of the audited theorems is checked against a
-  committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms only. The native
+  committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms only. The statements
+  of 41 headline theorems are pinned to an owner-reviewed file and judged by the Lean comparator
+  (`scripts/verify-comparator.sh`; docs/trusted-surface.md). The native
   slot table is proved in Velvet for every capacity and printed to C (`verify/velvet-slots/`). The state layer's
   concurrent protocols (layer GC, compaction, root checks, rollback) are Veil models whose citations of the Lisp are
   checked (`verify/protocols/`).

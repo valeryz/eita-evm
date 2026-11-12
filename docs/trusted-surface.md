@@ -131,6 +131,33 @@ one action per step of the code they cite.
 - `scripts/verify-protocols.sh --quick` runs in CI (the code check and four models, under 14 GB); `CompactionDeepReorg`
   (over 32 GB) runs by hand on a large machine.
 
+## Statements pinned by the Lean comparator
+
+A proof is only as good as the statement it proves. Forty-one headline theorems have their
+statements written out in `lean/Comparator/Challenge.lean`, which is the human-reviewed record
+(reviewer: the owner; CODEOWNERS routes it, and `scripts/generated/comparator-challenge.sha256`
+must change with it). They cover Block-STM, the IR compiler, the effect layer, the stack-cache
+check (ARM64, x86-64), the ARM64 call and SSTORE gas routines, the op semantics of JUMP/JUMPI and
+the memory-expansion prologue, the precompile wrappers (BLAKE2F, BLS12-381, P-256), and recent-fork
+opcodes. `scripts/verify-comparator.sh` (in CI) runs `lake comparator`, the judge built into Lean
+since v4.35.0 (the former `leanprover/comparator`), which builds and exports the challenge
+and `lean/Comparator/Solution.lean` (each statement proved by the real theorem, at the real theorem's own type) in a
+`bwrap` sandbox, with no network. It accepts only if every real theorem's kernel statement is the reviewed
+one, every constant the statement mentions is the same in both, no proof uses `sorry` or an axiom outside the
+config's list, and the kernel accepts the whole proof closure. So a weakened statement, an added
+hypothesis, a `sorry` or a new axiom fails CI. Two lists:
+
+- `comparator.json` (33 theorems): `propext`, `Quot.sound` and `Classical.choice` only.
+- `comparator-native.json` (8 theorems: the handler cache-coherence verdicts and the gas routines'
+  machine-code runs): those three plus 34 auxiliary axioms, each named, that `native_decide` /
+  `bv_decide` generate. Each one states `decide p = true` for a closed `p` that Lean's compiled
+  evaluator computed. Here the compiler is trusted, not the kernel. The script also rejects any
+  source that names something `_native`, so no hand-written axiom can pass as one of them.
+
+What it does not pin: the **definitions** the statements mention (`Refines`, `IsFrameRun`,
+`IsClzStep`, …). The challenge imports them from `Evm.*`, so they are judged by reading them, and
+the modules the challenge imports are trusted not to run hostile code at build time.
+
 ## Third-party libraries
 
 | Library | Used for | License |

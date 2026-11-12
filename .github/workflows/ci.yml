@@ -79,6 +79,16 @@ jobs:
       - name: Axiom-closure audit
         run: scripts/verify-axioms.sh
 
+      # lake comparator sandboxes the build with bwrap; Ubuntu 24.04's AppArmor blocks the
+      # unprivileged user namespaces it needs unless this sysctl is off.
+      - name: Pinned statements (Lean comparator; lean/Comparator/Challenge.lean is owner-reviewed)
+        run: |
+          sudo apt-get install -y -qq bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          time scripts/verify-comparator.sh
+
       - name: Crypto oracles against blst / OpenSSL, BLAKE2F Lean = C (property + differential tests)
         run: cd lean && lake exe cryptoTests
 
