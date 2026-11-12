@@ -41,6 +41,7 @@ import Evm.CL.HostEmit
 import Evm.Arc.Spec.BlockSystem
 import Evm.CL.ARM64.SstoreGasDenote
 import Evm.CL.ARM64.MemCommitSem
+import Evm.CL.OpSem
 import Evm.CL.ARM64.CallGasDenote
 import Evm.Parallel.BlockSTM
 import Evm.CL.CacheSound
@@ -152,6 +153,10 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.ARM64.CallGasDenote.planFrontier_eq_spec
 #print axioms Evm.CL.ARM64.CallGasDenote.planTangerine_eq_spec
 #print axioms Evm.CL.ARM64.CallGasDenote.plan_eq_spec
+-- Op.denote is what the op's instructions do (AsmRun), for the ops that hid bugs.
+#print axioms Evm.CL.OpSem.jumpValidate_sem
+#print axioms Evm.CL.OpSem.jumpiCheck_sem
+#print axioms Evm.CL.OpSem.memExpandIfLen_sem
 
 -- Parallel execution refines sequential.
 #print axioms Evm.Parallel.BlockSTM.blockSTM_refines_seq

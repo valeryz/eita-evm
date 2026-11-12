@@ -274,7 +274,9 @@ inductive Outcome where
   | ret   (s : RS)
   /-- a far branch to a fault symbol: the frame exits there -/
   | fault (sym : String) (s : RS)
-  /-- an instruction outside the subset, or a missing label -/
+  /-- an instruction outside the subset. (A branch to a label the fragment does not
+      contain is NOT stuck: `skipTo` returns `[]` and the run ends `done` at the branch —
+      a fragment that is not `closed` must say where such a label lives.) -/
   | stuck
 
 /-- The control forms, classified once. -/
@@ -303,6 +305,15 @@ def ctrl : AInstr → Option Ctrl
   | .bcTramp c sym => some (.condFar (fun s => bcHolds c s.flags) sym)
   | .blFar h      => some (.call h)
   | .blSym h      => some (.call h)
+  -- the handler bodies' exits to an external symbol (the fault stubs, B7a)
+  | .bSym c sym   => some (.condFar (fun s => bcHolds c s.flags) sym)
+  | .bSymU sym    => some (.far sym)
+  | .cbnzSym r sym => some (.condFar (fun s => decide (s.regs r ≠ 0)) sym)
+  | .cbnzSymW r sym => some (.condFar (fun s => decide (s.regs r &&& 0xffffffff ≠ 0)) sym)
+  | .cbnzOog r    => some (.condFar (fun s => decide (s.regs r ≠ 0)) "_eita_oog")
+  | .bcsOog       => some (.condFar (fun s => bcHolds .hs s.flags) "_eita_oog")
+  | .bhiOog       => some (.condFar (fun s => bcHolds .hi s.flags) "_eita_oog")
+  | .bloOog       => some (.condFar (fun s => bcHolds .lo s.flags) "_eita_oog")
   | _             => none
 
 def run (H : Helpers) : List AInstr → RS → Outcome
@@ -339,6 +350,12 @@ theorem run_cons_label (H : Helpers) (l : String) (rest : List AInstr) (s : RS) 
 
 theorem run_cons_bFar (H : Helpers) (sym : String) (rest : List AInstr) (s : RS) :
     run H (.bFar sym :: rest) s = .fault sym s := by simp [run, ctrl]
+
+/-- A conditional exit to an external symbol. -/
+theorem run_cons_condFar (H : Helpers) (i : AInstr) (c : RS → Bool) (sym : String) (rest : List AInstr) (s : RS)
+    (hc : ctrl i = some (.condFar c sym)) :
+    run H (i :: rest) s = if c s then .fault sym s else run H rest s := by
+  simp [run, hc]
 
 theorem run_cons_bcLbl (H : Helpers) (c : BCond) (l : String) (rest : List AInstr) (s : RS) :
     run H (.bcLbl c l :: rest) s =

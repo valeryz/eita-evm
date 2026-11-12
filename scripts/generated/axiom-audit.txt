@@ -101,6 +101,9 @@
  Evm.CL.ARM64.CallGasDenote.newAcctFee_eq._native.native_decide.ax_1_1,
  Evm.CL.ARM64.CallGasDenote.stipendC_eq._native.native_decide.ax_1_1,
  Evm.CL.ARM64.CallGasDenote.valueFee_eq._native.native_decide.ax_1_1]
+'Evm.CL.OpSem.jumpValidate_sem' depends on axioms: [propext, Quot.sound]
+'Evm.CL.OpSem.jumpiCheck_sem' depends on axioms: [propext, Quot.sound]
+'Evm.CL.OpSem.memExpandIfLen_sem' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Parallel.BlockSTM.blockSTM_refines_seq' depends on axioms: [propext]
 'Evm.CL.CacheSound.cacheIncoherent_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.CL.ARM64.Interp.handler_runs_cache_coherent' depends on axioms: [propext,
