@@ -27,7 +27,7 @@ Tools, not part of the claim and not in the totals:
 
 | Component | Statement lines | Proof lines | Theorems | `sorry` | `native_decide` | Axioms |
 |---|---:|---:|---:|---:|---:|---|
-| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 3,716 (3,711 + 5) | 0 | 1 | 0 | 6 | — |
+| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 3,718 (3,713 + 5) | 0 | 1 | 0 | 6 | — |
 
 `native_decide` trusts the Lean compiler's evaluation of a decision procedure (an extra axiom per use): see [`docs/trusted-surface.md`](../../docs/trusted-surface.md#native_decide).
 
