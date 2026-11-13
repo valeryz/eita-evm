@@ -371,7 +371,7 @@ A message is at most 64 KiB, and a sender splits anything larger.
 | memory | contents | size |
 |---|---|---|
 | ReRAM | executor firmware: handlers, effect layer, RLP/trie, keccak, secp256k1 (small tables); BN254/BLS12-381/KZG precompiles out of the chip build (a call to one is `UNSUPPORTED`) | est. 0.4–0.8 MiB |
-| ReRAM | trust state: pinned checkpoint and light-client state (current and next sync committee: 2 × 512 × 48 B BLS keys ≈ 50 KB; latest verified header) | ~64 KB, rewritten ~1×/27 h (one sync period) |
+| ReRAM | trust state (§4.3): seeded checkpoint, current and next sync committee (2 × ~24.6 KB), latest verified period header, in A/B slots; the vendor key is in read-only key storage | ~100 KB, one commit per 27.3 h period |
 | ReRAM | chain config: chain id, fork schedule | < 4 KB, rarely written |
 | ReRAM | code cache keyed by code hash (USDC, routers, Aave pools recur) | 1–2 MiB, LRU |
 | SRAM | executor state: frames, the stack (32 B per *used* slot), memory (gas-bounded), the overlay of writes | typical wallet tx < 100 KB; capped by the arena |
@@ -387,7 +387,7 @@ tightens the budget (open question 1).
 **Wear.** ReRAM write endurance is not published for this part. Embedded RRAM is typically rated
 10⁴–10⁶ cycles, so the design assumes 10⁴. Writes are therefore rare and spread out:
 
-- the trust state rotates across a few slots, with one write per sync period;
+- the trust state uses A/B slots, with one commit per sync period (≈ 3,200 writes per cell over 20 years, §4.3.2);
 - a code is cached only when it is seen a second time (most codes recur);
 - the cache never rewrites an entry in place.
 
@@ -669,28 +669,185 @@ per call (§3.6). In interactive mode the chip is the final judge: it runs stric
 the prefetch missed, verifies every answer, and on `IO`, `BAD_PROOF` or `ENOMEM` it refuses to show
 a simulation. So the host cannot make the chip trust a result the chip did not compute.
 
-### 4.3 Trust model
+### 4.3 Device trust model
 
-- **Trusted:** the root. The client checks a header it trusts independently of the RPC:
-  - a beacon light client (Altair sync committee: a `LightClientUpdate` with ≥ 2/3 of the 512-member
-    committee's BLS aggregate signature; from Capella, the `LightClientHeader` carries the
-    execution payload header, `state_root` and `block_hash`, under a Merkle branch to the beacon
-    `body_root`);
-  - or a checkpoint the user pins: a block hash, or a weak-subjectivity checkpoint for the sync
-    committee.
+**The host is a courier.** It can make the device say "cannot simulate now" or "this is from an
+older block". It cannot make the device show a false outcome. The rest of this section is what that
+sentence requires.
 
-  BLS verify uses blst, which is already vendored for EIP-2537.
-- **Then the provider is untrusted.** A wrong value, node, code or header fails verification
-  (`lookup_*_sound`: a forgery is a Keccak collision). Withholding data fails the run with
-  `MISSING`.
-- **What the provider still controls:**
-  - availability (denial of service);
-  - freshness, if the client lets the provider choose N. The client must take N from its light
-    client, not from the provider.
-- **What the client must own:** the chain config. The fork schedule and the chain id select the
-  semantics, so they are never taken from the provider.
-- **Core theorem:** `stateless_sound`. Under a trusted root, the device's result is the spec's
-  result for the state with that root, or there is a Keccak collision.
+#### 4.3.1 The root must not come from the host
+
+Proof soundness (`lookup_*_sound`) is relative to the root. A malicious host can build a fake
+state, compute its root and serve perfectly valid proofs against it. The chip would then faithfully
+simulate a state that does not exist and show a false outcome: "you receive 1,000 USDC" when the
+contract actually drains the wallet.
+
+The signed bytes are never at risk: the device shows the tx fields and signs exactly those. But the
+simulation exists to defend against a compromised host or dapp, and a simulation whose root the
+host chooses defends against nothing.
+
+- **v1** may take the root from the host only if the device says so plainly on its own display:
+  "simulation trusts the connected computer".
+- **v2** takes it from an on-device light client (below). `stateless_sound` and `interactive_sound`
+  are theorems about a root the device already trusts. They never vouch for the root.
+
+#### 4.3.2 The Ethereum light client on the device
+
+The device follows the beacon chain's **sync committee**: 512 validators, rotated every 256 epochs
+(8,192 slots × 12 s ≈ 27.3 h).
+
+- **Per period.** A `LightClientUpdate` carries the next committee's 512 BLS keys and its SSZ
+  Merkle branch to the attested beacon state. It is signed with the *current* committee's aggregate
+  signature, with participation ≥ 2/3 of 512. The device verifies it against the committee it
+  stores:
+  1. aggregate the participants' G1 keys (≥ 342 point additions);
+  2. one pairing check, with blst (already vendored);
+  3. SHA-256 for the SSZ branch and the committee root.
+- **Per simulation.** A finality or optimistic update for a recent header, signed by the current
+  committee, plus the `execution_branch` (Capella and later) from the beacon block body to the
+  execution payload header gives `state_root`, `block_hash`, `block_number` and `timestamp`. That
+  `state_root` is the session's trusted root. A verified header is cached in SRAM for the session
+  only.
+- **ReRAM state.** The current and next committees (512 × 48 B + 48 B aggregate ≈ 24.6 KB each)
+  and the latest verified period header, in **A/B slots**. A write goes to the inactive slot, then a
+  versioned commit marker (with a CRC) flips the active slot, so an interrupted write never corrupts
+  the state. Total about 100 KB.
+- **Wear.**
+  - Writes are about one per period, i.e. about one per day. Per-session headers stay in SRAM.
+  - Over a 20-year device life that is 20 × 365 × 24 / 27.3 ≈ 6,400 commits. Split across the A/B
+    slots, that is about 3,200 writes per cell, a third of a pessimistic 10⁴-cycle endurance.
+  - With four rotating slots it is about 1,600 per cell.
+- **Catch-up after a gap.** The device applies one update per missed period, in order: a month is
+  ≈ 27 updates, a year ≈ 321. The cost is one BLS aggregate verify each.
+  - Estimate: the 342-point G1 aggregation is small next to the pairing check, which is roughly
+    0.3–1 s on a 350 MHz RV32 without a big-number engine.
+  - That gives about 10–30 s per month of gap and about 2–5 min per year.
+  - This is to be measured in W5. If the Baochip's accelerators include a big-number engine, it
+    shrinks.
+  - A per-simulation header costs one more verify; a cached session header avoids repeating it.
+
+#### 4.3.3 Seeding: the root of trust
+
+At the vendor, in a trusted environment:
+
+- a **vendor public key** goes into read-only storage (the Baochip has protected key slots);
+- the **initial checkpoint** goes into ReRAM: a finalized beacon block root, its sync committee and
+  the chain config.
+
+Everything later arrives through the untrusted host and is accepted only if it is consistent with
+what ReRAM holds:
+
+- a committee update is accepted only if the stored committee signed it;
+- a checkpoint is accepted only if the vendor key signed it;
+- firmware is accepted only if the vendor key signed it (§4.3.6).
+
+#### 4.3.4 The staleness limit (long-range attacks)
+
+Sync-committee signatures are not slashable, and the validators of an old committee may have exited
+long ago. Their keys could sign an alternative history at no cost, so the further the stored
+committee lags, the less its signature on a "next committee" is worth.
+
+The device therefore keeps a **staleness limit**. If the stored committee is older than the limit,
+it refuses to fast-forward and requires a fresh checkpoint. The limit is derived from the consensus
+specs' weak-subjectivity period (`compute_weak_subjectivity_period`, a function of the validator
+count, the balance-based churn and `MIN_VALIDATOR_WITHDRAWABILITY_DELAY`) and the sync committee's
+27.3 h rotation. It is computed when the device is seeded and stored in the chain config, and it is
+on the order of weeks to a few months.
+
+A fresh checkpoint must carry its own proof, from one of two sources:
+
+1. **Vendor-signed checkpoints**, published regularly and relayed by the host. This is the same root
+   of trust as firmware updates.
+2. **The user confirming a short hash out of band**, for example against several block explorers.
+   This is secondary and error-prone.
+
+#### 4.3.5 Freshness
+
+The host can withhold newer updates and show an old but genuine header. The device can detect this
+only with a trusted clock: a battery-backed RTC set at the factory (open question 1). So:
+
+- The device **always displays the block number and timestamp** the simulation used.
+- With a trusted clock, it refuses state older than a few minutes. At the 12 s slot time, a
+  default of 5 minutes is 25 slots.
+- Without a clock, staleness is visible to the user but not enforced.
+
+#### 4.3.6 Firmware updates
+
+Firmware arrives through the host too. It must be vendor-signed and verified on the device before
+it is installed. The Baochip's one-way counters give the anti-rollback version. Otherwise the chain
+of trust is moot, because a malicious host would replace the verifier.
+
+#### 4.3.7 The whole chain
+
+```
+vendor public key (read-only)  +  initial checkpoint: finalized root + committee (ReRAM)
+  → committee updates, one per 27.3 h period, verified on the device   (BLS, ≥ 2/3 of 512)
+  → after a gap beyond the staleness limit: a vendor-signed checkpoint (vendor key)
+  → per simulation: a committee-signed header + execution_branch → the execution state_root
+  → eth_getProof-style proofs against that state_root, per read      (lookup_*_sound)
+  → execution on the device                                          (interactive_sound)
+  → the outcome, shown with its block number and timestamp
+```
+
+What each party can do:
+
+| party | can | cannot |
+|---|---|---|
+| host / RPC provider | delay, withhold ("cannot simulate now"), serve an older genuine header (shown as "block N, time T"; refused with a trusted clock) | change a value, a code, a header or the outcome |
+| dapp | send any tx | change what the device simulates or displays |
+| a past sync committee beyond the staleness limit | — | move the device, which demands a vendor-signed checkpoint |
+
+The assumptions are:
+
+- an honest ≥ 2/3 of the current sync committee within the staleness limit;
+- the vendor key;
+- Keccak and SHA-256 collision resistance;
+- the BLS and Ed25519 implementations;
+- the spec refinement (`txProg_refines`).
+
+#### 4.3.8 Arc
+
+The structure is the same, with Arc's consensus in place of the sync committee. Read from
+`~/arc-node`, commit 6e76402:
+
+- **Consensus.** Malachite BFT. Each height has a **commit certificate**: height, round,
+  `block_hash` (the `ValueId`), and Ed25519 precommit signatures from validators, 64 B each
+  (`crates/types/src/commit_http.rs`). It is valid when the signers hold a quorum of voting power
+  (Malachite `verify_commit_certificate` with `ThresholdParams`). It is served by consensus
+  `GET /commit?height=…` and by the JSON-RPC method `arc_getCertificate`
+  (`crates/evm-node/src/rpc/get_certificate.rs`). Finality is per block, with no separate finality
+  gadget.
+- **Validator-set changes are in EVM state.** The signing set for height H is the result of
+  `getActiveValidatorSet()` on the `ValidatorRegistry` proxy `0x3600…0002`, evaluated on the state
+  of block H−1 (`get_signing_validator_set`: `block_height = consensus_height − 1`;
+  `abi_decode_validator_set`). Each entry is a status, a public key and a voting power.
+- **What the device verifies.** The device holds a trusted (height h₀, validator set S₀). For a new
+  header H, the host relays:
+  - `arc_getCertificate(H)`;
+  - header H and header H−1 (H−1 is checked through `parentHash`);
+  - the registry's storage proofs at `stateRoot(H−1)`.
+
+  The device then:
+  1. checks that the certificate carries more than 1/3 of S₀'s voting power: the skipping rule, so
+     at least one honest signer within the trusting period;
+  2. derives set(H) **by running `getActiveValidatorSet()` statelessly** on `stateRoot(H−1)`. This
+     is the same executor and the same proofs (`interactive_sound`), so the light client reuses the
+     witness machinery;
+  3. checks that the certificate has a quorum of set(H)'s voting power;
+  4. stores set(H) as the new trusted set when it changed.
+
+  If the set rotated so far that the >1/3 overlap fails, the host supplies intermediate heights
+  (bisection).
+- **Costs.**
+  - Ed25519 verify is an estimated ~1–3 M cycles on RV32; measured in W5.
+  - Each certificate needs one verify per signer, so a set of a few tens of validators costs well
+    under a second.
+  - The stored set is small: keys and powers, a few KB, in the same A/B slots.
+- **Staleness and seeding** are as for Ethereum: a vendor-signed (height, set) checkpoint at the
+  factory and after long gaps. The trusting period is derived from Arc's unbonding and governance
+  rules for the permissioned validator manager. Its value is open (§7).
+- **Provider requirement.** `arc_getCertificate` is an Arc-node method, not standard Ethereum
+  JSON-RPC, so the host needs an Arc RPC that exposes it (or the consensus HTTP `/commit`).
 
 ### 4.4 What a simulation means
 
@@ -762,7 +919,7 @@ The read-set recorder's segment format (`docs/readset-format.md`) is a separate 
 | **W3** | C: `lookup`/RLP printed from Lean, glue + arena + node cache, `eita_wx_*` (session and one-shot), the wire protocol codec; CBMC harness; property tests vs Lean with scripted adversarial hosts; stateless BlockchainTests on host | 4–5 wk | W1; effect IR → C for the remaining terms (all-C core) |
 | **W4a** | the host program: the protocol's host side, path B prefetch (access list + getProof + probe loop) against two hosted providers and one public endpoint, path A ingestion, PUSH | 2 wk | W3 |
 | **W4b** | path C: stack-build proof extraction at anchors; recorder read sets → witnesses | 2 wk | `readset` branch merged |
-| **W5** | RV32IMC build (32-bit `LimbC`, interleaved keccak), on the dabao: code size in ReRAM, SRAM high-water, cycles per class (§3.6 classes), USB HS and BLE timings; ReRAM code cache; light-client header verification (sync committee, blst) | 3–5 wk | all-C core; the dabao board |
+| **W5** | RV32IMC build (32-bit `LimbC`, interleaved keccak), on the dabao: code size in ReRAM, SRAM high-water, cycles per class (§3.6 classes), USB HS and BLE timings; ReRAM code cache; the on-device light client (§4.3: sync-committee updates with BLS aggregate verify, A/B trust slots, staleness limit, vendor-signed checkpoints and firmware; Arc certificates with Ed25519 and the stateless validator-set call), with BLS and Ed25519 verify timed | 5–8 wk | all-C core; the dabao board |
 | **W6** | stateless block validation with post-root (deletion siblings); tip witnesses | later | stage 8 incremental MPT |
 
 The critical path is W0 → W1 → W2, which is proof work. W3 and W4a can run against the Lean
@@ -818,6 +975,9 @@ several hundred. The rest is the feature's cost and is stated in each stage's co
    - Is the core IMC or IMAC (the published core is IMAC; atomics are not needed)?
    - What is ReRAM's rated write endurance?
    - Is BLE a separate radio module, and what is its link layer?
+   - Is there a battery-backed RTC that can be set at the factory? Freshness enforcement needs it
+     (§4.3.5).
+   - Which read-only key slot holds the vendor key?
 2. Should the light client (sync committee) live in the core or in the wallet project? Proposal:
    in the wallet. The core takes a trusted header hash.
 3. Should `txProg` be *the* spec run, so that `Tx.run := (txProg c).run (oracleOf s)`, which leaves
@@ -832,7 +992,14 @@ several hundred. The rest is the feature's cost and is stated in each stage's co
 6. Does Arc/OP need anything beyond the header's `stateRoot`? Arc's native-USDC precompile state is
    ordinary storage, so it should not.
 
+7. What is Arc's trusting period for the skipping rule (§4.3.8)? It follows from how fast the
+   permissioned validator manager can rotate keys and from what a removed validator risks.
+8. Should v1 ship with the root taken from the host, which requires the plain on-device warning of
+   §4.3.1, or should signing-time simulation wait for the light client (v2)?
+
 ## Sources
+
+- Ethereum light client (sync protocol, LightClientUpdate, execution_branch): https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md ; weak subjectivity: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/weak-subjectivity.md
 
 - Baochip-1x (bunnie, 2026): https://www.bunniestudios.com/blog/2026/baochip-1x-a-mostly-open-22nm-soc-for-high-assurance-applications/ ; dabao board (USB 2.0 high-speed device, RV32-IMAC 350 MHz): https://www.cnx-software.com/2026/03/04/dabao-board-features-open-source-hardware-baochip-1x-risc-v-mcu/
 - BLE throughput on phones (iOS 15 ms minimum interval, ~50 % airtime): https://punchthrough.com/ble-throughput-optimization-faq/ ; measured iOS/Android rates at 15 ms, 2M PHY: https://docs.silabs.com/gecko-os/1/bgx/1.x/throughput
