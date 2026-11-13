@@ -7,6 +7,13 @@ re-execution. The first consumer is the RISC-V / Baochip light client: a hardwar
 device that simulates a transaction on-chip before signing. It replays a transaction only when it
 holds all of the transaction's inputs, and a missing input must fail hard.
 
+The device (owner, 2026-11-13) is Baochip "dabao": RV32 (RV32IMC per the owner; the published
+Baochip-1x core is a 350 MHz VexRiscv RV32-IMAC), 2 MiB SRAM, 4 MiB ReRAM (non-volatile, like
+flash), attached to a host machine over USB (the chip has a USB 2.0 high-speed device port) or
+Bluetooth. The simulation runs **interactively during signing**: the chip runs the executor and
+asks the host for state as it goes (§3). A pre-built witness is the secondary mode, for tests,
+offline replays and other users of the core.
+
 Related work: the read-set recorder (core branch `readset`, `src/evm/readset.lisp`, format in
 `docs/readset-format.md` on that branch), the persistence review §8 (incremental MPT) and §9
 (archive read API) in the private repository, and `lean/Evm/Parallel/Reads.lean`, where reads are
@@ -32,8 +39,14 @@ already a first-class notion for Block-STM.
    checked against. The root comes from a block header that the client trusts independently of the
    RPC (§4.3).
 6. **One owner per concern.** One read-key type serves the recorder, Block-STM's read log
-   (`Parallel/Reads.lean`) and the witness. One lookup algorithm handles both proof sources. One
+   (`Parallel/Reads.lean`) and the witness. One lookup algorithm handles every proof source. One
    executor serves the chip and the companion host.
+7. **Interactive on the device, the host only fetches.** The chip runs the executor, and on each
+   state read it asks the host for that key's proof nodes. It verifies every answer against the
+   trusted root before using it. The host is untrusted: any RPC provider can sit behind it, and it
+   only fetches and forwards. The chip's read set is then exactly the set of keys it asked for
+   (`Prog.asked`, theorem (c)), so the device needs no access-list prediction. Paths A and B (§4)
+   run on the host to prefetch and cache, which cuts round trips but never decides a value.
 
 ## 1. Definitions (Lean)
 
@@ -130,6 +143,13 @@ def Prog.runP  (po : (q : Q) → Option (A q)) : Prog Q A α → Except Q α  --
 The read set is then *defined by the program*: `asked` is the trace of queries. It cannot drift
 from the execution, because there is nothing separate to drift.
 
+There are two device modes, and both run the same program `p`:
+
+- **One-shot** (`runP`): every answer comes from a pre-built `PartialState`. This mode is for
+  tests, offline replays and other users of the core.
+- **Interactive** (`runI`, the device's primary mode): each `ask` goes to the host, and the
+  device's verifier `ver` checks the answer against the trusted root before it is used.
+
 ## 2. The theorems
 
 ### 2.1 (a) Proof soundness
@@ -183,7 +203,7 @@ state diff.
 ### 2.3 (c) Read-set completeness, and missing read = hard failure
 
 These hold *generically* for every oracle program. They are proved now, without `sorry`, in the
-spike `OracleProg.lean` (Lean v4.35.0, about 60 lines):
+spike `OracleProg.lean` (Lean v4.35.0, about 90 lines with `runI_sound` below):
 
 ```lean
 def Consistent (po) (o) : Prop := ∀ q v, po q = some v → v = o q        -- what (a) gives
@@ -199,6 +219,19 @@ theorem runP_complete    : (∀ q ∈ p.asked o, po q = some (o q)) → p.runP p
 - `runP_missing`: a failure names a key the full execution really reads and the witness really
   lacks. This is the Baochip requirement.
 - `runP_complete`: a witness that covers the asked set always completes.
+
+The interactive mode has its own theorem, also proved in the spike. The host's answer may depend on
+the whole history of queries, which models an adaptive and malicious host:
+
+```lean
+def runI (ver : List Q → (q : Q) → Option (A q)) (hist : List Q) : Prog Q A α → Except Q α
+def ConsistentI ver o : Prop := ∀ h q v, ver h q = some v → v = o q    -- (a), per answer
+theorem runI_sound (hc : ConsistentI ver o) : p.runI ver hist = .ok a → p.run o = a
+```
+
+**Whatever the host sends, a completed interactive run is the full run.** The proof needs only that
+each answer the device accepts passes verification. The order of answers, how they are batched,
+when they arrive and which answers are withheld all affect liveness and nothing else.
 
 **The one specific obligation** connects the oracle program to the spec:
 
@@ -234,8 +267,9 @@ theorem stateless_sound (ps : PartialState) (s : State) (h : RootOf s ps.root) :
     (txProg c).runP (poOf ps) = .ok r → SameOutcome s s r (c.run s) ∨ Collision
 ```
 
-This is the theorem the C interface is pinned to (§3.4). Note that it does not mention the
-recorder.
+This is the theorem the C interface is pinned to (§3.8). It does not mention the recorder.
+`interactive_sound` is the same statement with `runI` and the device's verifier in place of
+`runP`.
 
 ### 2.4 (d) Composition: block witnesses from tx witnesses
 
@@ -264,120 +298,314 @@ though nothing read it. reth's witness includes these nodes "during state root r
 proofs from `eth_getProof` do not. A wallet does not need the post-root, and a stateless block
 validator does. `post_root` (§3) reports `missing` for such a node like any other read.
 
-## 3. The C interface
+## 3. The device and the C interface
 
-### 3.1 Shape
+### 3.1 Two modes, one executor
 
-A single header, `c/eita_witness.h`. There is no global state. The caller owns every buffer. There
-is no `malloc`: all working memory comes from one caller-provided arena, and exhausting it is an
-explicit status. Builds target RV32IMC, RV64 and the hosts. The ABI uses no 64-bit pointers and no
-FPU.
+| mode | who answers a read | a missing read | used for |
+|---|---|---|---|
+| **interactive** (primary on the device) | the host, per request or batch; the chip verifies each answer against the trusted root | a request to the host; terminal only on timeout, refusal or a failed proof | signing on the Baochip |
+| **one-shot** (secondary) | a pre-built witness (`Witness`, §1.2) | terminal `EITA_WX_MISSING`, with the exact key | tests, offline replays, the host's own probe runs, other users of the core |
+
+Both modes run the same executor (`txProg`). Only the oracle behind the read seam differs: a pool of
+nodes the device holds (one-shot) or a pool that grows from the host's answers (interactive). The
+lookup (`walk`, §1.3) is the same code in both. The theorems are `runP_*` for one-shot and
+`runI_sound` for interactive (§2.3).
+
+### 3.2 Wire protocol (interactive mode)
+
+Messages are RLP lists, so the chip keeps its one parser, framed on the transport: USB bulk
+endpoints, or a BLE L2CAP channel / GATT characteristic with fragmentation in the transport layer.
+A message is at most 64 KiB, and a sender splits anything larger.
+
+**Chip → host**
+
+| message | fields |
+|---|---|
+| `HELLO` | `[ver=1, chainId, trustedNumber, trustedHash, maxMsg, cacheHint]` |
+| `GET` | `[reqId, trustedHash, [key, …]]`, at most 32 keys. Each key is one of: `[ACCOUNT, addr]` (the leaf, plus the code if its hash is not cached), `[STORAGE, addr, slot]`, `[CODE, codeHash]`, `[NODE, hash]` (after an eviction, or for a post-root sibling), `[HEADER, number]` (BLOCKHASH) |
+| `DONE` | `[status, resultDigest]`, informational: the host can show progress |
+
+**Host → chip**
+
+| message | fields |
+|---|---|
+| `SESSION` | `[headerRlp, txRlp, env]`. The chip checks `keccak(headerRlp)` against the hash it trusts (§4.3), takes `stateRoot`, and derives the block environment from the header and its own chain config |
+| `ANSWER` | `[reqId, [item, …]]`, one item per key: `[key, [nodeRlp, …], code?]`. Only nodes not yet sent in this session are included. **There is no value field**: the chip reads the value out of the verified leaf. Alternatively `[key, ERR, reason]` (the provider failed, or the proof window passed) |
+| `PUSH` | `[nodes, codes, headers]`, unsolicited prefetch at any time. The chip may drop it. It is verified lazily, on use |
+| `ABORT` | `[reason]` |
+
+**Per-key response size.**
+
+- Nodes: an account path is about 9 nodes, and a storage path is 2–8 more. Measured with
+  `eth_getProof` on mainnet: USDC's account proof is 9 nodes, 3,847 B; one of its storage proofs is
+  7 nodes, 3,054 B.
+- A branch node is at most 532 B, so an item is at most about 20 × 532 B ≈ 10.6 KB of nodes.
+- Code is up to 24,576 B (EIP-170). Initcode can be up to 49,152 B (EIP-3860).
+
+**Errors and timeouts.**
+
+- Each `GET` has a deadline (default 5 s, enough for a host-side RPC call) and is re-sent once. The
+  `reqId` makes duplicate answers harmless.
+- An answer that fails verification is discarded, and the key is requested once more. A host on
+  the wrong block is the likely cause. If it fails again the run ends with `EITA_WX_BAD_PROOF`. A
+  host can delay the chip this way but can never make it accept a value.
+- A whole simulation has a budget (default 30 s). Past it, the chip reports "cannot simulate", and
+  the wallet must not sign blind.
+- Proof windows are short. A public endpoint refused `eth_getProof` a few blocks behind its head
+  ("distance to target block exceeds maximum proof window", publicnode, 2026-11-13). The host
+  fetches at the trusted block promptly. If the window closes, the session restarts on a newer
+  trusted header.
+
+**Batching and prefetch** turn per-read round trips into roughly one:
+
+1. On `SESSION`, the host runs the *same* executor in probe mode (§3.4) against its RPC provider,
+   at the same block. Its inputs are `eth_createAccessList`, then one batched round of
+   `eth_getProof`/`eth_getCode`, and the probe loop. It then `PUSH`es the whole predicted witness.
+2. Without prefetch the chip still works, with one round trip per new key. A `GET` that names an
+   account also brings its code, and the chip asks for every independent key it already knows
+   about, such as an access list's slots.
+
+### 3.3 What lives where (2 MiB SRAM, 4 MiB ReRAM)
+
+| memory | contents | size |
+|---|---|---|
+| ReRAM | executor firmware: handlers, effect layer, RLP/trie, keccak, secp256k1 (small tables); BN254/BLS12-381/KZG precompiles out of the chip build (a call to one is `UNSUPPORTED`) | est. 0.4–0.8 MiB |
+| ReRAM | trust state: pinned checkpoint and light-client state (current and next sync committee: 2 × 512 × 48 B BLS keys ≈ 50 KB; latest verified header) | ~64 KB, rewritten ~1×/27 h (one sync period) |
+| ReRAM | chain config: chain id, fork schedule | < 4 KB, rarely written |
+| ReRAM | code cache keyed by code hash (USDC, routers, Aave pools recur) | 1–2 MiB, LRU |
+| SRAM | executor state: frames, the stack (32 B per *used* slot), memory (gas-bounded), the overlay of writes | typical wallet tx < 100 KB; capped by the arena |
+| SRAM | verified values: accounts ~120 B, slots ~96 B | Aave supply: 24 + 51 keys ≈ 8 KB |
+| SRAM | node cache with eviction: the account trie's top two levels pinned (17 nodes ≈ 9 KB, shared by every account proof), the rest LRU | 256 KB |
+| SRAM | code being run (copied from ReRAM or straight from the answer) | up to the tx's code, measured ≤ 223 KB |
+| SRAM | I/O buffers | 2 × 64 KiB |
+
+A typical wallet tx needs about 0.4–0.8 MiB of SRAM, which fits in 2 MiB with room to spare. The
+firmware runs from ReRAM; if it cannot execute in place, part of it must be copied into SRAM, which
+tightens the budget (open question 1).
+
+**Wear.** ReRAM write endurance is not published for this part. Embedded RRAM is typically rated
+10⁴–10⁶ cycles, so the design assumes 10⁴. Writes are therefore rare and spread out:
+
+- the trust state rotates across a few slots, with one write per sync period;
+- a code is cached only when it is seen a second time (most codes recur);
+- the cache never rewrites an entry in place.
+
+At 1 MiB of code churn per day over a 2 MiB cache, each cell is written about every second day, so
+10⁴ cycles last for decades. Nothing per-read and nothing per-session goes to ReRAM.
+
+### 3.4 C API
+
+There are no globals and no `malloc`. All working memory comes from one caller-provided arena, and
+exhausting it is an explicit status. Builds target RV32IMC, RV64 and the hosts.
 
 ```c
-typedef struct { const uint8_t *ptr; uint32_t len; } eita_buf;      /* borrowed; may live in flash/XIP */
+typedef struct { const uint8_t *ptr; uint32_t len; } eita_buf;      /* borrowed */
 
 typedef enum {
   EITA_WX_OK = 0,
-  EITA_WX_MISSING,          /* a read the witness cannot answer: see eita_wx_miss (exact key) */
-  EITA_WX_MALFORMED,        /* witness/tx/header bytes do not parse */
-  EITA_WX_HEADER_CHAIN,     /* headers do not hash-chain to the trusted header */
-  EITA_WX_ENOMEM,           /* arena exhausted: cannot simulate (never reported as out-of-gas) */
-  EITA_WX_UNSUPPORTED,      /* fork / tx type outside this build */
-  EITA_WX_INVALID_TX        /* the spec's validity rules reject the tx (reason code in result) */
+  EITA_WX_MISSING,      /* one-shot only: the witness lacks a read (exact key in eita_wx_miss) */
+  EITA_WX_IO,           /* interactive: the host timed out, refused (ERR) or aborted */
+  EITA_WX_BAD_PROOF,    /* interactive: an answer failed verification twice */
+  EITA_WX_MALFORMED,    /* bytes do not parse */
+  EITA_WX_HEADER_CHAIN, /* the header is not the trusted one / ancestors do not hash-chain */
+  EITA_WX_ENOMEM,       /* arena exhausted: cannot simulate (never reported as out-of-gas) */
+  EITA_WX_UNSUPPORTED,  /* a fork, tx type or precompile outside this build */
+  EITA_WX_INVALID_TX    /* the spec's validity rules reject the tx (reason in the result) */
 } eita_wx_status;
 
-typedef struct {            /* the exact missing read: what the companion host fetches next */
-  uint8_t kind;             /* EITA_RK_{EXISTS,NONCE,BALANCE,CODEHASH,CODE,STORAGE,BLOCKHASH} */
-  uint8_t addr[20]; uint8_t slot[32];
-  uint8_t node_hash[32];    /* the missing trie node / code hash (diagnostic) */
-  uint64_t block;           /* for BLOCKHASH */
-} eita_wx_miss;
+typedef struct {        /* the exact read: a GET key, or the one-shot mode's missing key */
+  uint8_t kind;         /* EITA_RK_{ACCOUNT,STORAGE,CODE,NODE,HEADER} */
+  uint8_t addr[20]; uint8_t slot[32]; uint8_t hash[32]; uint64_t number;
+} eita_wx_key;
 
-typedef struct eita_wx eita_wx;   /* opaque, lives at the start of the arena */
+typedef struct {        /* the device's trust inputs, never the host's */
+  uint8_t  trusted_hash[32];   /* from the light client or a pinned checkpoint (§4.3) */
+  uint64_t chain_id;
+  const struct eita_fork_schedule *forks;
+} eita_wx_trust;
 
-/* Index the witness (borrowed): one keccak per node and code, a sorted (hash -> offset) table in
-   the arena; check the header chain back from `trusted_header_hash`; take the pre-state root from
-   the newest header. Re-hashes everything: the provider is untrusted. */
-eita_wx_status eita_wx_open(void *arena, uint32_t arena_len, const uint8_t trusted_header_hash[32],
+typedef struct {        /* the transport (USB/BLE), supplied by the firmware */
+  void *ctx;
+  /* send one message, wait for the reply to it (or a PUSH) up to timeout_ms */
+  int (*exchange)(void *ctx, eita_buf msg, uint8_t *reply, uint32_t cap, uint32_t *len, uint32_t timeout_ms);
+} eita_wx_io;
+
+typedef struct eita_wx eita_wx;  /* opaque, at the start of the arena */
+
+/* Interactive: a session bound to one trusted header. The arena holds the node cache, the verified
+   values, the overlay and the executor; nothing of the witness is held beyond the cache. */
+eita_wx_status eita_wx_session(void *arena, uint32_t arena_len, const eita_wx_trust *trust,
+                               const eita_wx_io *io, eita_buf header_rlp, eita_wx **out);
+/* One-shot: the same object over a borrowed pre-built witness (debug_executionWitness shape, §5). */
+eita_wx_status eita_wx_open(void *arena, uint32_t arena_len, const eita_wx_trust *trust,
                             eita_buf witness, eita_wx **out);
+eita_wx_status eita_wx_extend(eita_wx *wx, eita_buf more);           /* one-shot: append data */
 
-/* Append more nodes/codes/headers (the iterative loop, §4.2). Keeps the overlay empty. */
-eita_wx_status eita_wx_extend(eita_wx *wx, eita_buf more);
-
-/* Point reads: verified account / slot at the pre-state (an eth_getProof verifier in one call). */
-eita_wx_status eita_wx_account(eita_wx *wx, const uint8_t addr[20], eita_wx_account *out, eita_wx_miss *miss);
+/* Point reads, verified (an eth_getProof verifier in one call). */
+eita_wx_status eita_wx_account(eita_wx *wx, const uint8_t addr[20], eita_wx_account *out, eita_wx_key *k);
 eita_wx_status eita_wx_storage(eita_wx *wx, const uint8_t addr[20], const uint8_t slot[32],
-                               uint8_t value[32], eita_wx_miss *miss);
+                               uint8_t value[32], eita_wx_key *k);
 
-/* Execute. The block environment is built from the trusted header (`eita_wx_env_next` derives the
-   next block's: number+1, base fee by the emitted EIP-1559 formula, the timestamp the caller
-   gives); the chain config (chain id, fork schedule) is the caller's, never the provider's. */
-eita_wx_status eita_wx_env_next(eita_wx *wx, uint64_t timestamp, const uint8_t coinbase[20],
-                                eita_wx_env *env);
-eita_wx_status eita_wx_run_tx(eita_wx *wx, const eita_wx_env *env, eita_buf signed_tx,
-                              eita_wx_tx_result *res, eita_wx_miss *miss);
-eita_wx_status eita_wx_run_block(eita_wx *wx, eita_buf block_rlp, eita_wx_block_result *res,
-                                 eita_wx_miss *miss);
+/* Execute (either mode). The env is derived from the trusted header: the next block's number,
+   base fee by the emitted EIP-1559 formula, the caller's timestamp. */
+eita_wx_status eita_wx_env_next(eita_wx *wx, uint64_t timestamp, const uint8_t coinbase[20], eita_wx_env *env);
+eita_wx_status eita_wx_run_tx(eita_wx *wx, const eita_wx_env *env, eita_buf signed_tx, uint32_t flags,
+                              eita_wx_tx_result *res, eita_wx_key *k);   /* flags: EITA_WX_PROBE (host only) */
+eita_wx_status eita_wx_run_block(eita_wx *wx, eita_buf block_rlp, eita_wx_block_result *res, eita_wx_key *k);
 
-/* Results: gas, status, logs (borrowed views into the arena, valid until reset), the diff as an
-   iterator (accounts: pre/post fields; slots: pre/post; wiped storages), the receipt bytes. */
+/* Results: gas, status, logs (views into the arena, valid until reset); the diff (accounts with
+   pre/post fields, slots with pre/post, wiped storages); the receipt; the read set asked. */
 int            eita_wx_diff_next(eita_wx *wx, eita_wx_diff_iter *it, eita_wx_diff_entry *e);
 eita_wx_status eita_wx_receipt(eita_wx *wx, uint32_t tx_index, uint8_t *out, uint32_t cap, uint32_t *len);
-eita_wx_status eita_wx_post_root(eita_wx *wx, uint8_t root[32], eita_wx_miss *miss);
-/* The read set the run asked (Prog.asked), for the host's loop and for consumers. */
-int            eita_wx_reads_next(eita_wx *wx, eita_wx_reads_iter *it, eita_wx_readkey *k);
-void           eita_wx_reset(eita_wx *wx);   /* drop the overlay and results, keep the index */
+eita_wx_status eita_wx_post_root(eita_wx *wx, uint8_t root[32], eita_wx_key *k);
+int            eita_wx_reads_next(eita_wx *wx, eita_wx_reads_iter *it, eita_wx_key *k);
+void           eita_wx_reset(eita_wx *wx);  /* drop the overlay and results, keep the cache */
 ```
 
-**Probe mode, for the companion host only.** `eita_wx_run_tx` with `EITA_WX_PROBE` answers a
-missing read with zero or empty, *records* it, and continues. The result is discarded, and the
-recorded keys only predict what to fetch, so one round trip collects several missing keys. A probe
-result is never returned as a simulation. The chip build compiles probe mode out.
+`eita_wx_session` is bound to one trusted root, and every answer is checked against it. In
+interactive mode a missing read is not a status: the executor calls `io->exchange` with a `GET`,
+verifies the `ANSWER`, and continues. It suspends inside the read seam on the firmware's stack, so
+the executor needs no restartable state machine. **Probe mode** (`EITA_WX_PROBE`) is for the host:
+it answers a missing read with zero or empty, records the key and continues. The result is
+discarded, and only the recorded keys are used, as prefetch predictions. The chip build compiles
+probe mode out.
 
-### 3.2 Memory (embedded target)
+### 3.5 RV32 implications
 
-| what | size |
-|---|---|
-| node/code index | 36 B per node (hash + offset), sorted in place, binary search |
-| overlay | per written account/slot, ~100 B |
-| EVM stack | 32 B per *used* slot, from the arena (not 1024 × 32 B reserved per frame) |
-| memory | gas-bounded: 30M gas buys ≤ ~3.9 MB in one frame (3w + w²/512) |
-| call depth | 63/64 bounds it near ~700 at 30M gas; frames ~200 B + their stack and memory |
+- **256-bit words on 32-bit limbs.**
+  - The core's limb primitives (`c/generated/limb_ops.h`, printed from `Evm.CL.LimbC`) are four
+    64-bit limbs. On RV32 a word is eight 32-bit limbs.
+  - Carries come from `sltu`. `mul`/`mulhu` (M extension) give 32×32→64, so MUL is 64 partial
+    products and MULMOD/EXP are the cost centres.
+  - There are two derived routes:
+    - a 32-bit `LimbC` printing, proved like the 64-bit one;
+    - the RV32 lowering of AsmCore, the third backend after ARM64 and x86-64 (new-ideas item 4).
 
-A typical wallet transaction (a transfer, an approval, a router swap) has a witness of roughly
-50–500 KB. Code dominates it: up to 24 KB per contract. Its working memory is under 1 MB. These
-are estimates to measure in W5, not numbers measured on the Baochip. An adversarial transaction can
-exceed any fixed arena. The answer is then `ENOMEM` ("cannot simulate, do not sign blind"), never a
-wrong result, because running out of arena aborts the run like a missing read and has no gas
-semantics. The witness buffer is read in place, so it may sit in flash.
+    The C route comes first, because it is portable and checkable with CBMC.
+- **Keccak in software.**
+  - IMC has no rotate instruction (Zbb), so lanes are bit-interleaved 32-bit halves, as in XKCP's
+    32-bit implementations.
+  - Estimate: about 20k cycles per Keccak-f[1600], i.e. per 136 bytes. Verifying the largest
+    measured tx (Aave, 360 KB of nodes and code) is about 2,650 permutations ≈ 53 M cycles ≈ 0.15 s
+    at 350 MHz.
+  - If the Baochip's hash accelerators cover Keccak, the cost becomes negligible. The published
+    material says only "a variety of cryptographic accelerators" (open question 1).
+- **secp256k1** (ECRECOVER in permits): libsecp256k1's 10×26 field arithmetic runs on 32-bit, at an
+  estimated tens of ms per recovery at 350 MHz.
+- **Interpreter.** On RV32 the handlers are C at first, not the JIT. A wallet tx is about 50–300k
+  gas. At an estimated 100–300 cycles per opcode, that is 10–50 ms.
+- **Code size.** An estimated 0.4–0.8 MiB in ReRAM (§3.3), to be measured in W5. The pairing and
+  KZG precompiles are left out of the chip build.
 
-### 3.3 What is derived and what is glue
+### 3.6 Budget, from measured read sets
+
+**Read sets, real (keys per tx).**
+
+1. *Ethereum*, recorder output (branch `readset`): mainnet block 24,538,111, 756 txs, from the
+   core's repro fixture, run locally with the recorder on. Accounts include the sender, the
+   recipient and the coinbase, and the codes column counts code reads.
+
+   | class (n) | accounts p50/p90/max | slots p50/p90/max | codes p50/p90/max | code bytes p50/p90/max |
+   |---|---|---|---|---|
+   | ETH transfer (305) | 3/3/3 | 0/0/0 | 2/2/2 (empty) | 0/0/23 |
+   | ERC-20 transfer (308) | 3/4/6 | 7/7/11 | 2/3/5 | 11.1K/25.7K/27.0K |
+   | ERC-20 approve (8) | 4/4/4 | 2/4/4 | 3/3/3 | 18.2K/25.7K/25.7K |
+   | Uniswap router (3) | 7/10/10 | 16/25/25 | 6/9/9 | 45.2K/91.9K/91.9K |
+   | other (132) | 6/15/85 | 9/46/483 | 5/15/84 | 29.4K/136K/304K |
+   | all (756) | 3/5/85 | 2/8/483 | 2/4/84 | 10.6K/25.7K/304K |
+
+2. *Arc*, the re-replay's read sets on x300 (`/data/eita/arc-rr/readset`, blocks 1–1,392,640, 986
+   user txs; Arc's early chain is light): accounts p50/p90/p99/max 4/7/13/67, slots 4/7/22/243,
+   codes 3/5/11/65.
+
+3. *Witness bytes, real (path B on a public endpoint).* `eth_createAccessList` + `eth_getProof` +
+   `eth_getCode` at Ethereum head (blocks 26,404,614–26,404,624) via ethereum-rpc.publicnode.com,
+   with nodes de-duplicated per tx. The access list omits the coinbase and precompiles, so the key
+   counts are a little under the recorder's.
+
+   | class (n) | accounts | slots | nodes | node bytes | code bytes | total |
+   |---|---|---|---|---|---|---|
+   | ETH transfer (5) | 2 | 0 | 16–17 | 6.6–7.3 KB | 0 | ~7 KB |
+   | ERC-20 transfer (6) | 2–3 | 2–7 | 24–60 | 9.4–24.9 KB | 3.3–25.7 KB | 13–51 KB |
+   | Uniswap Universal Router (9) | 3–8 (p50 5) | 1–19 (p50 7) | 34–155 | 13.7–61.2 KB (p50 26) | 28.7–87.8 KB (p50 53) | 42–149 KB (p50 ~79) |
+   | Aave v3 Pool (2) | 12, 24 | 21, 51 | 188, 382 | 71, 137 KB | 87, 223 KB | 158, 360 KB |
+   | other contract calls (13) | 2–8 (p50 3) | 1–17 (p50 6) | 21–143 | 8.6–56 KB (p50 20) | 5.7–79 KB (p50 24) | — |
+
+   The rule of thumb that falls out:
+   - An account proof is about 8 nodes ≈ 3.3 KB once the root is shared.
+   - Each further slot in a known account adds about 5 nodes ≈ 1.8 KB.
+   - Code is half or more of the bytes; a warm code cache removes it.
+
+   The provider latencies measured on the same runs were `eth_getProof` 67–157 ms (avg ≈ 80 ms) and
+   `eth_createAccessList` 57–125 ms.
+
+**Transport.**
+
+| link | effective throughput | per round trip |
+|---|---|---|
+| USB 2.0 high speed (the Baochip's port) | assume ≥ 10 MB/s for an MCU bulk stack (480 Mbit/s raw) | ~1 ms |
+| USB full speed (fallback) | ~1 MB/s | ~1–2 ms (1 ms frames) |
+| BLE, phone host | iOS ≈ 50–60 kB/s, Android ≈ 140 kB/s at a 15 ms interval, 2M PHY (measured, Silicon Labs BGX13 table) | ≥ 2 connection intervals ≈ 30–60 ms; 15 ms is iOS's minimum interval (Punch Through) |
+
+**Round trips per tx.**
+
+- Without prefetch, about one per new key (accounts + slots; code rides with its account):
+  - ETH transfer 2–3;
+  - ERC-20 transfer about 4–10;
+  - swap about 8–27;
+  - Aave about 33–75.
+- With the host's probe-run prefetch, about 1 (one `PUSH`) plus rare misses.
+
+**Simulation time during signing** (cold code cache; warm removes the code bytes):
+
+| tx | bytes | USB HS | BLE iOS | chip compute |
+|---|---|---|---|---|
+| ETH transfer | ~7 KB | < 1 ms | ~0.15 s | < 10 ms |
+| ERC-20 transfer | ~27 KB (p50) | ~3 ms | ~0.5 s | ~15 ms |
+| Uniswap swap | ~79 KB (p50), 149 KB max | ~8–15 ms | ~1.4–2.7 s | ~50 ms |
+| Aave supply/borrow | 158–360 KB | ~16–36 ms | ~2.9–6.5 s (warm: 1.3–2.5 s) | ~0.1–0.3 s |
+
+Add to that the host's prefetch: one access-list call, one batched proof round and 0–1 probe-loop
+rounds, about 0.2–0.5 s against a hosted provider (measured latencies above). Over BLE without
+prefetch, add rounds × 30–60 ms (Aave: 2–4.5 s). The result:
+
+- **USB: under one second for every class measured.**
+- **BLE: a few seconds** for DeFi txs. The code cache is what makes repeat DeFi interactions fast.
+
+All of this is well inside 2 MiB of SRAM (§3.3).
+
+### 3.7 What is derived and what is glue
 
 | part | source | checked by |
 |---|---|---|
-| opcode handlers, gas formulas, fork tables | emitted from Lean (existing; RV32/RV64 is the third AsmCore lowering, or C via the limb ops) | existing emit drift checks, AsmCore proofs for the lowering |
+| opcode handlers, gas formulas, fork tables | emitted from Lean (existing; on RV32 as C over the 32-bit `LimbC`, later the RV32 AsmCore lowering) | existing emit drift checks, AsmCore proofs for a lowering |
 | effect layer: CALL, CREATE, SSTORE, SLOAD, settle, end-of-tx, tx | effect IR → **C** printer (`Evm.CL.EffectC`, today SLOAD/SSTORE only; extend to every term) | `Effect*Proof` (spec refinement), printer trusted like `toCL` |
-| oracle seam: overlay-then-lookup, `missing` | **emitted**: `walk`/`lookup` are first-order and total, printed to C like `LimbC` | `lookup_*_sound`, plus CBMC on the printed C (bounds, no OOB on adversarial bytes) |
+| read seam: overlay, then `lookup`; the one-shot pool or the interactive request | **emitted**: `walk`/`lookup` are first-order and total, printed to C like `LimbC` | `lookup_*_sound`, `runI_sound`, CBMC on the printed C (bounds, no OOB on adversarial bytes) |
 | RLP decode, hex-prefix | emitted from the totalized `Rlp.decodeAt` (W0) | round-trip theorem, CBMC |
-| keccak | `lean/c/keccak.c` (existing, trusted) | test vectors (trusted surface) |
-| ecrecover (sender) | libsecp256k1 (existing, trusted) | fixtures |
-| arena, index sort, header parsing, API marshalling | hand-written glue (~400 lines) | CBMC harness (`c/cbmc/` pattern), property tests vs the Lean reference |
+| keccak | `lean/c/keccak.c` (existing, trusted; a 32-bit interleaved variant for RV32) | test vectors (trusted surface) |
+| ecrecover | libsecp256k1 (existing, trusted) | fixtures |
+| arena, node cache, protocol codec, header parsing, API marshalling | hand-written glue (~600 lines) | CBMC harness (`c/cbmc/` pattern), property tests vs the Lean reference, a fuzzing host (random reorderings, drops, forged nodes) |
 
 The native accounts plus CALL/CREATE in C is the same work as the "all-C core" the RISC-V port
-needs (new-ideas item 5). The witness interface is that core's world-view implementation, and it
-does not add a second core.
+needs (new-ideas item 5). The read seam is that core's world view, and it does not add a second
+core.
 
-### 3.4 Pinning
+### 3.8 Pinning
 
 `lean/Comparator/Challenge.lean` gains, with owner review, `lookup_found_sound`,
-`lookup_absent_sound`, `runP_sound`, `runP_missing`, `txProg_refines` and `stateless_sound`. The
-standard axioms are enough: keccak appears as an opaque constant inside `Collision`, not as an
-axiom. The C side is pinned to the same terms. The printed C is byte-checked against the emitter
-(like `storage_effect.c`), and the property test runs the C and `Prog.runP` in Lean on the same
-witnesses (random pools, truncated pools, flipped bytes) and requires identical statuses and
-results. Conformance comes from the ethereum/tests BlockchainTests battery, run statelessly: build
-the witness from the fixture's pre-state with the Lean reference and require the fixture's post-
-state.
+`lookup_absent_sound`, `runP_sound`, `runP_missing`, `runI_sound`, `txProg_refines`,
+`stateless_sound` and `interactive_sound`. The standard axioms suffice: keccak appears as an opaque
+constant inside `Collision`, not as an axiom.
+
+The C side is pinned to the same terms:
+
+- The printed C is byte-checked against the emitter, like `storage_effect.c`.
+- The property test runs the C and `Prog.runP`/`runI` in Lean on the same witnesses and on the same
+  scripted hosts (random pools, truncated pools, flipped bytes, reordered and withheld answers). It
+  requires identical statuses and results.
+- Conformance comes from the BlockchainTests battery run statelessly: the fixture's pre-state
+  serves as the host, and the result must match the fixture's post-state.
 
 ## 4. Producing witnesses
 
@@ -402,7 +630,9 @@ per-call witness, so a pending wallet tx needs path B.
 
 ### 4.2 Path B: standard JSON-RPC only (every provider)
 
-All on the companion host, at a fixed block `N` (the trusted header's):
+On the device this path is a **host-side prefetch** for interactive mode (§3.2): it predicts and
+pushes the witness, and the chip still asks for anything it lacks. On its own it also builds a
+one-shot witness. It runs on the host, at a fixed block `N` (the trusted header's):
 
 1. `eth_createAccessList(tx, N)` gives predicted accounts and slots.
 2. Add the sender, the `to`, the coinbase, the EIP-7702 delegates of the accounts listed, and the
@@ -433,11 +663,11 @@ The loop closes all three, and none of them can cause a wrong result (§0.3).
 local rerun of a few milliseconds on a host. In the expected case the access list plus probe mode
 needs zero or one extra round. The worst case is the bound.
 
-**Where it runs.** The loop runs on the companion host (phone or PC), which is online and runs the
-*same* C library. The chip is offline. It receives only the final witness, the trusted header (or
-verifies it, §4.3) and the tx, then re-runs strictly. If the chip's own run hits `MISSING` or
-`ENOMEM`, it refuses to show a simulation, so the host cannot make the chip trust a result the chip
-did not compute.
+**Where it runs.** The loop runs on the host (phone or PC), which is online and runs the *same* C
+library in probe and one-shot modes. Measured on a public endpoint, one round is about 60–160 ms
+per call (§3.6). In interactive mode the chip is the final judge: it runs strictly, asks for what
+the prefetch missed, verifies every answer, and on `IO`, `BAD_PROOF` or `ENOMEM` it refuses to show
+a simulation. So the host cannot make the chip trust a result the chip did not compute.
 
 ### 4.3 Trust model
 
@@ -503,9 +733,14 @@ The eth_getProof path produces the same object: the proof nodes go to `state`, t
 version, the trusted block hash, and the typed read set (§1.1). An extension is never required for
 verification.
 
-**On-device (binary):** an RLP list `[version=1, trustedHash, headers, nodes, codes, keys, ext]`.
-RLP is used because the chip must parse RLP for nodes, headers and txs anyway, which keeps one
-parser and no new framing. Order inside a section is free, because the index sorts by hash.
+**One-shot binary:** an RLP list `[version=1, trustedHash, headers, nodes, codes, keys, ext]`. It is
+used by tests, offline replays and other users of the core. RLP is used because the executor must
+parse RLP for nodes, headers and txs anyway, which keeps one parser and no new framing. Order inside
+a section is free, because the index sorts by hash.
+
+**Interactive:** the wire protocol of §3.2 carries the same pieces: nodes, codes and headers inside
+`ANSWER`/`PUSH`. A host can therefore feed a `debug_executionWitness` response to the chip as one
+`PUSH`.
 
 **Where it differs from debug_executionWitness, and why:**
 
@@ -524,10 +759,10 @@ The read-set recorder's segment format (`docs/readset-format.md`) is a separate 
 | **W0** | totalize `Rlp.encode/decodeAt`, `Trie.patricialise/nodeRef`; `decode ∘ encode = some`; `patricialise` characterization (items ↔ structure) | 2–3 wk | — (also unblocks `Trie/Stack` `sorry`s and `Incremental.Canonical`) |
 | **W1** | `Evm/Witness/{ReadKey,Pool,Lookup}.lean`; prove (a) and the account layer; `Prog` + the four generic theorems (done in the spike) | 1–2 wk | W0 |
 | **W2** | `txProg`: effect IR `ask` semantics (one induction over `Stmt`), frame state yields as `ask`, tx/call/create glue reads; `txProg_refines` for every fork; block bind (d) | 4–8 wk | existing `Effect*Proof`, total trampoline with fuel |
-| **W3** | C: `lookup`/RLP printed from Lean, glue + arena, `eita_wx_*`; CBMC harness; property tests vs Lean; stateless BlockchainTests on host | 3–4 wk | W1; effect IR → C for the remaining terms (all-C core) |
-| **W4a** | path B on the host (access list + getProof loop + probe), against two hosted providers and one public endpoint; path A ingestion | 1–2 wk | W3 |
+| **W3** | C: `lookup`/RLP printed from Lean, glue + arena + node cache, `eita_wx_*` (session and one-shot), the wire protocol codec; CBMC harness; property tests vs Lean with scripted adversarial hosts; stateless BlockchainTests on host | 4–5 wk | W1; effect IR → C for the remaining terms (all-C core) |
+| **W4a** | the host program: the protocol's host side, path B prefetch (access list + getProof + probe loop) against two hosted providers and one public endpoint, path A ingestion, PUSH | 2 wk | W3 |
 | **W4b** | path C: stack-build proof extraction at anchors; recorder read sets → witnesses | 2 wk | `readset` branch merged |
-| **W5** | RV32 build, Baochip RAM/flash measurement on real wallet txs; light-client header verification (sync committee, blst) | 3–5 wk | RISC-V lowering, all-C core |
+| **W5** | RV32IMC build (32-bit `LimbC`, interleaved keccak), on the dabao: code size in ReRAM, SRAM high-water, cycles per class (§3.6 classes), USB HS and BLE timings; ReRAM code cache; light-client header verification (sync committee, blst) | 3–5 wk | all-C core; the dabao board |
 | **W6** | stateless block validation with post-root (deletion siblings); tip witnesses | later | stage 8 incremental MPT |
 
 The critical path is W0 → W1 → W2, which is proof work. W3 and W4a can run against the Lean
@@ -543,8 +778,10 @@ explicitly. It is not a hidden gap.
      equal), then make the accessors the `ask` points.
 2. The all-C core (native accounts + CALL/CREATE in C) is a prerequisite for the chip but is not
    built.
-3. Baochip RAM: the actual part's SRAM/PSRAM is unconfirmed (believed RV32 with a few MB). W5
-   measures it before committing to a large-tx story.
+3. Device fit. The firmware size and whether it runs in place from ReRAM are estimates
+   (0.4–0.8 MiB), and the cycles per Keccak and per opcode on the VexRiscv are unmeasured. W5
+   measures all of them. A tx that exceeds the arena is `ENOMEM` ("cannot simulate"), never a wrong
+   answer.
 4. Provider behavior: `eth_createAccessList` quirks and `debug_executionWitness` gaps (QuickNode's
    own "incomplete witness" fix).
    - Mitigation: the loop, and hard failure.
@@ -573,8 +810,14 @@ several hundred. The rest is the feature's cost and is stated in each stage's co
 
 ## 7. Open questions (for the owner)
 
-1. Is the Baochip target RV32 with how much SRAM/PSRAM? This decides whether large-swap witnesses
-   (~0.5 MB of code) must stream from flash (supported: the witness is borrowed and read in place).
+1. *(Answered 2026-11-13: dabao, RV32IMC, 2 MiB SRAM + 4 MiB ReRAM, USB/BLE to a host,
+   interactive during signing.)* Still open about the part:
+   - Can firmware execute in place from ReRAM?
+   - Do the "cryptographic accelerators" include Keccak (which would remove ~0.15 s on the largest
+     tx) or a big-number engine (for secp256k1)?
+   - Is the core IMC or IMAC (the published core is IMAC; atomics are not needed)?
+   - What is ReRAM's rated write endurance?
+   - Is BLE a separate radio module, and what is its link layer?
 2. Should the light client (sync committee) live in the core or in the wallet project? Proposal:
    in the wallet. The core takes a trusted header hash.
 3. Should `txProg` be *the* spec run, so that `Tx.run := (txProg c).run (oracleOf s)`, which leaves
@@ -590,6 +833,9 @@ several hundred. The rest is the feature's cost and is stated in each stage's co
    ordinary storage, so it should not.
 
 ## Sources
+
+- Baochip-1x (bunnie, 2026): https://www.bunniestudios.com/blog/2026/baochip-1x-a-mostly-open-22nm-soc-for-high-assurance-applications/ ; dabao board (USB 2.0 high-speed device, RV32-IMAC 350 MHz): https://www.cnx-software.com/2026/03/04/dabao-board-features-open-source-hardware-baochip-1x-risc-v-mcu/
+- BLE throughput on phones (iOS 15 ms minimum interval, ~50 % airtime): https://punchthrough.com/ble-throughput-optimization-faq/ ; measured iOS/Android rates at 15 ms, 2M PHY: https://docs.silabs.com/gecko-os/1/bgx/1.x/throughput
 
 - EIP-1186 (`eth_getProof`): https://eips.ethereum.org/EIPS/eip-1186
 - reth debug namespace (`debug_executionWitness`): https://reth.rs/jsonrpc/debug
