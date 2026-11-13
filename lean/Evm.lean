@@ -164,3 +164,6 @@ import Evm.CL.Extract
 import Evm.Parallel.BlockSTM
 import Evm.Parallel.Reads
 import Evm.Parallel.Scheduler
+
+-- Read sets (docs/readset.md): ReadKey, AgreeOn, Sufficient.
+import Evm.Witness.ReadSet
