@@ -120,6 +120,7 @@
           (total-gas 0) (match 0) (delta 0) (our-gas '()) (rlist receipts))
       (when *verbose*
         (format t "~&── block ~D  (~D txs, header gas ~D) ─────────────~%" n (length txs) header-gas))
+      (setf *cur-tx* +preblock-tx+)         ; the read stream's tx index of system work
       (run-pre-block! world n blk coinbase block-ctx)
       (loop for tx in txs for idx from 0
             for receipt = (pop rlist)
@@ -169,6 +170,7 @@
       ;; Post-block state changes (rewards, withdrawals, request system calls — the last
       ;; yield the requestsHash the header commits to), then header verification, handed
       ;; to the verifier thread (`verify-block!`) while the replay runs on.
+      (setf *cur-tx* +postblock-tx+)
       (run-post-block! world n blk total-gas coinbase block-ctx)
       (verify-block! n blk total-gas txs our-gas receipts)
       (when *mpt-armed* (mpt-post-block-hook n world))

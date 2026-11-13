@@ -60,6 +60,9 @@
   rolls-back (error nil))
 (defvar *subscribers* '() "The attached subscribers, an observer's first.")
 (defvar *capture-reads* nil "True while some subscriber wants read events.")
+(defstartup *readset-dir* (nonempty-env "EITA_READSET_DIR")
+  "The read-set recorder's directory (evm/readset.lisp, docs/readset-format.md); NIL: off.")
+(declaim (ftype function readset-attach!))
 (defvar *fw-batch* (make-fw-batch 4096) "This block's records (replay thread only).")
 
 (declaim (inline fw-reserve))
@@ -157,6 +160,7 @@
   "Run the verifier's reports, then re-raise a subscriber's failure, on the replay thread."
   (unless *subscribers*
     (observe attach)                    ; an observer's subscribers first
+    (when *readset-dir* (readset-attach!))
     (attach-subscriber! "verifier" (make-verifier-event) :depth 16 :rolls-back t))
   (dolist (report (sb-thread:with-mutex (*verdict-lock*) (reverse (shiftf *verifier-notes* '()))))
     (funcall report))
