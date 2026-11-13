@@ -37,18 +37,18 @@
 
 ;;; --- Progress and diagnosis ----------------------------------------------------
 (defparameter *run-t0* nil)
-(defparameter *run-blocks* 0)
+(defparameter *run-blocks* 0) (defparameter *run-gas* 0) ; since the last progress line
 (defparameter *run-txs* 0)
 
-(defun progress! (n)
-  (incf *run-blocks*)
+(defun progress! (n gas)
+  (incf *run-blocks*) (incf *run-gas* gas)
   (when (zerop (mod n *progress-every*))
     (let* ((now (get-internal-real-time))
            (dt (/ (- now (or *run-t0* now)) internal-time-units-per-second)))
-      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  rpc=~D~%"
-              n *run-txs* (if (plusp dt) (/ *run-blocks* dt) 0) *rpc-calls*)
+      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  ~,1F MGas/s  rpc=~D~%" n *run-txs*
+              (if (plusp dt) (/ *run-blocks* dt) 0) (if (plusp dt) (/ *run-gas* dt 1d6) 0) *rpc-calls*)
       (finish-output)
-      (setf *run-t0* now *run-blocks* 0))))
+      (setf *run-t0* now *run-blocks* 0 *run-gas* 0))))
 
 (defun receipt-table (txs receipts our-gas)
   "Per-tx receipt-vs-ours table (diagnosis of a header mismatch)."
@@ -185,7 +185,7 @@
             (anchor! world n (blk-state-root blk) :anchor anchor)))
         ;; finished background work into the stack; collect / start root checks
         (root-check-poll! n))
-      (progress! n))))
+      (progress! n header-gas))))
 
 ;;; --- Header verification, on the verifier thread ------------------------------------
 (defun verify-block! (n blk total-gas txs our-gas receipts)
