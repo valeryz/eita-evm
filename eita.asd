@@ -50,6 +50,7 @@
                (:file "evm/tx")
                ;; block input
                (:file "input/decode")
+               (:file "evm/readset")          ; EITA_READSET_DIR: the read-set recorder
                (:file "input/source")
                (:file "evm/run-tx")
                (:file "evm/networks")

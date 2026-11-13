@@ -62,7 +62,7 @@
     ("layers" "layers.lisp")
     ("world-slots" "world-slots.lisp")
     ("p256verify" "p256verify.lisp")
-    ("observer-invariance" "observer-invariance.lisp")
+    ("readset" "readset.lisp")
     ("arc-pq" "arc-pq.lisp"
      :requires ,(lambda () (unless (eita.native:native-path "libeita_pq" :error nil)
                              "libeita_pq not built (make -C c)")))
