@@ -57,28 +57,12 @@ typecheck against the current core. The spike files are `witness-scratch/Witness
 
 ### 1.1 ReadSet
 
-```lean
-inductive ReadKey where
-  | exists_   (a : Address)              -- in the trie at all (NEW_ACCOUNT pre-161, EIP-161 emptiness)
-  | nonce     (a : Address)
-  | balance   (a : Address)
-  | codeHash  (a : Address)              -- EXTCODEHASH, emptiness: the leaf only
-  | code      (a : Address)              -- the bytes (CALL, EXTCODECOPY, EXTCODESIZE)
-  | storage   (a : Address) (slot : U256)
-  | blockHash (n : Nat)
-abbrev ReadSet := List ReadKey           -- per tx; a block's is §2.4
-```
-
-The read kinds are those of the storage view's read stream (`src/state/world.lisp`: `:present
-:nonce :balance :code :storage`) plus the recorder's additions (`:codehash :blockhash`, branch
-`readset`). The recorder's per-tx record (an account mask, slots, codes by hash, block hashes) is
-exactly a `ReadSet` together with a written-bit. Field granularity is kept because dependency and
-MEV consumers want it. A witness, however, covers an account as a whole, since one account proof
-yields all four fields.
-
-`Parallel/Reads.lean`'s abstract `Key` becomes `ReadKey`. One read-set notion remains, and its
-`Faithful`/`Deterministic` conditions become theorems about the executor instead of hypotheses
-(§2.3).
+Defined in `lean/Evm/Witness/ReadSet.lean` (`ReadKey`, `ReadSet`, `Answer`, `Oracle`, `oracleOf`)
+and explained in [`readset.md`](readset.md): the key kinds, the subtle cases, the recorder's gap.
+The recorder's per-tx record (`readset-format.md`) is a `ReadSet` together with a written bit. A
+witness covers an account as a whole, since one account proof yields all four fields.
+`Parallel/Reads.lean`'s `Key` is still separate; the fold into `ReadKey` is listed in
+`readset.md` §Open, and its `Faithful`/`Deterministic` become theorems about the executor (§2.3).
 
 ### 1.2 Witness
 
@@ -187,10 +171,11 @@ decoder is therefore harmless. The structural heart is `walk` over `patricialise
 
 ### 2.2 (b) Witness sufficiency
 
+`AgreeOn` and `Sufficient` are defined in `lean/Evm/Witness/ReadSet.lean` (over any execution,
+its pre-state view and an outcome relation; `readset.md`). The EVM instance takes `same` =
+`SameOutcome` (gas, status, logs, same Diff):
+
 ```lean
-def AgreeOn (R : ReadSet) (s t : State) : Prop          -- every read in R answers alike
-def Sufficient (c : TxCtx) (R : ReadSet) (s : State) : Prop :=
-  ∀ s', AgreeOn R s s' → SameOutcome s s' (c.run s) (c.run s')   -- gas, status, logs, same Diff
 theorem sufficiency (hs : RootOf s root) (hs' : RootOf s' root) (hR : Sufficient c R s)
     (hc : Covers root W R) : SameOutcome … ∨ Collision
 ```
