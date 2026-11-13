@@ -16,8 +16,11 @@ pre-state root are planned sections (see "Extending it").
 
 `<dir>/<first>-<last>.rset` (both block numbers 10 digits, zero-padded) is one **segment**: the
 blocks first..last, gzip-compressed. Segments are cut at multiples of 10,000 blocks, at every
-layer point (checkpoint), and at the end of the run. A layer at block N is published only after
-the segments through N are on disk (written, fsynced, renamed). A run deletes the segments whose
+layer point (checkpoint), and at the end of the run. Each is written to a `.tmp` and renamed; at a
+layer point and at the end of the run it and every segment since the last such point are fsynced
+with the directory, so a layer at block N is published only after the segments through N are
+durable (a segment cut at a range end between layer points may be lost or torn by a machine
+crash: the restart is at an anchor at or below the last layer point). A run deletes the segments whose
 first block is at or after its own first block, and a reorg rollback to N deletes those after N.
 Where two segments still overlap, the segment with the **greater first block** wins for the
 blocks they share.

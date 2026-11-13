@@ -7,8 +7,10 @@
 ;;;; keeps each account once with the fields read (and whether it was written), each slot
 ;;;; once (and whether it was written), the code read by hash, the block hashes read. A
 ;;;; segment holds the blocks of one +readset-segment+ range up to a layer point: it is
-;;;; written at the range's end, at every checkpoint (before the layer at N is published,
-;;;; so an anchor implies its read sets) and at the end of the run. Off: one test per tx.
+;;;; written at the range's end, at every checkpoint and at the end of the run, and made
+;;;; durable — with every segment written since the last — only at the latter two (before
+;;;; the layer at N is published, so an anchor implies its read sets; a crash restarts at an
+;;;; anchor, and the run drops the segments from its first block on). Off: one test per tx.
 ;;;; Nothing here steers execution; it runs on its own thread.
 
 (in-package #:eita.evm)
@@ -27,6 +29,7 @@
   (code-memo (make-hash-table :test 'eq))
   (buf (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   (marks '())                                     ; (block . buf offset), newest first
+  (unsynced '())                                  ; segment paths written since the last durable flush
   (block nil) (tx nil) (started nil)
   (tx-accts (make-hash-table)) (tx-codes (make-hash-table)) (tx-slots (make-hash-table)) (tx-bh '()))
 
@@ -84,8 +87,9 @@
 
 (cffi:defcfun ("gzwrite" %gzwrite) :int (f :pointer) (buf :pointer) (len :unsigned-int))
 
-(defun rs-flush! (r)
-  "Write the segment (its blocks first..last) and start an empty one."
+(defun rs-flush! (r &optional durable)
+  "Write the segment (its blocks first..last) and start an empty one; with DURABLE, fsync it,
+   every segment written since the last durable flush, and the directory."
   (rs-end-block r)
   (when (rs-first r)
     (let ((out (make-array (+ 4096 (fill-pointer (rs-buf r))) :element-type '(unsigned-byte 8)
@@ -116,11 +120,15 @@
                (unless (= (cffi:with-pointer-to-vector-data (p v) (%gzwrite f p (length v))) (length v))
                  (error "readset: gzwrite ~A failed" tmp))
             (eita.input::%gzclose f)))
-        (let ((fd (sb-posix:open tmp sb-posix:o-rdonly)))
-          (unwind-protect (sb-posix:fsync fd) (sb-posix:close fd)))
-        (sb-posix:rename tmp path))))
+        (sb-posix:rename tmp path)
+        (push path (rs-unsynced r)))))
+  (when (and durable (rs-unsynced r))
+    (dolist (p (cons (rs-dir r) (rs-unsynced r)))      ; one a rollback deleted: skipped
+      (let ((fd (ignore-errors (sb-posix:open p sb-posix:o-rdonly))))
+        (when fd (unwind-protect (sb-posix:fsync fd) (sb-posix:close fd)))))
+    (setf (rs-unsynced r) '()))
   (let ((next (make-rs (rs-dir r))))            ; the next segment: the same range, run
-    (setf (rs-range next) (rs-range r) (rs-started next) (rs-started r))
+    (setf (rs-range next) (rs-range r) (rs-started next) (rs-started r) (rs-unsynced next) (rs-unsynced r))
     next))
 
 (defun rs-code-id (r code)
@@ -176,10 +184,10 @@
                                     (declare (ignore vals))
                                     (at block tx)
                                     (if (eq kind :storage) (slot addr key 1) (acct addr +rs-written+))))
-                 (:checkpoint (setf r (rs-flush! r)))
+                 (:checkpoint (setf r (rs-flush! r t)))
                  (:rollback (rollback (second ev)))
-                 (:finalize (setf r (rs-flush! r))))))
-      (values #'on-event (lambda () (setf r (rs-flush! r)))))))
+                 (:finalize (setf r (rs-flush! r t))))))
+      (values #'on-event (lambda () (setf r (rs-flush! r t)))))))
 
 (defun readset-attach! ()
   "Attach the recorder to the event stream (check-subscribers, when *readset-dir* is set)."
