@@ -77,8 +77,11 @@
            #:spec-arc-precompile-sstore-gas #:spec-arc-slot-read-gas
            #:spec-arc-smoothed-gas-used #:spec-arc-subcall-dispatch-cost
            #:spec-arc-transfer-log-gas #:spec-arc-write-gas #:spec-arc-write-probe-gas
-           #:spec-block-credits #:spec-coinbase-fee-effect #:spec-destroy-effect
-           #:spec-header-violation #:spec-mainnet-fork-ord #:spec-sweep-effect
+           #:spec-block-credits #:spec-calldata-floor-gas #:spec-coinbase-fee-effect
+           #:spec-destroy-effect #:spec-flz-compress-len #:spec-header-violation
+           #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
+           #:spec-op-deposit-fails #:spec-op-eth-analog-ord #:spec-op-l1-fee
+           #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
            #:stream-finalize! #:stream-rollback! #:touch! #:tx #:tx-access-list #:tx-auth-count
            #:tx-auth-list #:tx-blob-hashes #:tx-chain-id #:tx-data #:tx-gas-limit
@@ -174,7 +177,8 @@
    header gates, the replay driver.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input)
   (:export
-           #:*chain-id* #:*chain-spec* #:*full-state* #:*receipts-unverifiable*
+           #:*chain-header-foreign* #:*chain-id* #:*chain-spec* #:*full-state*
+           #:*receipts-unverifiable* #:*tx-receipt-extension* #:tx-envelope
            #:*recent-headers* #:+postblock-tx+ #:+preblock-tx+ #:block-credit! #:block-ommers
            #:chain-spec-reorg-depth #:eip2935-store-parent-hash! #:ethereum-pre-block!
            #:find-chain-spec #:header-record #:header-violation #:install-chain-spec!
@@ -191,8 +195,8 @@
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.chain.op
-  (:documentation "OP-Stack chains (Base, OP Mainnet, World Chain) with lazy RPC-backed state.")
-  (:use #:cl #:cffi #:eita.native #:eita.evm #:eita.state #:eita.input #:eita.chain))
+  (:documentation "OP-Stack chains (Base, OP Mainnet, World Chain), full or lazy state.")
+  (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.fixtures
   (:documentation "The BlockchainTests runner (ethereum/tests, execution-spec-tests).")

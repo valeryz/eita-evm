@@ -68,6 +68,12 @@ def applyBlockFor
     Evm.Optimism.Isthmus.applyBlock state blockHashes coinbase number
       gasLimit timestamp baseFeePerGas prevRandao txs operatorParams
       withdrawalsCount (debugTrace := debugTrace) (chainId := chainId)
+  | .jovian =>
+    -- This Lean block driver has none of Jovian's rules (the operator-fee fix, the DA
+    -- footprint, the precompile input limits, the minimum base fee): it refuses the
+    -- fork rather than run it as Isthmus. The CL replay takes them from the spec
+    -- modules (`Replay.Emit.operatorFeeExpr`).
+    .error "Jovian: the Lean block driver does not implement Jovian's rules"
   | .azul =>
     Evm.Optimism.Azul.applyBlock state blockHashes coinbase number
       gasLimit timestamp baseFeePerGas prevRandao txs operatorParams

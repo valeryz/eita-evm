@@ -91,8 +91,12 @@ state is `<PREFIX>_FROM_GENESIS`.
   serves blocks only, so it refuses lazy runs.
 - The other chains run the same way: `--chain arc-mainnet` / `arc-testnet`
   (`src/chains/arc.lisp`; the chain's `genesis.json` via `--genesis`), `--chain base` /
-  `opt` / `world` (`src/chains/op.lisp`, OP Stack; these runs are lazy-state, so they need
-  a state-serving source).
+  `opt` / `world` (`src/chains/op.lisp`, OP Stack: lazy-state by default, so they need a
+  state-serving source; `--full-state --genesis FILE` runs them from the chain's genesis
+  alloc — Base's is the superchain-registry `base.json.zst` of the last revision that listed
+  Base (`5b055be`), decompressed with that revision's `superchain/extra/dictionary` —, with
+  the deposit receipts in the receipts root and the L1 data fee computed from the L1Block
+  predeploy).
 - `EITA_NO_JIT=1` runs the threaded interpreter only; by default hot code is compiled by
   the Lean-emitted JIT.
 

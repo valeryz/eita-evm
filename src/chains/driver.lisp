@@ -13,7 +13,7 @@
 (in-package #:eita.chain)
 
 ;; Defined in chains/receipts.lisp.
-(declaim (special *receipts-unverifiable*))
+(declaim (special *receipts-unverifiable* *tx-receipt-extension*))
 
 (defun env (name)
   "EITA_<NAME>."
@@ -129,7 +129,7 @@
                       (*trace-step* (and traced *trace-step*)))
                  (when traced (format t "~&=== TRACE tx=~D ===~%" idx))
                  (incf (getf *stats* :txs)) (incf *run-txs*)
-                 (setf *cur-tx* idx)
+                 (setf *cur-tx* idx *tx-receipt-extension* nil)
                  (multiple-value-bind (eita-gas status egp)
                      (if *chain-run-tx-hook*
                          (funcall *chain-run-tx-hook* world tx receipt block-ctx coinbase n idx)
@@ -141,7 +141,7 @@
                        (gate n idx "status" (getf receipt :status) status)))
                    (if (eq status :skip)
                        (setf *receipts-unverifiable* :skipped)
-                       (receipts-push! (tx-type tx) status eita-gas *last-tx-logs*))
+                       (receipts-push! (tx-type tx) status eita-gas *last-tx-logs* *tx-receipt-extension*))
                    (incf total-gas eita-gas)
                    (push eita-gas our-gas)
                    ;; observers: OUR gas-used / status (:skip = unverified) and OUR effective
