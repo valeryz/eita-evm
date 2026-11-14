@@ -3,35 +3,45 @@
 (in-package #:eita.evm)
 
 ;;; --- Bounded pipe: one producer thread, one consumer thread ---
-(defstruct (pipe (:constructor make-pipe (max)))
-  max (lock (sb-thread:make-mutex :name "pipe")) (cv (sb-thread:make-waitqueue))
-  (head nil) (tail nil) (count 0 :type fixnum))
+;;; Bounded by items (MAX) and, with MAX-BYTES, by the bytes its items are estimated to hold
+;;; (an item always enters an empty pipe, so one larger than the bound cannot deadlock).
+(defstruct (pipe (:constructor make-pipe (max &optional max-bytes)))
+  max max-bytes (lock (sb-thread:make-mutex :name "pipe")) (cv (sb-thread:make-waitqueue))
+  (head nil) (tail nil) (count 0 :type fixnum) (bytes 0 :type fixnum)
+  (waited 0))                           ; internal real time producers waited on it
 
-(defun pipe-put (p x)
-  "Append X; wait while P holds its maximum."
+(defun pipe-put (p x &optional (bytes 0))
+  "Append X, of BYTES (an estimate); wait while P is full."
   (sb-thread:with-mutex ((pipe-lock p))
-    (loop while (>= (pipe-count p) (pipe-max p)) do (sb-thread:condition-wait (pipe-cv p) (pipe-lock p)))
-    (let ((cell (list x)))
+    (loop while (or (>= (pipe-count p) (pipe-max p))
+                    (and (pipe-max-bytes p) (plusp (pipe-bytes p)) (> (+ (pipe-bytes p) bytes) (pipe-max-bytes p))))
+          do (let ((t0 (get-internal-real-time)))
+               (sb-thread:condition-wait (pipe-cv p) (pipe-lock p))
+               (incf (pipe-waited p) (- (get-internal-real-time) t0))))
+    (let ((cell (list (cons x bytes))))
       (if (pipe-tail p) (setf (cdr (pipe-tail p)) cell) (setf (pipe-head p) cell))
       (setf (pipe-tail p) cell))
     (incf (pipe-count p))
+    (incf (pipe-bytes p) bytes)
     (sb-thread:condition-broadcast (pipe-cv p))))
 
 (defun pipe-take (p)
   "Remove and return the oldest item; wait while P is empty."
   (sb-thread:with-mutex ((pipe-lock p))
     (loop until (pipe-head p) do (sb-thread:condition-wait (pipe-cv p) (pipe-lock p)))
-    (let ((x (pop (pipe-head p))))
+    (let ((e (pop (pipe-head p))))
       (unless (pipe-head p) (setf (pipe-tail p) nil))
       (decf (pipe-count p))
+      (decf (pipe-bytes p) (cdr e))
       (sb-thread:condition-broadcast (pipe-cv p))
-      x)))
+      (car e))))
 
 ;;; --- The event stream: one capture, many subscribers ---------------------------------
 ;;; The replay thread captures a block's events — fw-push, one hand-over per block at its
 ;;; commit, (block, txIndex, ordinal) order preserved — and every SUBSCRIBER consumes the
-;;; same batches on its own thread off its own bounded pipe (256 blocks; a full pipe blocks
-;;; the replay: a slow subscriber delays the commit, no event is ever dropped). Observers
+;;; same batches on its own thread off its own bounded pipe (256 blocks and +pipe-bytes+ of
+;;; them, estimated: a full pipe blocks the replay, a slow subscriber delays the commit, no
+;;; event is ever dropped; a pipe in blocks alone held 0.3 GB of Arc's densest). Observers
 ;;; (the observation seam, below) attach theirs first, so their view of block N is complete
 ;;; before anything later claims N. A subscriber that wants read events declares
 ;;; :wants-reads; `*capture-reads*` is recomputed at attach, and while it is true the
@@ -54,7 +64,12 @@
 (defvar *fw-widths* (vector)
   "Record width by row code, set by the observer that writes rows (none: no rows).")
 (defstruct (fw-batch (:constructor make-fw-batch (cap &aux (vec (make-array cap)))))
-  (vec #() :type simple-vector) (fill 0 :type fixnum))
+  (vec #() :type simple-vector) (fill 0 :type fixnum) (events 0 :type fixnum))
+(defconstant +pipe-bytes+ (* 64 1024 1024) "A subscriber pipe's bound in estimated bytes.")
+(defun fw-batch-bytes (b)
+  "A batch's heap, estimated: 16 bytes a slot (the word and, on average, what it boxes), an
+   event list ~160 (a (:read …) is 7 conses and two integers)."
+  (+ (* 16 (fw-batch-fill b)) (* 160 (fw-batch-events b))))
 
 (defstruct subscriber name pipe thread on-event on-row on-checkpoint on-finalize wants-reads
   rolls-back (error nil))
@@ -113,10 +128,11 @@
 
 (defun attach-subscriber! (name on-event &key on-row on-checkpoint on-finalize wants-reads rolls-back (depth 256))
   "Register a consumer of the event stream and start its thread; returns the subscriber.
-   DEPTH: the blocks it may lag behind the replay. ROLLS-BACK: it handles (:rollback n)
-   (a reorg with a subscriber that cannot stops the run instead)."
+   DEPTH: the blocks it may lag behind the replay (and at most +pipe-bytes+ of them).
+   ROLLS-BACK: it handles (:rollback n) (a reorg with a subscriber that cannot stops the
+   run instead)."
   (let ((sub (make-subscriber :name name :on-event on-event :on-row on-row :on-checkpoint on-checkpoint
-                              :pipe (make-pipe depth) :on-finalize on-finalize :wants-reads wants-reads
+                              :pipe (make-pipe depth +pipe-bytes+) :on-finalize on-finalize :wants-reads wants-reads
                               :rolls-back rolls-back)))
     (setf (subscriber-thread sub)
           (sb-thread:make-thread (lambda () (subscriber-loop sub)) :name (format nil "stream ~A" name)))
@@ -171,7 +187,8 @@
 (defun fw-push (ev)
   "Capture the event EV (a list)."
   (multiple-value-bind (v i) (fw-reserve 2)
-    (setf (svref v i) +fw-event+ (svref v (1+ i)) ev)))
+    (setf (svref v i) +fw-event+ (svref v (1+ i)) ev))
+  (incf (fw-batch-events *fw-batch*)))
 
 (defun fw-flush ()
   "Hand this block's records to every subscriber (waiting while a pipe is full); the next
@@ -180,7 +197,8 @@
   (let ((batch *fw-batch*))
     (when (plusp (fw-batch-fill batch))
       (setf *fw-batch* (make-fw-batch (max 4096 (fw-batch-fill batch))))
-      (dolist (sub *subscribers*) (pipe-put (subscriber-pipe sub) batch)))))
+      (let ((bytes (fw-batch-bytes batch)))
+        (dolist (sub *subscribers*) (pipe-put (subscriber-pipe sub) batch bytes))))))
 
 (defun fw-drain ()
   "Wait until every subscriber has consumed everything captured so far."
@@ -232,6 +250,9 @@
                     (fw-drain))
     (dolist (sub *subscribers*)
       (when (and (subscriber-on-finalize sub) (not (subscriber-error sub))) (funcall (subscriber-on-finalize sub)))
+      (let ((w (pipe-waited (subscriber-pipe sub))))   ; a subscriber that held the replay back
+        (when (> w internal-time-units-per-second)
+          (format t "~&[stream] the replay waited ~,1F s on subscriber ~A~%" (/ w internal-time-units-per-second) (subscriber-name sub))))
       (pipe-put (subscriber-pipe sub) (list (list :stop)))
       (sb-thread:join-thread (subscriber-thread sub) :default nil))
     (setf *subscribers* '() *capture-reads* nil *last-verdict* nil *verifier-notes* '())))

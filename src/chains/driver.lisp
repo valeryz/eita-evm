@@ -45,10 +45,45 @@
   (when (zerop (mod n *progress-every*))
     (let* ((now (get-internal-real-time))
            (dt (/ (- now (or *run-t0* now)) internal-time-units-per-second)))
-      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  ~,1F MGas/s  rpc=~D~%" n *run-txs*
-              (if (plusp dt) (/ *run-blocks* dt) 0) (if (plusp dt) (/ *run-gas* dt 1d6) 0) *rpc-calls*)
+      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  ~,1F MGas/s  rpc=~D  gc=~,1Fs~%" n *run-txs*
+              (if (plusp dt) (/ *run-blocks* dt) 0) (if (plusp dt) (/ *run-gas* dt 1d6) 0) *rpc-calls*
+              (/ sb-ext:*gc-run-time* internal-time-units-per-second))
       (finish-output)
       (setf *run-t0* now *run-blocks* 0 *run-gas* 0))))
+
+;;; --- Memory: the GC policy (its one owner) -------------------------------------
+;;; The heap holds the live data (<= 1.2 GB at Arc's densest blocks), a nursery and copy
+;;; room; nothing here scales with the heap. A nursery of a quarter of the heap plus SBCL's
+;;; age gate (an older generation is collected only past an average age of 0.75) left 5-9 GB
+;;; of promoted garbage in generations 1-3 at Arc 21.13M: three deaths at 12 GB. So: a fixed
+;;; nursery (EITA_NURSERY_MB, 512); older generations collected once a nursery past their
+;;; last GC, at any age; a full GC past 3x the last full GC's live size (>= 2 nurseries), or
+;;; past half the heap (its copy room), whichever comes first (>= live + 1 nursery).
+(defstartup *nursery-bytes*
+  (* 1024 1024 (let ((v (env "NURSERY_MB"))) (if (and v (plusp (length v))) (parse-integer v) 512))))
+(defvar *gc-live* 0 "Bytes in use after the newest full GC (a lower bound once another one ran).")
+
+(defun gc-policy! ()
+  (setf (sb-ext:bytes-consed-between-gcs) *nursery-bytes*)
+  (loop for g from 1 below sb-vm:+pseudo-static-generation+
+        do (setf (sb-ext:generation-minimum-age-before-gc g) 0d0
+                 (sb-ext:generation-bytes-consed-between-gcs g) *nursery-bytes*))
+  (setf *gc-live* (sb-kernel:dynamic-usage))
+  (format t "~&[gc] nursery ~D MB, older generations collected over their trigger, full GC past 3x live; heap ~D MB~%"
+          (floor *nursery-bytes* 1048576) (floor (sb-ext:dynamic-space-size) 1048576)))
+
+(defun gc-guard! ()
+  "Between blocks: the full-GC backstop."
+  (let ((use (sb-kernel:dynamic-usage)))
+    (setf *gc-live* (min *gc-live* use))
+    ;; capped at half the heap: a full GC needs room to copy what survives it
+    (when (> use (max (+ *gc-live* *nursery-bytes*)
+                      (min (max (* 3 *gc-live*) (+ *gc-live* (* 2 *nursery-bytes*))) (floor (sb-ext:dynamic-space-size) 2))))
+      (let ((t0 (get-internal-real-time)))
+        (sb-ext:gc :full t)
+        (setf *gc-live* (sb-kernel:dynamic-usage))
+        (format t "~&[gc] full GC at ~D MB in use: ~D MB live (~,1F s)~%" (floor use 1048576) (floor *gc-live* 1048576)
+                (/ (- (get-internal-real-time) t0) internal-time-units-per-second))))))
 
 (defun receipt-table (txs receipts our-gas)
   "Per-tx receipt-vs-ours table (diagnosis of a header mismatch)."
@@ -185,6 +220,7 @@
             (anchor! world n (blk-state-root blk) :anchor anchor)))
         ;; finished background work into the stack; collect / start root checks
         (root-check-poll! n))
+      (gc-guard!)
       (progress! n header-gas))))
 
 ;;; --- Header verification, on the verifier thread ------------------------------------
@@ -298,14 +334,7 @@
     (sb-ext:exit :code 1))
   (load-observer!)                     ; EITA_OBSERVER: an observer to install (the observation seam)
   (read-run-policy!)
-  ;; Nursery: SBCL's default is 5 % of the heap; per-tx garbage is dead by the next tx, so a
-  ;; larger nursery means fewer collections at the same cost each. A quarter of the heap,
-  ;; between 1 GB and 8 GB. x300, 30k mainnet blocks, 16 GB heap (2026-11-06): 1.6 GB
-  ;; (a tenth) 1,614.6 Mgas/s, GC 25.0 s, RSS 8.7 GB; 4 GB 1,628.4 (+0.9 %), GC 18.3 s,
-  ;; RSS 11.9 GB; 8 GB 1,641.6 (+1.7 %), GC 12.7 s, RSS 15.4 GB -- too close to a 16 GB
-  ;; heap to be a default there, so 8 GB comes with heaps of 32 GB and more.
-  (setf (sb-ext:bytes-consed-between-gcs)
-        (max (* 1024 1024 1024) (min (* 8 1024 1024 1024) (floor (sb-ext:dynamic-space-size) 4))))
+  (gc-policy!)
   (let* ((start (parse-block-arg (first args)))
          (end (cond ((null (second args)) start)
                     ((string-equal (second args) "tip") :tip)
