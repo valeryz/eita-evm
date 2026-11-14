@@ -354,7 +354,7 @@
        :name "reprice-8037-8038"
        :attach (lambda ()
                  ;; a reads subscriber turns the storage view's write stream on (SSTOREs)
-                 (attach-subscriber! "reprice-reads" (lambda (ev) ev) :wants-reads t
+                 (attach-subscriber! "reprice-reads" (lambda (ev) ev) :on-access (constantly nil)
                                                      :on-finalize #'rp-report))
        :tx-end #'rp-tx-end
        :tx-result #'rp-tx-result))

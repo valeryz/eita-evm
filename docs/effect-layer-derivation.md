@@ -79,11 +79,11 @@ What the accessors own, so no call site can forget it:
 
 * an observer's account pre-image (the first write of a tx snapshots nonce/balance/code;
   `factlog-acct-write!` is gone);
-* the **read/write stream**: while a subscriber declared `:wants-reads`
-  (`*capture-reads*`, a subscriber property, no env toggle), `observe-tx-begin!` opens the
-  tx's stream (`*view-log*`) and every access is an event — `(:read kind block tx addr slot
-  value)` and `(:write kind block tx addr slot pre post)` — on the same pipe as the fact
-  rows. This is the logged read set of `lean/Evm/Parallel/Reads.lean` (`Faithful`: the
+* the **read/write stream**: while a subscriber takes it (`:on-access`;
+  `*capture-reads*`, a subscriber property, no env toggle), `observe-tx-begin!` opens the
+  tx's stream (`*view-log*`) and every access is a flat record — `(:read kind block tx addr
+  slot value)` and `(:write kind block tx addr slot pre post)`, no list per access
+  (`fw-access!`, `src/evm/stream.lisp`) — in the same buffer as the fact rows. This is the logged read set of `lean/Evm/Parallel/Reads.lean` (`Faithful`: the
   logged value is the value the view returned). Loading (`fault-account!`/`fault-slot!`
   hooks) and persistence run with the stream closed. Off, an access costs one
   special-variable test.
