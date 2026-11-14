@@ -11,7 +11,7 @@
 ;;;;   3. giant-root == storage-root: random storages (0..70,000 slots, so both the 256-way
 ;;;;      split and the degenerate single-trie path) read in place at an offset, alone
 ;;;;      and with a random layer composition laid over them (rewrites, tombstones, new
-;;;;      slots); then the snapshot oracles again with every storage built by giant-root.
+;;;;      slots), with 256 and 2048 bucket files (none left behind); then the snapshot oracles again with every storage built by giant-root.
 ;;;;
 ;;;; Run: (eita.test:run-all :only '("snapshot-root")), or (asdf:test-system "eita") for all suites.
 
@@ -191,7 +191,8 @@
   "giant-root over base records (and a layer composition laid over them) against the
    from-scratch storage root of the model."
   (format t "~&--- giant-root vs storage-root~%")
-  (let ((cases 0))
+  (let ((cases 0) (scratch (format nil "/tmp/eita-test-giant-root-~D/" (sb-posix:getpid))))
+    (ensure-directories-exist scratch)
     (dolist (n '(0 1 2 3 5 17 40 300 5000 70000))
       (dotimes (rep (if (> n 5000) 1 3))
         (let* ((base (let ((h (make-hash-table)))
@@ -207,16 +208,20 @@
           (unwind-protect
                (loop for (what want-alist d nd) in (list (list "base" base nil 0)
                                                           (list "base+layers" model dsap (length delta)))
-                     do (dolist (th '(1 4))
-                          (multiple-value-bind (root count)
-                              (eita.state.root::giant-root th bsap pad (length base) d nd)
-                            (let ((want (eita.mpt:storage-root want-alist)))
-                              (incf cases)
-                              (check (equalp root want) "giant n=~D rep=~D ~A, ~D threads: ~A vs ~A" n rep what th
-                                     (eita.mpt:bytes->hex root) (eita.mpt:bytes->hex want))
-                              (check (= count (length want-alist)) "giant n=~D rep=~D ~A: ~D slots, want ~D"
-                                     n rep what count (length want-alist))))))
+                     do (loop for (th nb) in '((1 nil) (4 nil) (4 2048))
+                              do (multiple-value-bind (root count)
+                                     (eita.state.root::giant-root th scratch bsap pad (length base)
+                                                                  :dsap d :nd nd :buckets nb)
+                                   (let ((want (eita.mpt:storage-root want-alist)))
+                                     (incf cases)
+                                     (check (equalp root want) "giant n=~D rep=~D ~A, ~D threads, ~A buckets: ~A vs ~A"
+                                            n rep what th nb (eita.mpt:bytes->hex root) (eita.mpt:bytes->hex want))
+                                     (check (= count (length want-alist)) "giant n=~D rep=~D ~A: ~D slots, want ~D"
+                                            n rep what count (length want-alist))
+                                     (check (null (directory (concatenate 'string scratch "*.*")))
+                                            "giant n=~D: bucket files left behind" n)))))
             (cffi:foreign-free bsap) (cffi:foreign-free dsap)))))
+    (sb-posix:rmdir (string-right-trim "/" scratch))
     (format t "~D cases~%" cases)))
 
 (defun oracle-snapshots-giant ()
