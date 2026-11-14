@@ -23,6 +23,11 @@
     Jovian    2025-12-02   operator-fee fix, DA footprint in blobGasUsed,
                             minimum base fee (extraData v1)
     Azul      2026-05-28   ~Osaka, Base only
+    Beryl     2026-06-25   Base only: the B20 precompiles (base/base crates/common/precompiles)
+    Cobalt    2026-09-30   Base only
+    Denim     2026-11-05   Base only: 200 ms blocks, millisecond "BaseTime" timestamps
+    (Beryl, Cobalt and Denim are listed so the schedule is complete; the replay refuses
+    their blocks: their rules are not specified here yet.)
 
   Activation timestamps below are Base mainnet's (chain id 8453), from the
   superchain-registry `superchain/configs/mainnet/base.toml` (@5b055be, the
@@ -31,7 +36,8 @@
   first block at or after it is the first with the fork's L1-attributes
   selector or header format: Ecotone 11,792,527, Holocene 24,828,128 (9-byte
   extraData), Isthmus 30,008,527, Jovian 38,950,927 (extraData v1), Azul
-  46,600,927). Until 2026-11-14 Holocene was recorded as 1740484801
+  46,600,927). Beryl, Cobalt, Denim: base/base `crates/common/chains/src/config.rs`
+  `MAINNET` (lines 474-477, @df96e82). Until 2026-11-14 Holocene was recorded as 1740484801
   (2025-02-25); Base's extraData carries the Holocene parameters from
   block 24,828,128 (2025-01-09).
   Optimism Mainnet (chain id 10) uses slightly different timestamps;
@@ -55,6 +61,9 @@ inductive OpFork where
   | isthmus
   | jovian
   | azul
+  | beryl
+  | cobalt
+  | denim
   deriving Repr, DecidableEq, Inhabited
 
 namespace OpFork
@@ -71,6 +80,9 @@ def ord : OpFork → Nat
   | .isthmus   => 6
   | .jovian    => 7
   | .azul      => 8
+  | .beryl     => 9
+  | .cobalt    => 10
+  | .denim     => 11
 
 /-- `f.atLeast g` — is `f` the same OP fork as `g` or newer? -/
 def atLeast (f g : OpFork) : Bool := decide (f.ord ≥ g.ord)
@@ -88,12 +100,18 @@ def baseMainnetActivations : List (OpFork × Nat) :=
   , (.isthmus,  1746806401)   -- 2025-05-09 16:00:01 UTC
   , (.jovian,   1764691201)   -- 2025-12-02 16:00:01 UTC
   , (.azul,     1779991200)   -- 2026-05-28 18:00:00 UTC (Base only)
+  , (.beryl,    1782410400)   -- 2026-06-25 18:00:00 UTC (Base only)
+  , (.cobalt,   1790791200)   -- 2026-09-30 18:00:00 UTC (Base only)
+  , (.denim,    1793901600)   -- 2026-11-05 18:00:00 UTC (Base only)
   ]
 
 /-- Base mainnet dispatcher: which OP fork is active at `timestamp`?
     All Base mainnet forks (except Bedrock) activate by timestamp. -/
 def baseMainnetAt (timestamp : Nat) : OpFork :=
-  if timestamp ≥ 1779991200 then .azul
+  if timestamp ≥ 1793901600 then .denim
+  else if timestamp ≥ 1790791200 then .cobalt
+  else if timestamp ≥ 1782410400 then .beryl
+  else if timestamp ≥ 1779991200 then .azul
   else if timestamp ≥ 1764691201 then .jovian
   else if timestamp ≥ 1746806401 then .isthmus
   else if timestamp ≥ 1736445601 then .holocene
@@ -115,6 +133,9 @@ def ethereumAnalog : OpFork → Evm.Fork
   | .isthmus  => .prague
   | .jovian   => .prague     -- OP fee/DA rules only: Upgrade 17 left Osaka off on L2
   | .azul     => .osaka      -- Base-only Osaka activation
+  | .beryl    => .osaka      -- Base-only rules on Osaka (no Ethereum fork after it is active)
+  | .cobalt   => .osaka
+  | .denim    => .osaka
 
 end OpFork
 

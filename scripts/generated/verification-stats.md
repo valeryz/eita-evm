@@ -18,11 +18,11 @@ Statement lines are what a reader has to trust: the theorem statements and the d
 | [Persistence (layered state, recovery)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Persist)<br>`lean/Evm/Persist/*` | 429 (232 + 197) | 703 | 88 | 0 | 0 | — |
 | [Read sets and state witnesses](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Witness)<br>`lean/Evm/Witness/*` | 53 (31 + 22) | 14 | 12 | 0 | 0 | — |
 | [Crypto oracles and precompile contracts](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Crypto)<br>`lean/Evm/Crypto/*` | 290 (286 + 4) | 17 | 1 | 0 | 0 | 1: 1 standard |
-| [Chain specs (Arc, OP Stack)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Optimism)<br>`lean/Evm/Arc/*`, `lean/Evm/Optimism/*` | 1,894 (1,632 + 262) | 152 | 53 | 1 | 0 | 2: 2 standard |
+| [Chain specs (Arc, OP Stack)](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Optimism)<br>`lean/Evm/Arc/*`, `lean/Evm/Optimism/*` | 1,911 (1,649 + 262) | 155 | 53 | 1 | 0 | 2: 2 standard |
 | [Trie and RLP](https://github.com/valeryz/eita-evm/tree/main/lean/Evm/Trie)<br>`lean/Evm/Trie/*`, `lean/Evm/Trie.lean`, `lean/Evm/Rlp.lean` | 301 (266 + 35) | 16 | 6 | 3 | 0 | — |
 | [Native slot table (Velvet)](https://github.com/valeryz/eita-evm/tree/main/verify/velvet-slots)<br>`verify/velvet-slots/*`, `CL/WorldSlotsModel.lean` | 1,253 (1,019 + 234) | 905 | 143 | 0 | 0 | 26: 26 standard |
 | [State-layer protocols (Veil)](https://github.com/valeryz/eita-evm/tree/main/verify/protocols)<br>`verify/protocols/*` | 1,003 (1,003 + 0) | 0 | — (6 models) | 0 | 0 | 4: 4 standard |
-| **Total** | 39,206 (29,460 + 9,746) | 22,131 | 2,994 | 7 | 368 | 111: 102 standard, 9 with `native_decide` |
+| **Total** | 39,223 (29,477 + 9,746) | 22,134 | 2,994 | 7 | 368 | 111: 102 standard, 9 with `native_decide` |
 
 Tools, not part of the claim and not in the totals:
 

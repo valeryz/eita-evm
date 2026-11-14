@@ -45,7 +45,7 @@ def geChain (x : String) : List (Nat × Nat) → Nat → Expr
 
 /-- `OpFork.baseMainnetAt` as an ordinal. -/
 def baseForkOrdExpr : Expr :=
-  geChain "ts" [(1779991200, 8), (1764691201, 7), (1746806401, 6), (1736445601, 5),
+  geChain "ts" [(1793901600, 11), (1790791200, 10), (1782410400, 9), (1779991200, 8), (1764691201, 7), (1746806401, 6), (1736445601, 5),
                 (1726070401, 4), (1720627201, 3), (1710374401, 2), (1704992401, 1)] 0
 
 set_option backward.isDefEq.respectTransparency false in
@@ -56,6 +56,9 @@ theorem baseForkOrdExpr_eq_spec (ρ : Env) :
   simp only [OpFork.ord]
   -- the activations as variables (deciding `ts < 1779991200` by reduction would unfold
   -- the literal: the Nat-literal whnf trap)
+  generalize (1793901600 : Nat) = k11 at *
+  generalize (1790791200 : Nat) = k10 at *
+  generalize (1782410400 : Nat) = k9 at *
   generalize (1779991200 : Nat) = k8 at *
   generalize (1764691201 : Nat) = k7 at *
   generalize (1746806401 : Nat) = k6 at *
@@ -68,7 +71,7 @@ theorem baseForkOrdExpr_eq_spec (ρ : Env) :
 
 /-- `OpFork.ethereumAnalog` as an ordinal (`Evm.Fork.ord`), over the OP ordinal. -/
 def ethAnalogOrdExpr : Expr :=
-  geChain "op-fork" [(8, 18), (6, 17), (2, 16), (1, 15)] 11
+  geChain "op-fork" [(8, 18), (6, 17), (2, 16), (1, 15)] 11   -- Beryl.. (9-11) are Osaka too
 
 theorem ethAnalogOrdExpr_eq_spec (f : OpFork) :
     ethAnalogOrdExpr.eval (mkEnv [("op-fork", f.ord)]) = (OpFork.ethereumAnalog f).ord := by

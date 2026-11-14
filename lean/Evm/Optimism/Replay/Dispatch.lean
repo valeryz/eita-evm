@@ -74,6 +74,8 @@ def applyBlockFor
     -- fork rather than run it as Isthmus. The CL replay takes them from the spec
     -- modules (`Replay.Emit.operatorFeeExpr`).
     .error "Jovian: the Lean block driver does not implement Jovian's rules"
+  | .beryl | .cobalt | .denim =>
+    .error "Beryl, Cobalt, Denim: Base's rules after Azul are not specified here"
   | .azul =>
     Evm.Optimism.Azul.applyBlock state blockHashes coinbase number
       gasLimit timestamp baseFeePerGas prevRandao txs operatorParams

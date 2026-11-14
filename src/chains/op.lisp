@@ -34,17 +34,18 @@
 ;;;;                 Isthmus/Spec/PragueInheritance.lean). Before Isthmus it is the empty root
 ;;;;                 of the empty withdrawals list and is compared.
 ;;;;
-;;;; Run: eita replay --chain base|opt|world --from N [--to M] (full state: --full-state with
-;;;; the chain's genesis.json, EITA_GENESIS; lazy: a block source that serves state, --source)
+;;;; Run: eita replay --chain base|opt|world --from N [--to M] --genesis FILE (full state, the
+;;;; default; OP_CACHE_DIR = the block chunks) or --lazy with a block source that serves state.
 
 (in-package #:eita.chain.op)
 
 ;;; --- Fork schedule ---------------------------------------------------------------------
 
-(defparameter +op-forks+ #(:bedrock :canyon :ecotone :fjord :granite :holocene :isthmus :jovian :azul)
+(defparameter +op-forks+ #(:bedrock :canyon :ecotone :fjord :granite :holocene :isthmus :jovian :azul
+                           :beryl :cobalt :denim)
   "OpFork constructors by OpFork.ord (lean/Evm/Optimism/Forks.lean).")
 (defconstant +op-canyon+ 1) (defconstant +op-ecotone+ 2) (defconstant +op-fjord+ 3)
-(defconstant +op-isthmus+ 6) (defconstant +op-jovian+ 7)
+(defconstant +op-isthmus+ 6) (defconstant +op-jovian+ 7) (defconstant +op-beryl+ 9)
 
 (defun base-op-fork (ts)
   "The OP fork ordinal at TS and the Ethereum fork ordinal its EL rules track."
@@ -78,6 +79,12 @@
    CLZ measured live: eth_call of 60011e… on Base returns 255)."
   (declare (ignore blk))
   (multiple-value-bind (op-fork eth-ord) (base-op-fork ts)
+    ;; Base's forks after Azul (Beryl's B20 precompiles, Cobalt, Denim's 200 ms blocks) are in
+    ;; the schedule (Evm.Optimism.Forks) but their rules are not specified: refuse, never run
+    ;; them as Azul
+    (when (>= op-fork +op-beryl+)
+      (error "block ~D (ts ~D): Base ~(~A~) — its rules are not implemented (lean/Evm/Optimism/Forks.lean)"
+             n ts (svref +op-forks+ op-fork)))
     (unless (= eth-ord *fork-ord*)
       (format t "~&block ~D: ~(~A~) -> fork ord ~D~%" n (svref +op-forks+ op-fork) eth-ord)
       (setf *fork-ord* eth-ord)
@@ -239,11 +246,18 @@
   (let ((row (or (assoc chain +chains+ :test #'string=) (error "unknown OP chain ~S" chain))))
     (make-chain-spec
      :name (format nil "OP-Stack ~A" chain) :id (second row)
+     ;; not in the repository (9 MB for Base): docs/block-input.md says where it comes from
+     :genesis-path (format nil "chains/~A/genesis.json" chain)
      :banner "OP fork by timestamp (Superchain schedule)"
      :rpc-url (or (sb-ext:posix-getenv "BASE_RPC_URL")
                   (let ((k (sb-ext:posix-getenv "ALCHEMY_KEY")))
                     (and k (format nil "https://~A.g.alchemy.com/v2/~A" (third row) k))))
-     :cache-dir (merge-pathnames (format nil "lean/external/~A-cache/" chain)) ; absolute: renames merge with it
+     ;; OP_CACHE_DIR: the supervisor's block chunks; absolute either way (a source's renames
+     ;; merge with it)
+     :cache-dir (merge-pathnames (let ((d (sb-ext:posix-getenv "OP_CACHE_DIR")))
+                                   (cond ((or (null d) (zerop (length d))) (format nil "lean/external/~A-cache/" chain))
+                                         ((char= (char d (1- (length d))) #\/) d)
+                                         (t (concatenate 'string d "/")))))
      :prestate-overlay t
      :block-setup #'op-block-setup
      :pre-block #'op-pre-block

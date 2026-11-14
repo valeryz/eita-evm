@@ -780,7 +780,7 @@
 (defun spec-arc-pq-msg-word-gas () 6)
 (defun spec-arc-pq-vk-len () 32)
 (defun spec-arc-pq-sig-len () 7856)
-(defun spec-op-base-fork-ord (ts) (if (< ts 1779991200) (if (< ts 1764691201) (if (< ts 1746806401) (if (< ts 1736445601) (if (< ts 1726070401) (if (< ts 1720627201) (if (< ts 1710374401) (if (< ts 1704992401) 0 1) 2) 3) 4) 5) 6) 7) 8))
+(defun spec-op-base-fork-ord (ts) (if (< ts 1793901600) (if (< ts 1790791200) (if (< ts 1782410400) (if (< ts 1779991200) (if (< ts 1764691201) (if (< ts 1746806401) (if (< ts 1736445601) (if (< ts 1726070401) (if (< ts 1720627201) (if (< ts 1710374401) (if (< ts 1704992401) 0 1) 2) 3) 4) 5) 6) 7) 8) 9) 10) 11))
 (defun spec-op-eth-analog-ord (op-fork) (if (< op-fork 8) (if (< op-fork 6) (if (< op-fork 2) (if (< op-fork 1) 11 15) 16) 17) 18))
 (defun spec-op-l1-fee (op-fork zeroes ones flz l1-base-fee overhead scalar blob-base-fee base-fee-scalar blob-base-fee-scalar) (if (< 0 (+ blob-base-fee (+ base-fee-scalar blob-base-fee-scalar))) (if (< op-fork 2) (floor (* (* (+ (+ (* 4 zeroes) (* 16 ones)) overhead) l1-base-fee) scalar) 1000000) (if (< op-fork 3) (floor (* (+ (* 4 zeroes) (* 16 ones)) (+ (* (* 16 l1-base-fee) base-fee-scalar) (* blob-base-fee blob-base-fee-scalar))) 16000000) (floor (* (max 100000000 (max 0 (- (* 836500 flz) 42585600))) (+ (* (* 16 l1-base-fee) base-fee-scalar) (* blob-base-fee blob-base-fee-scalar))) 1000000000000))) (floor (* (* (+ (+ (* 4 zeroes) (* 16 ones)) overhead) l1-base-fee) scalar) 1000000)))
 (defun spec-op-da-size-scaled (flz) (max 100000000 (max 0 (- (* 836500 flz) 42585600))))
