@@ -57,7 +57,8 @@
 ;;; age gate (an older generation is collected only past an average age of 0.75) left 5-9 GB
 ;;; of promoted garbage in generations 1-3 at Arc 21.13M: three deaths at 12 GB. So: a fixed
 ;;; nursery (EITA_NURSERY_MB, 512); older generations collected once a nursery past their
-;;; last GC, at any age; a full GC past 3x the last full GC's live size (>= 2 nurseries).
+;;; last GC, at any age; a full GC past 3x the last full GC's live size (>= 2 nurseries), or
+;;; past half the heap (its copy room), whichever comes first (>= live + 1 nursery).
 (defstartup *nursery-bytes*
   (* 1024 1024 (let ((v (env "NURSERY_MB"))) (if (and v (plusp (length v))) (parse-integer v) 512))))
 (defvar *gc-live* 0 "Bytes in use after the newest full GC (a lower bound once another one ran).")
@@ -75,7 +76,9 @@
   "Between blocks: the full-GC backstop."
   (let ((use (sb-kernel:dynamic-usage)))
     (setf *gc-live* (min *gc-live* use))
-    (when (> use (max (* 3 *gc-live*) (+ *gc-live* (* 2 *nursery-bytes*))))
+    ;; capped at half the heap: a full GC needs room to copy what survives it
+    (when (> use (max (+ *gc-live* *nursery-bytes*)
+                      (min (max (* 3 *gc-live*) (+ *gc-live* (* 2 *nursery-bytes*))) (floor (sb-ext:dynamic-space-size) 2))))
       (let ((t0 (get-internal-real-time)))
         (sb-ext:gc :full t)
         (setf *gc-live* (sb-kernel:dynamic-usage))
