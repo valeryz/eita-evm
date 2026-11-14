@@ -207,27 +207,49 @@
 ;;; every file, so a 6.3 GB storage.dat showed as 6.3 GB more RSS (x86-64 Linux: 10.3 GB peak
 ;;; against 1.2 GB anonymous). Behind a scan, MADV_DONTNEED drops those pages from this
 ;;; process; the page cache keeps them, so a later touch refaults them without I/O.
+;;; Darwin ignores MADV_DONTNEED on a file mapping (the pages stay in RSS); there
+;;; msync(MS_INVALIDATE) drops a read-only mapping's clean pages instead (a no-op on Linux).
+;;; Advice only: what is read never depends on it (a released page refaults the same bytes).
 (defconstant +release-step+ (* 64 1024 1024))
+(defconstant +madv-sequential+ 2)       ; Linux and Darwin alike
 (defconstant +madv-dontneed+ 4)         ; Linux and Darwin alike
+(defconstant +ms-invalidate+ 2)         ; Darwin
 
-(defun release-range (m start end)
-  (let ((start (logandc2 start 4095)) (end (logandc2 end 4095)))
+(defun advise (m start end advice)
+  "madvise ADVICE over [START, END) of M (both page-aligned down; END past the length
+   reaches the last page), or with ADVICE :RELEASE drop
+   those pages from this process."
+  (let* ((mask (1- (sb-posix:getpagesize)))   ; 16 KB on Apple Silicon
+         (start (logandc2 start mask)) (end (logandc2 end mask)))
     (when (> end start)
-      (sb-alien:alien-funcall
-       (sb-alien:extern-alien "madvise" (function sb-alien:int sb-sys:system-area-pointer
-                                                  sb-alien:unsigned-long sb-alien:int))
-       (sb-sys:sap+ (mapping-sap m) start) (- end start) +madv-dontneed+))))
+      (if (and (eq advice :release) (member :darwin *features*))
+          (sb-alien:alien-funcall
+           (sb-alien:extern-alien "msync" (function sb-alien:int sb-sys:system-area-pointer
+                                                    sb-alien:unsigned-long sb-alien:int))
+           (sb-sys:sap+ (mapping-sap m) start) (- end start) +ms-invalidate+)
+          (sb-alien:alien-funcall
+           (sb-alien:extern-alien "madvise" (function sb-alien:int sb-sys:system-area-pointer
+                                                      sb-alien:unsigned-long sb-alien:int))
+           (sb-sys:sap+ (mapping-sap m) start) (- end start)
+           (if (eq advice :release) +madv-dontneed+ advice))))))
+
+(defun release-range (m start end) (advise m start end :release))
+
+(defun advise-sequential (m)
+  "M is about to be read once, front to back: read ahead further, and (Linux) let its pages
+   be the first reclaimed."
+  (when m (advise m 0 (+ (mapping-len m) (sb-posix:getpagesize)) +madv-sequential+)))
 
 (defun release-behind (m off)
   "A scan of M has passed byte OFF: release what lies behind it, in steps of 64 MB."
   (when (and m (>= (- off (mapping-released m)) +release-step+))
     (release-range m (mapping-released m) off)
-    (setf (mapping-released m) (logandc2 off 4095))))
+    (setf (mapping-released m) (logandc2 off (1- (sb-posix:getpagesize))))))
 
 (defun release-all (m)
   "A scan of M is done: release all of it, and restart the watermark for the next one."
   (when m
-    (release-range m 0 (+ (mapping-len m) 4095))
+    (release-range m 0 (+ (mapping-len m) (sb-posix:getpagesize)))
     (setf (mapping-released m) 0)))
 
 (defun map-file (path)
@@ -286,7 +308,10 @@
    the keys); without them a point lookup binary-searches the whole file (for a reader
    that only scans). :BACKGROUND builds them on a thread of their own and publishes each
    when done, lookups binary-searching until then: a resume runs at once instead of first
-   reading every key (Ethereum's base: 190 GB, a quarter of an hour). A snapshot from
+   reading every key (Ethereum's base: 190 GB, a quarter of an hour). :SCAN builds them
+   releasing the pages behind the pass, for a reader that does not keep the files
+   resident (the root check: on x300 an Ethereum check held 42 GB of the base's pages
+   after its fences, and pushed the Arc replay's heap into swap). A snapshot from
    before the fences also holds accounts.idx and storage.idx: listed in its manifest (so
    verified and hashed as before), never read."
   (let* ((dir (as-dir dir)) (m (snap-sealed-p dir)))
@@ -300,10 +325,10 @@
           (flet ((fences () ; @veil snap-open/fences
                    ;; each published whole: its contents before the pointer to it (the
                    ;; replay's lookups read it without a lock; ARM64 orders their dependent loads)
-                   (let ((f (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s)))) ; @veil snap-open/build
+                   (let ((f (build-fence (snap-acct s) +acct-rec+ 20 (snap-n-accounts s) (eq fence :scan)))) ; @veil snap-open/build
                      (sb-thread:barrier (:write))
                      (setf (snap-acct-fence s) f)) ; @veil snap-open/publish
-                   (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s)))) ; @veil snap-open/build
+                   (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s) (eq fence :scan)))) ; @veil snap-open/build
                      (sb-thread:barrier (:write))
                      (setf (snap-slot-fence s) f)))) ; @veil snap-open/publish
             (case fence
@@ -398,18 +423,24 @@
     (dotimes (i 5) (let ((j (+ b0 i))) (setf x (logior (ash x 8) (if (< j klen) (sb-sys:sap-ref-8 sap (+ off j)) 0)))))
     (ldb (byte r (- 40 (logand bit 7) r)) x)))
 
-(defun fence-node (sap recsize klen lo hi bit)
+(defun fence-node (sap recsize klen lo hi bit &optional release)
   "The node over records [LO, HI) of the file mapped at SAP (keys of KLEN bytes, equal
-   in their first BIT bits)."
+   in their first BIT bits). RELEASE: that mapping, whose pages the pass releases behind
+   it, every +RELEASE-STEP+ bytes (a node's kids re-read their records and release them)."
   (declare (type fixnum recsize klen lo hi bit) (optimize (speed 3) (safety 0)))
   (let* ((r (min 30 (max 1 (integer-length (floor (- hi lo) +fence-bucket+)))))
          (a (make-array (1+ (ash 1 r)) :element-type '(unsigned-byte 32)))
-         (f (%make-fence a bit r)) (p 0))
-    (declare (type fixnum r p))
+         (f (%make-fence a bit r)) (p 0)
+         (step (max 1 (floor +release-step+ recsize))) (done lo))
+    (declare (type fixnum r p step done))
     (loop for j of-type fixnum from lo below hi
           do (let ((b (sap-bits sap (+ +header+ (* j recsize)) bit r klen)))
                (declare (type fixnum b))
-               (loop while (<= p b) do (setf (aref a p) j) (incf p))))
+               (loop while (<= p b) do (setf (aref a p) j) (incf p))
+               (when (and release (>= (- j done) step))
+                 (release-range release (+ +header+ (* done recsize)) (+ +header+ (* j recsize)))
+                 (setf done j))))
+    (when release (release-range release (+ +header+ (* done recsize)) (+ +header+ (* hi recsize))))
     (loop while (<= p (ash 1 r)) do (setf (aref a p) hi) (incf p))
     (dotimes (p (ash 1 r) f)
       (let ((blo (aref a p)) (bhi (aref a (1+ p))))
@@ -421,12 +452,15 @@
                          (unless (= x y) (return (+ (* 8 i) (- 8 (integer-length (logxor x y))))))))))
             (when cb
               (setf (gethash p (or (fence-kids f) (setf (fence-kids f) (make-hash-table))))
-                    (fence-node sap recsize klen blo bhi cb)))))))))
+                    (fence-node sap recsize klen blo bhi cb release)))))))))
 
-(defun build-fence (m recsize klen count)
-  "The fence of the COUNT records of the mapping M (NIL when there are none)."
+(defun build-fence (m recsize klen count &optional release)
+  "The fence of the COUNT records of the mapping M (NIL when there are none). RELEASE:
+   drop M's pages behind the pass (`snap-open` :scan)."
   (when (>= count (ash 1 32)) (error "fence: ~D records (its indexes are 32-bit)" count))
-  (and (plusp count) (fence-node (mapping-sap m) recsize klen 0 count 0)))
+  (and (plusp count)
+       (progn (when release (advise-sequential m))
+              (fence-node (mapping-sap m) recsize klen 0 count 0 (and release m)))))
 
 (defun lower-bound (m f count recsize key klen)
   "Index of the first of the COUNT records of the mapping M whose KLEN-byte key is >= KEY

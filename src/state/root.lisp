@@ -692,6 +692,8 @@
          (asap (eita.state.snapshot:mapping-sap acct)) (ssap (eita.state.snapshot:mapping-sap slots))
          (na (eita.state.snapshot:snap-n-accounts s)) (ns (eita.state.snapshot:snap-n-slots s))
          (nchunks (max 1 (ceiling na +chunk+))) (big 0) (seen 0))
+    (eita.state.snapshot:advise-sequential acct)   ; chunks are taken in address order
+    (eita.state.snapshot:advise-sequential slots)
     (run-pool
      nthreads nchunks
      (lambda (c w)
@@ -765,8 +767,8 @@
    LAYERS (layer directories, oldest first) for the state of that stack over it (Lean
    `view`): no merged snapshot is written. BUCKETS: the bucket count to use instead of
    the one the state size picks (tests)."
-  (let* ((s (eita.state.snapshot:snap-open dir :fence (and layers t)))  ; point lookups only under layers
-         (ls (reverse (mapcar #'eita.state.snapshot:snap-open layers)))   ; newest first
+  (let* ((s (eita.state.snapshot:snap-open dir :fence (and layers :scan)))  ; point lookups only under layers
+         (ls (reverse (mapcar (lambda (l) (eita.state.snapshot:snap-open l :fence :scan)) layers)))   ; newest first
          (top (or (first ls) s))
          (na (+ (eita.state.snapshot:snap-n-accounts s) (reduce #'+ ls :key #'eita.state.snapshot:snap-n-accounts)))
          (ns (eita.state.snapshot:snap-n-slots s))
