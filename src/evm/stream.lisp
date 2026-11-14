@@ -7,14 +7,17 @@
 ;;; (an item always enters an empty pipe, so one larger than the bound cannot deadlock).
 (defstruct (pipe (:constructor make-pipe (max &optional max-bytes)))
   max max-bytes (lock (sb-thread:make-mutex :name "pipe")) (cv (sb-thread:make-waitqueue))
-  (head nil) (tail nil) (count 0 :type fixnum) (bytes 0 :type fixnum))
+  (head nil) (tail nil) (count 0 :type fixnum) (bytes 0 :type fixnum)
+  (waited 0))                           ; internal real time producers waited on it
 
 (defun pipe-put (p x &optional (bytes 0))
   "Append X, of BYTES (an estimate); wait while P is full."
   (sb-thread:with-mutex ((pipe-lock p))
     (loop while (or (>= (pipe-count p) (pipe-max p))
                     (and (pipe-max-bytes p) (plusp (pipe-bytes p)) (> (+ (pipe-bytes p) bytes) (pipe-max-bytes p))))
-          do (sb-thread:condition-wait (pipe-cv p) (pipe-lock p)))
+          do (let ((t0 (get-internal-real-time)))
+               (sb-thread:condition-wait (pipe-cv p) (pipe-lock p))
+               (incf (pipe-waited p) (- (get-internal-real-time) t0))))
     (let ((cell (list (cons x bytes))))
       (if (pipe-tail p) (setf (cdr (pipe-tail p)) cell) (setf (pipe-head p) cell))
       (setf (pipe-tail p) cell))
@@ -247,6 +250,9 @@
                     (fw-drain))
     (dolist (sub *subscribers*)
       (when (and (subscriber-on-finalize sub) (not (subscriber-error sub))) (funcall (subscriber-on-finalize sub)))
+      (let ((w (pipe-waited (subscriber-pipe sub))))   ; a subscriber that held the replay back
+        (when (> w internal-time-units-per-second)
+          (format t "~&[stream] the replay waited ~,1F s on subscriber ~A~%" (/ w internal-time-units-per-second) (subscriber-name sub))))
       (pipe-put (subscriber-pipe sub) (list (list :stop)))
       (sb-thread:join-thread (subscriber-thread sub) :default nil))
     (setf *subscribers* '() *capture-reads* nil *last-verdict* nil *verifier-notes* '())))
