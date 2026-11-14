@@ -174,6 +174,40 @@
       (sb-ext:process-wait (third p))
       (ignore-errors (delete-file (fourth p))))))
 
+;;; Retained anchors: the GC keeps the two newest verified points (recovery.lisp), so a
+;;; replay from an older point meant a rebuild from genesis (Arc 0 -> 21M: 11 h). With
+;;; EITA_RETAIN_EVERY=K the first verified stack anchor of every K-block bucket is kept
+;;; outside the GC's view: <state>/retained/<N>/ holds hard links to its components (immutable
+;;; once published: no bytes copied while the originals live; a base the GC drops stays as
+;;; the retained copy), its anchors.sexp line, and the observer's part (the fact log's shard
+;;; files at N). A resume from it: link it into a fresh state dir, EITA_RESUME_FROM=N. Never
+;;; deleted automatically. Arc's anchor at 28.05M is 9.4 GB (base 8.7 + layers 0.7), shared
+;;; with every point over the same base.
+(defstartup *retain-every*
+  (let ((v (sb-ext:posix-getenv "EITA_RETAIN_EVERY"))) (if (and v (plusp (length v))) (parse-integer v) 0)))
+
+(defun retain-anchor! (n record comps)
+  (flet ((sub (dir name) (merge-pathnames (make-pathname :directory (list :relative name)) dir))
+         (bucket (name) (and (every #'digit-char-p name) (floor (parse-integer name) *retain-every*))))
+    (let ((root (sub (state-dir) "retained")))
+      (when (and (plusp *retain-every*) (plusp n)
+                 (not (member (floor n *retain-every*) (directory (merge-pathnames "*/" root))
+                              :key (lambda (d) (bucket (car (last (pathname-directory d))))))))
+        (let ((tmp (sub root (format nil "~D.tmp" n))))
+          (when (probe-file tmp) (sb-ext:delete-directory tmp :recursive t))   ; a crash's leftover
+          (dolist (c comps)              ; a link per file of each component (a snap-/layer- dir)
+            (let* ((src (eita.state.snapshot:component-path (snapshot-dir) c))
+                   (dst (sub tmp (car (last (pathname-directory src))))))
+              (ensure-directories-exist dst)
+              (dolist (f (directory (merge-pathnames "*.*" src)))
+                (sb-posix:link (namestring f) (namestring (merge-pathnames (file-namestring f) dst))))))
+          (with-open-file (a (merge-pathnames "anchors.sexp" tmp) :direction :output :if-exists :supersede)
+            (let ((*print-pretty* nil)) (prin1 record a) (terpri a)))
+          (eita.evm::observe retain n tmp)
+          (sb-posix:rename (string-right-trim "/" (namestring tmp)) (string-right-trim "/" (namestring (sub root (format nil "~D" n)))))
+          (format t "~&[anchor] block ~D retained in ~A (one per ~D blocks)~%" n root *retain-every*)
+          (force-output))))))
+
 (defun root-check-finish! (&key force)
   "Collect the in-flight root check if it has finished (or FORCE a wait): append
    (N expected computed ok composition) to the anchors file, prune, error on mismatch.
@@ -219,6 +253,9 @@
           ;; the composition rides with the verdict: resume maps only the exact bytes whose
           ;; root was checked (I3)
           (append-anchor! (list n expected-hex computed (if ok t nil) (eita.state.snapshot:composition-string comps)))
+          (when (and ok (eq kind :stack))   ; a failed copy costs the copy, not the run
+            (handler-case (retain-anchor! n (list n expected-hex computed t (eita.state.snapshot:composition-string comps)) comps)
+              (error (e) (format t "~&[anchor] block ~D NOT retained: ~A~%" n e))))
           (format t "~&[anchor] block ~D~:[~; (compacted base)~] root ~A ~A~%" n (eq kind :base)
                   (if ok "OK" "MISMATCH") (string-trim '(#\Newline) text))
           (force-output)
