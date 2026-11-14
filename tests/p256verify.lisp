@@ -30,12 +30,13 @@
       (dolist (c '((1720627201 :rip7212) (1746806401 :rip7212) (1776966883 :rip7212)
                    (1779991200 t) (1710374401 nil)))
         (destructuring-bind (ts want) c
-          ;; the native table is already at 16 (Cancun): op-block-setup leaves it alone
+          ;; op-block-setup moves the native table to the block's fork: back to 16 after
           (let ((*p256verify* :unset) (*fork-ord* 16) (*el-fork-ord* *el-fork-ord*)
-                (eita.chain.op::*op-fork* nil) (eita.chain.op::*isthmus* nil))
+                (eita.chain.op::*op-fork* 0) (eita.chain::*chain-header-foreign* nil))
             (eita.chain.op::op-block-setup 0 nil ts)
-            (check (format nil "OP block at ts ~D: *p256verify*" ts) *p256verify* want))))
-      ;; Fjord..Isthmus: a precompile at the Cancun-capped native table, 3450 gas
+            (check (format nil "OP block at ts ~D: *p256verify*" ts) *p256verify* want))
+          (%set-fork 16)))
+      ;; Fjord..Jovian: a precompile at the Cancun / Prague tables, 3450 gas
       (let ((*p256verify* :rip7212) (*fork-ord* 16))
         (check "Fjord..Isthmus: 0x100 is a precompile" (precompile-address-p 256) t)
         (check "Fjord..Isthmus: 0x100 is warmed by the tx seed" (and (member 256 (precompile-seed-addrs)) t) t)

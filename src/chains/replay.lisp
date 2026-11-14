@@ -22,13 +22,13 @@
    \"world\") from block FROM to TO (default FROM; :tip follows the head, when the source can).
    BLOCKS: a directory of block files (docs/block-input.md); SOURCE: a Lisp file installing a
    block source; OBSERVER: a Lisp file installing an observer; STATE: the state directory
-   (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default:
-   true but on the OP chains) runs from the genesis alloc (GENESIS overrides the chain's) or
+   (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default
+   true, every chain) runs from the genesis alloc (GENESIS overrides the chain's) or
    from the anchored snapshot at RESUME; without it the source serves state lazily."
   (let* ((row (or (assoc chain +replay-chains+ :test #'string-equal)
                   (error "unknown chain ~S (~{~A~^, ~})" chain (mapcar #'first +replay-chains+))))
          (driver (second row)) (net (third row))
-         (full (if full-state-p full-state (not (eq driver :op)))))
+         (full (if full-state-p full-state t)))
     (when blocks (setenv! "EITA_BLOCKS_DIR" blocks))
     (when source (setenv! "EITA_SOURCE" source))
     (when observer (setenv! "EITA_OBSERVER" observer))

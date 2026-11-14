@@ -158,19 +158,23 @@ def processDepositedTx
   -- Step 4+5: pack the result. On hard error (exception thrown by
   -- the EVM beyond REVERT — e.g. invalid opcode), roll back ALL
   -- execution-side state changes but keep `stateWithMint`.
-  let (newState, gasLeft, logs, success) :=
+  let (newState, gasLeft, refund, logs, success) :=
     match runResult with
-    | .ok subEvm => (subEvm.env.state, subEvm.gasLeft, subEvm.env.logs, !subEvm.reverted)
-    | .error _   => (stateWithMint, 0, ([] : List Log), false)
+    | .ok subEvm => (subEvm.env.state, subEvm.gasLeft,
+                     (if subEvm.reverted then 0 else subEvm.env.refundCounter),
+                     subEvm.env.logs, !subEvm.reverted)
+    | .error _   => (stateWithMint, 0, 0, ([] : List Log), false)
 
-  -- Post-Regolith (Bedrock launch on Base mainnet): deposited tx's
-  -- gasUsed = tx.gas - gasLeft, same as a normal user tx. The full
-  -- `tx.gas` was reserved against the block pool at tx start, but
-  -- the receipt's gasUsed reflects only what the message actually
-  -- consumed. See op-geth `core/state_transition.go::TransitionDb`
-  -- for deposited tx after Regolith.
+  -- Post-Regolith (Bedrock launch on Base mainnet) a deposit is metered as a type-2 tx
+  -- (specs `deposits.md` §Execution: "processed exactly like a type-2 (EIP-1559)
+  -- transaction … gas metering is the same"): the receipt's gasUsed is the gas used less
+  -- the refund, capped at a fifth (EIP-3529; every OP fork is London+). No ETH moves for
+  -- it — the gas price is 0. op-geth `innerExecute` (state_transition.go@79e9d24 610-690)
+  -- adds `calcRefund` for deposits too. (Until 2026-11-14 this returned the gas used before
+  -- the refund.)
+  let used := tx.gas.toNat - gasLeft
   return { state   := newState
-           gasUsed := tx.gas.toNat - gasLeft
+           gasUsed := used - min refund (used / 5)
            logs    := logs
            success := success }
 

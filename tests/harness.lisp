@@ -62,6 +62,7 @@
     ("layers" "layers.lisp")
     ("world-slots" "world-slots.lisp")
     ("p256verify" "p256verify.lisp")
+    ("op-l1-fee" "op-l1-fee.lisp")
     ("readset" "readset.lisp")
     ("arc-pq" "arc-pq.lisp"
      :requires ,(lambda () (unless (eita.native:native-path "libeita_pq" :error nil)

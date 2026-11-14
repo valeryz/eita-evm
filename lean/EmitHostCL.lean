@@ -10,6 +10,8 @@ import Evm.Arc.Spec.NativeCoin
 import Evm.Arc.Spec.Pq
 import Evm.Arc.Spec.BlockSystem
 import Evm.CL.ForkEmit
+import Evm.Optimism.Replay.Emit  -- the OP-Stack fork table, L1 fee, operator fee, failed deposit; proved there
+import Evm.Optimism.Fjord.Spec.FastLz  -- the FastLZ length (the Fjord L1 fee's size)
 import Evm.CL.EffectSelfdestruct  -- the derived cb-selfdestruct effect; proved in EffectSelfdestructProof
 import Evm.CL.EffectSettle        -- the derived fee settlement; proved in EffectSettleProof
 import Evm.CL.EffectEndTx         -- the derived end-of-tx deletions; proved in EffectEndTxProof
@@ -131,6 +133,9 @@ def main : IO Unit := do
   IO.println ";; the blob base fee. The one loop in the emitted formulas; `.fakeExp` terms call it."
   IO.println s!"(defun spec-fake-exponential (factor numerator denominator)"
   IO.println s!"  {fakeExponentialCL})"
+  -- FastLZ compressed length (Evm.Optimism.Fjord.Spec.FastLz; op-geth FlzCompressLen)
+  IO.println s!"(defun spec-flz-compress-len (ib)"
+  IO.println s!"  {Evm.Optimism.Fjord.Spec.flzCompressLenCL})"
   IO.println ""
   IO.println ";; Precompile gas (EIP-198/196/197/1108) and tx/CREATE/refund/reward gas,"
   IO.println ";; all emitted from Evm.CL.GasEmit — eval kernel-checked vs published numbers."
@@ -204,7 +209,14 @@ def main : IO Unit := do
     , ("spec-arc-pq-base-gas",         "()",          Evm.Arc.Spec.Pq.verifyBaseGasExpr)
     , ("spec-arc-pq-msg-word-gas",     "()",          Evm.Arc.Spec.Pq.gasPerMsgWordExpr)
     , ("spec-arc-pq-vk-len",           "()",          Evm.Arc.Spec.Pq.vkLenExpr)
-    , ("spec-arc-pq-sig-len",          "()",          Evm.Arc.Spec.Pq.sigLenExpr) ]
+    , ("spec-arc-pq-sig-len",          "()",          Evm.Arc.Spec.Pq.sigLenExpr)
+      -- OP Stack (Evm.Optimism.Replay.Emit: each proved equal to its spec function there)
+    , ("spec-op-base-fork-ord",        "(ts)",        Evm.Optimism.Replay.Emit.baseForkOrdExpr)
+    , ("spec-op-eth-analog-ord",       "(op-fork)",   Evm.Optimism.Replay.Emit.ethAnalogOrdExpr)
+    , ("spec-op-l1-fee", "(op-fork zeroes ones flz l1-base-fee overhead scalar blob-base-fee base-fee-scalar blob-base-fee-scalar)", Evm.Optimism.Replay.Emit.l1FeeExpr)
+    , ("spec-op-da-size-scaled",       "(flz)",       Evm.Optimism.Replay.Emit.daSizeScaledExpr)
+    , ("spec-op-operator-fee",         "(op-fork gas scalar constant)", Evm.Optimism.Replay.Emit.operatorFeeExpr)
+    , ("spec-op-deposit-fails", "(op-fork gas-limit intrinsic floor value balance data-len create)", Evm.Optimism.Replay.Emit.depositFailsExpr) ]
   for (name, args, e) in defs do
     IO.println s!"(defun {name} {args} {e.toCL})"
   -- EIP-2537 MSM gas does not fit the Expr IR: it is a 128-entry table lookup. The

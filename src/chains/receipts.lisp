@@ -3,8 +3,9 @@
 ;;;; Chain-neutral: EIP-658 status receipts in EIP-2718 envelopes, as every post-Byzantium
 ;;;; EVM chain encodes them: receipt = rlp([status, cumulativeGasUsed, logsBloom, logs]),
 ;;;; prefixed by the tx type byte when type > 0; receiptsRoot = trie root over
-;;;; (rlp(index) -> receipt). A chain whose receipts carry extra fields (OP-Stack deposit
-;;;; receipts: depositNonce, depositReceiptVersion) supplies `*chain-receipt-encode-hook*`.
+;;;; (rlp(index) -> receipt). A chain whose receipts hash extra fields after the logs (OP-Stack
+;;;; deposit receipts from Canyon: depositNonce, depositReceiptVersion) sets the tx's
+;;;; `*tx-receipt-extension*` (integers, appended in order) as it runs the tx.
 ;;;;
 ;;;; Why it exists: the header gate compared only Σ gas and the logs bloom. A tx that
 ;;;; FAILED on-chain but succeeded for us at equal gas and with no logs was invisible —
@@ -19,16 +20,18 @@
 
 (in-package #:eita.chain)
 
-(defvar *chain-receipt-encode-hook* nil
-  "Optional (lambda (type status cumulative bloom logs) ...) returning the receipt bytes,
-   or NIL for the standard encoding. Chain-specific receipt formats plug in here.")
+(defvar *tx-receipt-extension* nil
+  "Integers the current tx's receipt hashes after its logs (NIL: none). Reset by the driver
+   before each tx; set by a chain's tx hook (OP deposits: (depositNonce 1) from Canyon).")
 
 (defvar *chain-header-foreign* '()
   "Header fields this chain defines otherwise than Ethereum, which verify-block-header does
    not compare (OP-Stack: withdrawalsRoot is the L2ToL1MessagePasser's storage root from
-   Isthmus, blobGasUsed the DA footprint from Jovian). The driver's banner names them.")
+   Isthmus). A chain's block-setup may set it per block; each block's verification reads
+   the value its block ran with (block-verify-inputs). The driver's banner names them.")
 (defvar *block-receipts* '()
-  "The current block's receipts as executed, newest first: (type status cumulative-gas logs);
+  "The current block's receipts as executed, newest first: (type status cumulative-gas logs
+   extension);
    encoded by verify-block-header (in a replay, on the verifier thread).")
 (defvar *receipts-unverifiable* nil
   "No receiptsRoot to compare: T before Byzantium (receipts carry a per-tx state root),
@@ -56,12 +59,10 @@
       (bloom-add! bloom (u256->octets (first l) 20))
       (dolist (tp (second l)) (bloom-add! bloom (u256->octets tp 32))))))
 
-(defun receipt-encode (type status cumulative logs)
-  "One receipt's bytes, and its bloom."
+(defun receipt-encode (type status cumulative logs &optional extension)
+  "One receipt's bytes, and its bloom. EXTENSION: integers hashed after the logs."
   (let ((bloom (logs-bloom logs)))
     (values
-     (or (and *chain-receipt-encode-hook*
-             (funcall *chain-receipt-encode-hook* type status cumulative bloom logs))
         (let* ((rlp-logs (eita.mpt:rlp-list*
                           (mapcar (lambda (l)
                                     (eita.mpt:rlp-list
@@ -71,17 +72,18 @@
                                      (eita.mpt:rlp-bytes (third l))))
                                   logs)))
                (body (eita.mpt:rlp-encode
-                      (eita.mpt:rlp-list (eita.mpt:rlp-uint status)
-                                          (eita.mpt:rlp-uint cumulative)
-                                          (eita.mpt:rlp-bytes bloom)
-                                          rlp-logs))))
+                      (eita.mpt:rlp-list* (list* (eita.mpt:rlp-uint status)
+                                                  (eita.mpt:rlp-uint cumulative)
+                                                  (eita.mpt:rlp-bytes bloom)
+                                                  rlp-logs
+                                                  (mapcar #'eita.mpt:rlp-uint extension))))))
           (if (and type (plusp type))
               (let ((out (make-array (1+ (length body)) :element-type '(unsigned-byte 8))))
                 (setf (aref out 0) type) (replace out body :start1 1) out)
-              body)))
+              body))
      bloom)))
 
-(defun receipts-push! (type status gas-used logs)
+(defun receipts-push! (type status gas-used logs &optional extension)
   "Record one executed tx's receipt (STATUS 1/0, GAS-USED after refunds/floor). The
    deposit contract's DepositEvent logs are kept for the EIP-6110 requests (EELS prague
    requests.py parse_deposit_requests reads them from the receipts, as here)."
@@ -89,13 +91,14 @@
   (dolist (l logs)
     (when (and (= (first l) +deposit-contract-address+) (second l) (= (first (second l)) +deposit-event-signature+))
       (push (third l) *block-deposit-logs*)))
-  (push (list type status *receipt-cumulative-gas* logs) *block-receipts*))
+  (push (list type status *receipt-cumulative-gas* logs extension) *block-receipts*))
 
 (defun block-verify-inputs ()
   "What verify-block-header reads of the current block's execution, as its keyword
    arguments: captured, for the verifier thread."
   (list :receipts (reverse *block-receipts*) :unverifiable *receipts-unverifiable*
-        :blob-gas *block-blob-gas* :requests-hash *block-requests-hash*))
+        :blob-gas *block-blob-gas* :requests-hash *block-requests-hash*
+        :foreign *chain-header-foreign*))
 
 ;;; --- The block body's roots: what transactionsRoot / withdrawalsRoot commit to ----------
 ;;; The header hash (fetch-verified-block) covers the header only; these tie the body we
@@ -219,7 +222,8 @@
 (defun verify-block-header (blk total-gas &key (receipts (reverse *block-receipts*))
                                                 (unverifiable *receipts-unverifiable*)
                                                 (blob-gas *block-blob-gas*)
-                                                (requests-hash *block-requests-hash*))
+                                                (requests-hash *block-requests-hash*)
+                                                (foreign *chain-header-foreign*))
   "Compare our execution of the decoded block BLK (by default the current block's: `block-verify-inputs`) with
    its header: Σ gas used, the logs bloom, the receiptsRoot (not when UNVERIFIABLE:
    pre-Byzantium per-tx roots; nor the bloom after a skipped tx), the
@@ -227,7 +231,7 @@
    runs no request calls has none, i.e. the empty hash), and the body against the header:
    transactionsRoot, withdrawalsRoot, every tx's sender (its signature's). Returns the header fields we do NOT reproduce — NIL
    when the block reproduced. A field the header lacks must be one we have nothing for; a
-   field the chain defines otherwise (*chain-header-foreign*) is not compared."
+   field the chain defines otherwise (FOREIGN, the block's *chain-header-foreign*) is not compared."
   (let* ((bad '())
          (bloom (make-array 256 :element-type '(unsigned-byte 8) :initial-element 0))
          (encoded (loop for r in receipts
@@ -236,7 +240,7 @@
          (hdr-requests (blk-requests-hash blk))
          (hdr-wroot (blk-withdrawals-root blk))
          (withdrawals (blk-withdrawals blk)))
-    (flet ((check (field ok) (unless (or ok (member field *chain-header-foreign* :test #'string=)) (push field bad))))
+    (flet ((check (field ok) (unless (or ok (member field foreign :test #'string=)) (push field bad))))
       (check "gasUsed" (= total-gas (blk-gas-used blk)))
       (check "logsBloom" (or (eq unverifiable :skipped) (equalp bloom (blk-logs-bloom blk))))
       (check "receiptsRoot" (or unverifiable (equalp (list-root encoded) (blk-receipts-root blk))))
