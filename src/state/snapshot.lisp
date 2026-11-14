@@ -215,12 +215,20 @@
 (defconstant +madv-dontneed+ 4)         ; Linux and Darwin alike
 (defconstant +ms-invalidate+ 2)         ; Darwin
 
+(defun page-range (len start end)
+  "The pages of a mapping of LEN bytes that [START, END) names: (values start end). START
+   is aligned down; END down, except that an END at or past LEN covers the last (partial)
+   page and STOPS THERE: a page past it belongs to another mapping, and MADV_DONTNEED
+   zeroes anonymous memory (the Lisp heap: CI 2026-11-14, `len + page` aligned down was
+   one page past a page-aligned file)."
+  (let ((mask (1- (sb-posix:getpagesize))))   ; run time: 4 KB on Linux, 16 KB on Apple Silicon
+    (values (logandc2 (max 0 start) mask)
+            (if (>= end len) (logandc2 (+ len mask) mask) (logandc2 end mask)))))
+
 (defun advise (m start end advice)
-  "madvise ADVICE over [START, END) of M (both page-aligned down; END past the length
-   reaches the last page), or with ADVICE :RELEASE drop
-   those pages from this process."
-  (let* ((mask (1- (sb-posix:getpagesize)))   ; 16 KB on Apple Silicon
-         (start (logandc2 start mask)) (end (logandc2 end mask)))
+  "madvise ADVICE over the pages of M in [START, END) (`page-range`), or with ADVICE
+   :RELEASE drop those pages from this process."
+  (multiple-value-bind (start end) (page-range (mapping-len m) start end)
     (when (> end start)
       (if (and (eq advice :release) (member :darwin *features*))
           (sb-alien:alien-funcall
@@ -238,7 +246,7 @@
 (defun advise-sequential (m)
   "M is about to be read once, front to back: read ahead further, and (Linux) let its pages
    be the first reclaimed."
-  (when m (advise m 0 (+ (mapping-len m) (sb-posix:getpagesize)) +madv-sequential+)))
+  (when m (advise m 0 (mapping-len m) +madv-sequential+)))
 
 (defun release-behind (m off)
   "A scan of M has passed byte OFF: release what lies behind it, in steps of 64 MB."
@@ -249,7 +257,7 @@
 (defun release-all (m)
   "A scan of M is done: release all of it, and restart the watermark for the next one."
   (when m
-    (release-range m 0 (+ (mapping-len m) (sb-posix:getpagesize)))
+    (release-range m 0 (mapping-len m))
     (setf (mapping-released m) 0)))
 
 (defun map-file (path)
