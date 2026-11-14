@@ -255,7 +255,7 @@
    10 GB heap and twice that at 20 GB, the native part unseen. The tables are cut loose first: the writer's stack may still hold the struct (a
    conservative root); their native slot tables go with them (finalizers). A full GC at
    ~2 GB live costs 1-2 s."
-  (let ((w (and *written* (>= (car *written*) (floor (hot-budget-bytes) 4))
+  (let ((w (and *written* (>= (car *written*) (floor *hot-budget-bytes* 4))
                 (sb-thread:with-mutex (*stack-lock*) (shiftf *written* '()))))) ; @veil collect-written!/take
     (when w
       (dolist (l (cdr w)) (setf (ram-layer-accts l) nil)) ; @veil collect-written!/cut
@@ -602,16 +602,13 @@
 ;;; ---------------------------------------------------------------- the state budget
 
 (defstartup *hot-budget-bytes*
-  (let ((v (sb-ext:posix-getenv "EITA_HOT_BUDGET_MB"))) (and v (plusp (length v)) (* 1024 1024 (parse-integer v))))
-  "EITA_HOT_BUDGET_MB: the memory the state's tables may hold, heap and native together
-   (`acct-table-bytes`): the hot set is frozen early when it passes this (checked every
-   1000 blocks), and the tables of written layers are dropped once they hold a quarter of
-   it (`collect-written!`). Unset: a quarter of the heap (`hot-budget-bytes`).")
-
-(defun hot-budget-bytes ()
-  "The state budget in bytes: EITA_HOT_BUDGET_MB, else a quarter of the heap (10 GB: 2.5 GB;
-   the nursery takes another quarter, and the GC's copy room is the live heap again)."
-  (or *hot-budget-bytes* (floor (sb-ext:dynamic-space-size) 4)))
+  (* 1024 1024 (let ((v (sb-ext:posix-getenv "EITA_HOT_BUDGET_MB"))) (if (and v (plusp (length v))) (parse-integer v) 3000)))
+  "EITA_HOT_BUDGET_MB (3000): the state cache, the memory the state's tables may hold, heap
+   and native together (`acct-table-bytes`): the hot set is frozen early when it passes this
+   (checked every 1000 blocks), and the tables of written layers are dropped once they hold
+   a quarter of it (`collect-written!`). A cache setting, not derived from the heap: more of
+   it means fewer faults through the layers (docs/layered-snapshots.md); the heap holds only
+   its heap part (the GC policy: chains/driver.lisp).")
 
 (defun hot-over-budget-p (n)
   "Is the live hot set over the state budget (every 1000 blocks, with a stack under the
@@ -621,4 +618,4 @@
    and garbage the next GC frees is."
   (and *base* (zerop (mod n 1000))
        (notany #'ram-layer-p *layers*)
-       (> (multiple-value-call #'+ (acct-table-bytes (world-accts *current-world*))) (hot-budget-bytes))))
+       (> (multiple-value-call #'+ (acct-table-bytes (world-accts *current-world*))) *hot-budget-bytes*)))

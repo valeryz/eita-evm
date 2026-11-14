@@ -28,7 +28,8 @@ ordered stack of immutable **delta layers** (`layer-P-N/`: what blocks P+1..N ch
   Layer points: every anchor; a quarter of the anchor interval (resume and bisect points:
   8,192 blocks on Arc); the state budget (`EITA_HOT_BUDGET_MB`, below); and, within the
   chain's reorg depth of the head, every block.
-* The **state budget** (`EITA_HOT_BUDGET_MB`; unset, a quarter of the heap) bounds what the
+* The **state budget** (`EITA_HOT_BUDGET_MB`, default 3,000; a cache setting, not derived from
+  the heap, whose GC policy is chains/driver.lisp's) bounds what the
   state's tables hold in memory, heap and native slot tables together (`acct-table-bytes`,
   measured from the tables, not from the heap). Two uses, one number: the live hot set is
   frozen early when it passes the budget (checked every 1,000 blocks, only while no frozen
