@@ -212,9 +212,10 @@
 ;;; world tables directly. Two jobs, both here so neither can be missed at a call site:
 ;;;   * an observer's account pre-image (first write in a tx snapshots nonce/balance/code);
 ;;;   * the READ/WRITE STREAM: while `*view-log*` is true (inside a tx, and only when a
-;;;     subscriber declared :wants-reads — `*capture-reads*`) every read is an event
+;;;     subscriber takes it — `*capture-reads*`) every read is an access record
 ;;;     (:read kind block tx addr slot value) and every write (:write kind block tx addr
-;;;     slot pre post) — the logged read set of lean/Evm/Parallel/Reads.lean (`Faithful`:
+;;;     slot pre post), flat in the block's buffer (evm/stream.lisp, fw-access!) — the
+;;;     logged read set of lean/Evm/Parallel/Reads.lean (`Faithful`:
 ;;;     the logged value is the value the view returned). KIND: :balance :nonce :code
 ;;;     :storage (SLOT = the slot) :present (the existence set) :account (whole-account
 ;;;     delete). SLOT is 0 for account fields.
@@ -225,10 +226,10 @@
    *capture-reads*; never true while state is being loaded or persisted).")
 (declaim (special *cur-block* *cur-tx* *mpt-tracking* *current-world*))
 (defun view-log-read (kind addr slot value)
-  (fw-push (list :read kind *cur-block* *cur-tx* addr (word-int slot) value))
+  (fw-access! 0 kind *cur-block* *cur-tx* addr (word-int slot) value nil)
   value)
 (defun view-log-write (kind addr slot pre post)
-  (fw-push (list :write kind *cur-block* *cur-tx* addr (word-int slot) pre post)))
+  (fw-access! 1 kind *cur-block* *cur-tx* addr (word-int slot) pre post))
 
 (declaim (inline balance-of (setf balance-of) nonce-of (setf nonce-of) code-of (setf code-of)
                  storage-of (setf storage-of) account-marked-p))
@@ -288,7 +289,7 @@
    into existence). Not journaled: only the tx-level settlement issues it."
   (unless (zerop amount)
     (when *observe-capture* (observe-acct-touch! addr))
-    (when *view-log* (fw-push (list :delta :balance *cur-block* *cur-tx* addr 0 amount)))
+    (when *view-log* (fw-access! 2 :balance *cur-block* *cur-tx* addr 0 amount nil))
     (when *mpt-tracking* (mpt-touch! addr))
     (with-acct (tb a) w addr (incf (acct-balance tb a) amount))))
 

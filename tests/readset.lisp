@@ -8,7 +8,9 @@
 ;;;;   3. the runner's output (every verdict, gas, receipts root, bloom) is byte-identical with no
 ;;;;      observer and no read stream, and with an observer that walks every summary the seam
 ;;;;      offers (net diffs with code hashes, call frames, committed transfers and logs) and the
-;;;;      read stream on.
+;;;;      read stream on;
+;;;;   4. the stream has reads, writes and deltas, and a segment cut by its key bound (at block
+;;;;      boundaries) changes no set.
 ;;;; Inputs: Eita's mainnet repro block (tests/data/mainnet-24538111.json.gz, 300+ real txs),
 ;;;; and for 3 also ValidBlocks/bcStateTests when a checkout is present (eita.test::fixtures-dir).
 
@@ -36,7 +38,7 @@
                  (:log (incf *seen*) (list i a topics data)))))))
 
 (defun run-fixtures (paths on)
-  "The runner over PATHS; ON: the reading observer and the read stream; (values output events)."
+  "The runner over PATHS; ON: the reading observer and the read stream; (values output batch)."
   (let* ((eita.state:*observer* (and on (reading-observer)))
          (eita.evm::*observe-calls* on)
          (eita.evm::*capture-reads* on)
@@ -54,17 +56,21 @@
                      (tag 'eita.chain::run-pre-block! #'second (constantly eita.chain::+preblock-tx+))
                      (tag 'eita.chain::run-post-block! #'second (constantly eita.chain::+postblock-tx+))
                      (with-output-to-string (*standard-output*) (eita.fixtures:main paths)))
-                (mapc (lambda (f o) (setf (fdefinition f) o)) fns origs)))
-         (b eita.evm::*fw-batch*) (v (eita.evm::fw-batch-vec b)))
+                (mapc (lambda (f o) (setf (fdefinition f) o)) fns origs))))
     (values (format nil "~{~A~^~%~}" (remove-if (lambda (l) (eql 0 (search "jit: " l)))
                                                 (uiop:split-string out :separator '(#\Newline))))
-            (loop for i from 0 below (eita.evm::fw-batch-fill b) by 2
-                  when (eql (svref v i) eita.evm::+fw-event+) collect (svref v (1+ i))))))
+            eita.evm::*fw-batch*)))
+
+(defun accesses (batch)
+  "The batch's access records as lists (op kind block tx addr slot a b)."
+  (let ((out '()))
+    (eita.evm::fw-walk batch #'identity :on-access (lambda (&rest a) (push a out)))
+    (nreverse out)))
 
 (defun code-hash (code) (let ((h 0)) (loop for x across (eita.core:keccak256-bytes code) do (setf h (logior (ash h 8) x))) h))
 
 (defun expected (events)
-  "(block tx) -> (accounts slots blockhashes), each a sorted list, from the raw events."
+  "(block tx) -> (accounts slots blockhashes), each a sorted list, from the raw accesses."
   (let ((txs (make-hash-table :test 'equal)))
     (dolist (ev events)
       (when (member (car ev) '(:read :write :delta))
@@ -98,6 +104,21 @@
                txs)
       out)))
 
+(defun decoded (dir)
+  "(block tx) -> (accounts slots blockhashes), each a sorted list, from DIR's segments;
+   (values that txs keys)."
+  (let ((got (make-hash-table :test 'equal)) (ntx 0) (nkeys 0))
+    (dolist (p (directory (concatenate 'string dir "*.rset")))
+      (dolist (blk (nth-value 2 (eita.evm::readset-read-segment p)))
+        (dolist (tx (cdr blk))
+          (destructuring-bind (idx accts slots bh) tx
+            (incf ntx) (incf nkeys (+ (length accts) (length slots)))
+            (setf (gethash (list (car blk) idx) got)
+                  (list (sort (copy-list accts) #'< :key #'first)
+                        (sort (copy-list slots) (lambda (x y) (or (< (first x) (first y)) (and (= (first x) (first y)) (< (second x) (second y))))))
+                        (sort (copy-list bh) #'<)))))))
+    (values got ntx nkeys)))
+
 (defun gunzip-to-temp (gz)
   (let ((out (format nil "/tmp/eita-test-readset-~D.json" (sb-posix:getpid))))
     (with-open-file (s out :direction :output :if-exists :supersede)
@@ -126,19 +147,12 @@
            (unless (plusp *seen*) (fail "the observer saw nothing (not installed?)"))
            ;; the recorder, fed the mainnet block's events as its subscriber thread would be
            (clrhash *changed*)
-           (let ((events (nth-value 1 (run-fixtures (list mainnet) t))))
-             (multiple-value-bind (on-event finish) (eita.evm::make-readset-recorder dir)
-               (mapc on-event events) (funcall finish))
-             (let ((want (expected events)) (got (make-hash-table :test 'equal)))
-               (dolist (p (directory (concatenate 'string dir "*.rset")))
-                 (dolist (blk (nth-value 2 (eita.evm::readset-read-segment p)))
-                   (dolist (tx (cdr blk))
-                     (destructuring-bind (idx accts slots bh) tx
-                       (incf ntx) (incf nkeys (+ (length accts) (length slots)))
-                       (setf (gethash (list (car blk) idx) got)
-                             (list (sort (copy-list accts) #'< :key #'first)
-                                   (sort (copy-list slots) (lambda (x y) (or (< (first x) (first y)) (and (= (first x) (first y)) (< (second x) (second y))))))
-                                   (sort (copy-list bh) #'<)))))))
+           (let ((batch (nth-value 1 (run-fixtures (list mainnet) t))))
+             (multiple-value-bind (on-event on-access finish) (eita.evm::make-readset-recorder dir)
+               (eita.evm::fw-walk batch on-event :on-access on-access) (funcall finish))
+             (multiple-value-bind (got n k) (decoded dir)
+              (setf ntx n nkeys k)
+              (let ((want (expected (accesses batch))))
                ;; 1. decoded = recomputed, tx by tx
                (unless (= (hash-table-count want) (hash-table-count got))
                  (fail "~D txs in the stream, ~D recorded" (hash-table-count want) (hash-table-count got)))
@@ -160,7 +174,22 @@
                         *changed*)
                (format t "  ~D txs, ~D account/slot entries, ~D net changes covered; ~D bytes of segments~%"
                        ntx nkeys (loop for c being the hash-values of *changed* sum (length c))
-                       (loop for p in (directory (concatenate 'string dir "*.rset")) sum (with-open-file (s p) (file-length s)))))))
+                       (loop for p in (directory (concatenate 'string dir "*.rset")) sum (with-open-file (s p) (file-length s))))
+               ;; 4. reads, writes and deltas; the block fed again as B, B+1, B+2 under a bound of
+               ;;    one key (a segment a block) decodes to the same sets
+               (let ((cut (concatenate 'string dir "cut/")) (acc (accesses batch)) (eita.evm::*readset-segment-keys* 1))
+                 (unless (subsetp '(:read :write :delta) (mapcar #'car acc)) (fail "no reads, writes or deltas streamed"))
+                 (multiple-value-bind (on-event on-access finish) (eita.evm::make-readset-recorder cut)
+                   (declare (ignore on-event))
+                   (dotimes (j 3) (dolist (a acc) (destructuring-bind (op kind block &rest r) a (apply on-access op kind (+ block j) r))))
+                   (funcall finish))
+                 (let ((segs (length (directory (concatenate 'string cut "*.rset")))) (got3 (decoded cut)))
+                   (unless (and (= segs 3) (= (hash-table-count got3) (* 3 (hash-table-count want))))
+                     (fail "a bound of one key: ~D segments, ~D txs for 3 blocks of ~D" segs (hash-table-count got3) (hash-table-count want)))
+                   (maphash (lambda (k w) (dotimes (j 3) (unless (equal w (gethash (list (+ (first k) j) (second k)) got3))
+                                                           (fail "a bound of one key: tx ~S of copy ~D differs" k j))))
+                            want)
+                   (format t "  key bound: 3 blocks, ~D segments, the same sets~%" segs)))))))
       (delete-file mainnet)
       (sb-ext:run-program "rm" (list "-rf" dir) :search t)))
   (format t "~&readset: ~:[FAIL~;the segments are the stream's per-tx read sets, every change covered; results identical with and without observer and stream~]~%" (zerop fails))
