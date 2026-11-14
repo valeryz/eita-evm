@@ -114,7 +114,7 @@
   (:documentation "Binary snapshots and delta layers (docs/state-snapshot-format.md, docs/layered-snapshots.md).")
   (:use #:cl)
   (:export
-           #:*foreign-layer* #:+empty-code-hash+ #:component-of #:component-path
+           #:*foreign-layer* #:+empty-code-hash+ #:advise-sequential #:component-of #:component-path
            #:compose-address #:composition-string #:hardware-threads #:int->octets
            #:layer-account #:layer-map-slots #:layer-path #:layer-slot #:layer-tmp-path
            #:lookup-account #:make-merge #:make-obuf #:map-touched-addresses #:mapping-sap

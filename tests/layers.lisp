@@ -381,7 +381,20 @@
       (loop for v in vars for x in saved do (setf (symbol-value v) x))
       (if old-env (sb-posix:setenv "EITA_STATE_DIR" old-env 1) (sb-posix:unsetenv "EITA_STATE_DIR")))))
 
+(defun page-range-stays-inside ()
+  "A release never names a page past the mapping (MADV_DONTNEED there zeroes another one)."
+  (let ((pg (sb-posix:getpagesize)))
+    (dolist (len (list 4096 pg (* 2 pg) (1+ pg) (+ 4096 88) (* 3 pg) (1- (* 3 pg))))
+      (let ((top (* pg (ceiling len pg))))
+        (dolist (end (list len (+ len 1) (+ len pg) (* 2 top)))
+          (check (format nil "page-range ~D 0 ~D" len end)
+                 (multiple-value-list (page-range len 0 end)) (list 0 top)))
+        (check (format nil "page-range ~D inside" len)
+               (multiple-value-list (page-range len (1+ pg) (1- len)))
+               (list pg (* pg (floor (1- len) pg))))))))
+
 (let ((rounds (if eita.test:*argument* (parse-integer eita.test:*argument*) 200)))
+  (page-range-stays-inside)
   (dotimes (r rounds) (round-1 r))
   (gc-spares-frozen-layer)
   (tip-freezes-stay-bounded)
