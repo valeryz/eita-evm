@@ -57,8 +57,8 @@
 ;;; age gate (an older generation is collected only past an average age of 0.75) left 5-9 GB
 ;;; of promoted garbage in generations 1-3 at Arc 21.13M: three deaths at 12 GB. So: a fixed
 ;;; nursery (EITA_NURSERY_MB, 512); older generations collected once a nursery past their
-;;; last GC, at any age; a full GC past 3x the last full GC's live size (>= 2 nurseries), or
-;;; past half the heap (its copy room), whichever comes first (>= live + 1 nursery).
+;;; last GC, at any age; a full GC when the older generations' garbage passes the live size
+;;; (at least two nurseries), or when a GC would have no room to copy its survivors.
 (defstartup *nursery-bytes*
   (* 1024 1024 (let ((v (env "NURSERY_MB"))) (if (and v (plusp (length v))) (parse-integer v) 512))))
 (defvar *gc-live* 0 "Bytes in use after the newest full GC (a lower bound once another one ran).")
@@ -69,20 +69,26 @@
         do (setf (sb-ext:generation-minimum-age-before-gc g) 0d0
                  (sb-ext:generation-bytes-consed-between-gcs g) *nursery-bytes*))
   (setf *gc-live* (sb-kernel:dynamic-usage))
-  (format t "~&[gc] nursery ~D MB, older generations collected over their trigger, full GC past 3x live; heap ~D MB~%"
+  (format t "~&[gc] nursery ~D MB, older generations collected over their trigger, full GC on their garbage or for copy room; heap ~D MB~%"
           (floor *nursery-bytes* 1048576) (floor (sb-ext:dynamic-space-size) 1048576)))
 
 (defun gc-guard! ()
-  "Between blocks: the full-GC backstop."
-  (let ((use (sb-kernel:dynamic-usage)))
-    (setf *gc-live* (min *gc-live* use))
-    ;; capped at half the heap: a full GC needs room to copy what survives it
-    (when (> use (max (+ *gc-live* *nursery-bytes*)
-                      (min (max (* 3 *gc-live*) (+ *gc-live* (* 2 *nursery-bytes*))) (floor (sb-ext:dynamic-space-size) 2))))
+  "Between blocks: the full-GC backstop. It fires when the older generations hold more
+   garbage than the live data (at least two nurseries) since the last full GC, or when a
+   GC could no longer copy what survives (the use past the heap less live and half a nursery).
+   Absolute thresholds (3x live, half the heap) sat at the use a dense range's live set
+   reaches by itself (Arc 21.16M with read sets, ~1.3 GB live: 62 / 33 / 32 forced full GCs
+   a window at 4 / 8 / 16 GB, now 21 / 18 / 18; the late window at 0.5 GB: 51, now 14)."
+  (let* ((use (sb-kernel:dynamic-usage))
+         (old (loop for g from 1 below sb-vm:+pseudo-static-generation+ sum (sb-ext:generation-bytes-allocated g)))
+         (live (setf *gc-live* (min *gc-live* use))))
+    (when (or (> (- old live) (max live (* 2 *nursery-bytes*)))
+              (> use (- (sb-ext:dynamic-space-size) live (floor *nursery-bytes* 2))))
       (let ((t0 (get-internal-real-time)))
         (sb-ext:gc :full t)
         (setf *gc-live* (sb-kernel:dynamic-usage))
-        (format t "~&[gc] full GC at ~D MB in use: ~D MB live (~,1F s)~%" (floor use 1048576) (floor *gc-live* 1048576)
+        (format t "~&[gc] full GC at ~D MB in use (~D MB in older generations): ~D MB live (~,1F s)~%"
+                (floor use 1048576) (floor old 1048576) (floor *gc-live* 1048576)
                 (/ (- (get-internal-real-time) t0) internal-time-units-per-second))))))
 
 (defun receipt-table (txs receipts our-gas)
