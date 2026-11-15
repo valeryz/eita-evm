@@ -107,7 +107,18 @@
    every block within it is a layer; compaction never touches those layers, and an anchor
    there is root-checked only once its block is this deep."
   (if *chain-spec* (chain-spec-reorg-depth *chain-spec*) 64)) ; @veil reorg-window/depth
-(defvar *tip-freeze* nil "True while following the tip: freeze after every block (reorgs).")
+(defvar *tip-freeze* nil
+  "True within `reorg-window` of the head while following it: freeze after every block (a
+   reorg rolls layers back). Not \"at the tip\" (`at-tip-p`): NIL throughout on a chain final
+   at once (reorg-depth 0, Arc).")
+(defvar *chain-head* nil
+  "The chain's head as the block source following it last saw it (newHeads, the RPC's block
+   number); NIL when not following (a bounded run: every block is catch-up).")
+(defconstant +tip-distance+ 8 "Blocks below the head that are still at the tip.")
+(defun at-tip-p (n)
+  "Block N is at the chain's tip: within +tip-distance+ of the head the source follows. The one
+   owner of \"at the tip\" (the fact log's durability cadence, the node's)."
+  (and *chain-head* (<= (- *chain-head* n) +tip-distance+)))
 (defvar *compacting-base* nil
   "A compacted base waiting for its root check (a snap, opened by the compactor).")
 (defvar *no-new-compaction* nil "True while a bounded run winds down: finish, start nothing.")
