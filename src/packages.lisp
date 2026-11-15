@@ -97,6 +97,7 @@
            #:*anchor-queue* #:*cold-storage-map-hook* #:*fault-account-hook*
            #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
+           #:*chain-head* #:at-tip-p
            #:account-marked-p #:account-uncreate! #:account-unmark! #:acct-addr #:acct-balance
            #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
            #:acct-nonce #:acct-set-flag! #:acct-slots #:acct-slots-map #:acct-table-intern-words #:anchor!
