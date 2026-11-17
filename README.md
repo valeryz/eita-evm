@@ -7,6 +7,16 @@ emitted from that spec, not written by hand. It is built so that turning it into
 execution client is a small step: an Engine API block source (see Roadmap), plus the usual
 client scaffolding.**
 
+> **Here from the post on the Lean spec?** The proofs held; the specification was the weak
+> link. Deriving the Lean effect layer and checking it against the tested Lisp host found
+> about a dozen places where the AI-translated spec disagreed with EELS (a contract that
+> self-destructed in its own constructor survived in the spec, not on Ethereum), listed in
+> [docs/effect-layer-derivation.md §5](docs/effect-layer-derivation.md#5-spec-bugs-found-by-deriving-spec-fidelity-fixes-the-cl-was-right).
+> The engine replays Ethereum and Arc live at [eita.run](https://eita.run), every block
+> checked against the chain; what is proved, checked or trusted: [eita.run/verified](https://eita.run/verified/).
+> To follow along, watch this repository (Custom → Releases) or get the monthly
+> [build notes](https://eitanotes.substack.com): what the spec got wrong, and what the replay caught.
+
 **EITA** — **E**VM **I**nline-**T**hreaded **A**rchitecture.
 *(Alternatively unpacked as **E**VM **I**nductive **T**race **A**ccelerator —
 same project, verification-flavored framing. Or, on Friday afternoons,
@@ -39,15 +49,11 @@ This engine is not a demo. It runs in production at **[eita.run](https://eita.ru
   revm** (the EVM inside reth) measured on the same machines with the same inputs, at about
   two cents per teragas on a spot VM. Method, every run and the caveats:
   [eita.run/benchmark](https://eita.run/benchmark/).
-- **Verified metrics, live.** Re-execution produces facts (state changes, value moves, logs,
-  calls), and metrics are incremental *folds* over them, updated the moment a block lands and
-  served with their provenance: the anchor whose state root was checked, the block range,
-  the code that computed them. Because the folds see execution, not just logs, they show what
-  log-based tools can't: ERC-20 Transfer events that the token's storage contradicts, upgrades
-  and role changes made with no event, value moved inside calls that emit nothing, gas
-  attributed to the contracts that actually ran. Open a chain's page from
-  [eita.run](https://eita.run), and see what is proved, checked as it runs, or trusted at
-  [eita.run/verified](https://eita.run/verified/).
+- **Verified metrics, live:** incremental *folds* over the facts re-execution produces,
+  served with their provenance (the checked anchor, the block range, the code). They see
+  execution, not just logs: Transfer events the token's storage contradicts, upgrades made
+  with no event, value moved inside calls that emit nothing. Open a chain from
+  [eita.run](https://eita.run).
 
 The metrics service and the node scaffolding around this engine live outside this
 repository; the engine, the spec, the proofs and the emitters are all here.
@@ -116,7 +122,7 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   state root checked against the header at periodic anchors. Arc has been replayed from
   its genesis the same way; OP Stack chains (Base, OP Mainnet, World Chain) run in
   full-state mode from genesis (Base: tested over its first blocks) or lazy-state mode.
-- **Open proof obligations**, tracked rather than hidden: 19 `sorry` remain in the spec
+- **Open proof obligations**, tracked rather than hidden: 7 `sorry` remain in the spec
   layer (per-fork refinement theorems and three `Trie.Stack` lemmas; none in an executable
   definition), and several forks' refinement statements are still shape placeholders.
   `scripts/generated/refinement-coverage.md` lists every obligation; the debt may only go
