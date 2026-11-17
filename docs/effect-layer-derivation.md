@@ -1,7 +1,7 @@
 # Deriving the effect layer from the Lean spec (stages 1–6, 2026-10-26)
 
 > Arriving from Ben's post? The replays this describes run live at [eita.run](https://eita.run) ·
-> build notes, monthly: [eitanotes.substack.com](https://eitanotes.substack.com) · watch
+> build notes: [eitanotes.substack.com](https://eitanotes.substack.com) · watch
 > [releases](https://github.com/valeryz/eita-evm/releases) on GitHub (Watch → Custom → Releases).
 
 The effect layer is the hand-written Lisp that changes state around the native EVM: the

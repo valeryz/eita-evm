@@ -14,7 +14,7 @@ client scaffolding.**
 > [docs/effect-layer-derivation.md §5](docs/effect-layer-derivation.md#5-spec-bugs-found-by-deriving-spec-fidelity-fixes-the-cl-was-right).
 > The engine replays Ethereum and Arc live at [eita.run](https://eita.run), every block
 > checked against the chain; what is proved, checked or trusted: [eita.run/verified](https://eita.run/verified/).
-> To follow along, watch this repository (Custom → Releases) or get the monthly
+> To follow along, watch this repository (Custom → Releases) or get the
 > [build notes](https://eitanotes.substack.com): what the spec got wrong, and what the replay caught.
 
 **EITA** — **E**VM **I**nline-**T**hreaded **A**rchitecture.
