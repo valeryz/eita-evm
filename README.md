@@ -15,7 +15,7 @@ client scaffolding.**
 > The engine replays Ethereum and Arc live at [eita.run](https://eita.run), every block
 > checked against the chain; what is proved, checked or trusted: [eita.run/verified](https://eita.run/verified/).
 > To follow along, watch this repository (Custom → Releases) or get the
-> [build notes](https://eitanotes.substack.com): what the spec got wrong, and what the replay caught.
+> [build notes](https://eitanotes.substack.com) on the vericoding journey: building a formally specified EVM with AI agents.
 
 **EITA** — **E**VM **I**nline-**T**hreaded **A**rchitecture.
 *(Alternatively unpacked as **E**VM **I**nductive **T**race **A**ccelerator —
