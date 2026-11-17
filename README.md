@@ -122,7 +122,7 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   state root checked against the header at periodic anchors. Arc has been replayed from
   its genesis the same way; OP Stack chains (Base, OP Mainnet, World Chain) run in
   full-state mode from genesis (Base: tested over its first blocks) or lazy-state mode.
-- **Open proof obligations**, tracked rather than hidden: 19 `sorry` remain in the spec
+- **Open proof obligations**, tracked rather than hidden: 7 `sorry` remain in the spec
   layer (per-fork refinement theorems and three `Trie.Stack` lemmas; none in an executable
   definition), and several forks' refinement statements are still shape placeholders.
   `scripts/generated/refinement-coverage.md` lists every obligation; the debt may only go
