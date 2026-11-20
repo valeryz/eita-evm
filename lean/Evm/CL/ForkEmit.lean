@@ -1,9 +1,10 @@
 import Evm.CL.GasEmit
-import Evm.Forks
+import Evm.Testnets
 
 /-! Ethereum mainnet's fork schedule as an emitted `Expr`: `spec-mainnet-fork-ord (n ts)`
     in `src/generated/host.lisp` is the ordinal of `Evm.Fork.ofBlock n ts`, proved
-    below, so the Lisp replay's fork choice comes from the one Lean table. -/
+    below, so the Lisp replay's fork choice comes from the one Lean table. Hoodi's,
+    `spec-hoodi-fork-ord (ts)`, is `Evm.Fork.ofHoodi ts` the same way. -/
 
 namespace Evm.CL.ForkEmit
 open Evm.CL.GasEmit
@@ -49,6 +50,22 @@ theorem mainnetForkOrd_eq_spec (ρ : Env) :
   generalize (1746612311 : Nat) = k14 at *
   generalize (1710338135 : Nat) = k15 at *
   generalize (1681338455 : Nat) = k16 at *
+  simp only [ge_iff_le, ← Nat.not_lt, ite_not]
+
+/-- Mirrors `Fork.ofHoodi`: Cancun from genesis, then the timestamps. -/
+def hoodiForkOrd : Expr :=
+  geChain "ts" [(1762955544, 20), (1762365720, 19), (1761677592, 18), (1742999832, 17)] 16
+
+set_option backward.isDefEq.respectTransparency false in
+theorem hoodiForkOrd_eq_spec (ρ : Env) :
+    hoodiForkOrd.eval ρ = (Fork.ofHoodi (ρ "ts")).ord := by
+  simp only [hoodiForkOrd, geChain, Expr.eval, Fork.ofHoodi]
+  simp only [apply_ite (f := Fork.ord)]
+  simp only [Fork.ord]
+  generalize (1762955544 : Nat) = k1 at *
+  generalize (1762365720 : Nat) = k2 at *
+  generalize (1761677592 : Nat) = k3 at *
+  generalize (1742999832 : Nat) = k4 at *
   simp only [ge_iff_le, ← Nat.not_lt, ite_not]
 
 end Evm.CL.ForkEmit

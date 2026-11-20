@@ -126,6 +126,7 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.HeaderEmit.headerViolation_eq_spec
 #print axioms Evm.CL.Flags.charge_is_spec
 #print axioms Evm.CL.ForkEmit.mainnetForkOrd_eq_spec
+#print axioms Evm.CL.ForkEmit.hoodiForkOrd_eq_spec
 #print axioms Evm.CL.BlobEnv.blobbasefee_is_spec
 #print axioms Evm.CL.BlobEnv.blobhash_is_spec
 #print axioms Evm.CL.HostEmit.createCollision_eq_spec

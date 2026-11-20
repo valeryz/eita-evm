@@ -19,7 +19,7 @@
 
 (defparameter +usage+
   "usage: eita <command> [arguments]
-  replay --chain ethereum|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
+  replay --chain ethereum|hoodi|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
          [--blocks DIR] [--state DIR] [--checkpoint-every N] [--source FILE]
          [--observer FILE] [--resume N] [--genesis FILE] [--lazy | --full-state]
   fixtures PATH...                 run BlockchainTests (files or flat directories)

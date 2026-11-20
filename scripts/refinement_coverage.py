@@ -755,7 +755,7 @@ COMPONENTS = [
     ("refinement", "Opcode refinement relations", "lean/Evm/Frontier/Spec",
      "lean/Evm/<Fork>/Spec/*"),
     ("spec", "EVM spec, Frontier to Osaka (Amsterdam staged)", "lean/Evm",
-     "lean/Evm/<Fork>/* lean/Evm/BaseTypes.lean lean/Evm/Forks.lean"),
+     "lean/Evm/<Fork>/* lean/Evm/BaseTypes.lean lean/Evm/Forks.lean lean/Evm/Testnets.lean"),
     ("effect", "Effect layer (callbacks, apply-tx, settlement, journal)", "lean/Evm/CL",
      "CL/Effect* CL/Journal* CL/StorageCache.lean CL/WordOps.lean CL/LimbC.lean"),
     ("ir", "IR compiler (chunks, symbolic execution)", "lean/Evm/IR", "lean/Evm/IR/*"),

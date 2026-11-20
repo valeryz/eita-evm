@@ -186,6 +186,8 @@ def main : IO Unit := do
        Evm.CL.HeaderEmit.headerViolation)
     -- Ethereum mainnet fork schedule (Evm.Forks.ofBlock; proved in Evm.CL.ForkEmit)
     , ("spec-mainnet-fork-ord",  "(n ts)",                        Evm.CL.ForkEmit.mainnetForkOrd)
+    -- Hoodi testnet fork schedule (Evm.Forks.ofHoodi; proved in Evm.CL.ForkEmit)
+    , ("spec-hoodi-fork-ord",    "(ts)",                          Evm.CL.ForkEmit.hoodiForkOrd)
     -- Circle Arc native-USDC precompiles (Evm.Arc.Spec.NativeCoin; arc-nodee76402).
     -- Circle Arc post-block compute_gas_values (Evm.Arc.Spec.BlockSystem; proved = the spec)
     , ("spec-arc-smoothed-gas-used", "(gas-used smoothed-parent alpha have-params)", Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr)
