@@ -13,6 +13,7 @@ import Evm.Rlp
 import Evm.Crypto.Hash
 import Evm.Trie
 import Evm.Forks
+import Evm.Testnets
 
 -- Per-fork modules. Each fork is a self-contained namespace mirroring the
 -- corresponding EELS package; pre-Prague forks currently expose only a

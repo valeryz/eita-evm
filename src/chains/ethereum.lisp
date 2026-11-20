@@ -1,21 +1,24 @@
-;;;; chains/ethereum.lisp — Ethereum mainnet on the generic driver (Ethereum track, E).
+;;;; chains/ethereum.lisp — Ethereum on the generic driver (Ethereum track, E): mainnet and
+;;;; the Hoodi testnet (mainnet's rules; its own data: `ethereum-chain-spec`).
 ;;;;
 ;;;; Blocks, receipts and uncles are JSON-RPC results (eth_getBlockByNumber,
 ;;;; eth_getBlockReceipts, eth_getUncleByBlockNumberAndIndex), from the installed block
 ;;;; source (src/input/; docs/block-input.md). What Ethereum changes
 ;;;; about the generic replay:
-;;;;   fork          spec-mainnet-fork-ord, emitted from Evm.Forks.ofBlock (Evm.CL.ForkEmit)
-;;;;   pre-block     the DAO irregular state change at 1,920,000 (EELS apply_dao), then the
-;;;;                 generic EIP-4788/2935 system calls by fork
+;;;;   fork          spec-mainnet-fork-ord, emitted from Evm.Forks.ofBlock (Evm.CL.ForkEmit);
+;;;;                 Hoodi: spec-hoodi-fork-ord, from Evm.Fork.ofHoodi (Evm/Testnets.lean)
+;;;;   pre-block     the DAO irregular state change at 1,920,000 on mainnet (EELS apply_dao),
+;;;;                 then the generic EIP-4788/2935 system calls by fork
 ;;;;   post-block    the generic Ethereum default (block-system.lisp): rewards from the
 ;;;;                 uncle headers (0 from Paris), withdrawals, request system calls
 ;;;; Receipts before Byzantium embed a per-tx state root, so receiptsRoot is checked from
 ;;;; Byzantium on; the logs bloom is checked on every block. Post-Merge chunks (era
 ;;;; archives) carry no receipts: the header gate alone.
 ;;;;
-;;;; Run: eita replay --chain ethereum --blocks DIR --from N --to M   (full state from genesis)
-;;;; ETH_CACHE_DIR = the chunk directory (default lean/external/eth-cache/); ETH_RPC_URL =
-;;;; an archive endpoint, only for lazy (non-genesis) runs of single blocks.
+;;;; Run: eita replay --chain ethereum|hoodi --blocks DIR --from N --to M   (full state from genesis)
+;;;; ETH_CACHE_DIR = the chunk directory (default lean/external/eth-cache/, …/hoodi-cache/);
+;;;; ETH_RPC_URL = an endpoint, for lazy runs and a deployment's block source (Hoodi: default
+;;;; the public rpc.hoodi.ethpandaops.io).
 
 (in-package #:eita.chain.ethereum)
 
@@ -23,15 +26,16 @@
 (defconstant +dao-fork-block+ 1920000)
 (defconstant +dao-recovery+ #xbf4ed7b27f1d666546e30d74d50d173d20bca754)
 
-(defun ethereum-block-setup (n blk ts)
-  "The fork of block N from the Lean schedule (by number to the Merge, by timestamp after);
-   the native dispatch follows it."
-  (declare (ignore blk))
-  (let ((ord (spec-mainnet-fork-ord n ts)))
-    (unless (= ord *fork-ord*)
-      (format t "~&block ~D: fork ord ~D -> ~D~%" n *fork-ord* ord)
-      (setf *fork-ord* ord)
-      (%set-fork ord))))
+(defun ethereum-block-setup (fork-ord)
+  "The block-setup hook of a network whose Lean schedule is FORK-ORD (n ts) -> ord: the
+   fork of each block from it; the native dispatch follows it."
+  (lambda (n blk ts)
+    (declare (ignore blk))
+    (let ((ord (funcall fork-ord n ts)))
+      (unless (= ord *fork-ord*)
+        (format t "~&block ~D: fork ord ~D -> ~D~%" n *fork-ord* ord)
+        (setf *fork-ord* ord)
+        (%set-fork ord)))))
 
 (defparameter *dao-accounts*
   (with-open-file (in (source-file "chains/ethereum/dao-accounts.sexp"))
@@ -91,34 +95,45 @@
         (when *full-state*
           (error "block ~D header fails validate_header (~A) — our header rule is wrong from here" n bad))))))
 
-(defun ethereum-pre-block-hook! (world n blk coinbase block-ctx)
-  (when (< *fork-ord* +fork-ord-byzantium+)
-    ;; Pre-Byzantium receipts carry the post-tx state root, which needs a trie root
-    ;; after every tx; the bloom and the gas still check the block.
-    (setf *receipts-unverifiable* t))
-  (ethereum-header-gate! n blk)
-  (when (= n +dao-fork-block+)
-    (observe-tx-begin!)
-    (apply-dao-fork! world)
-    (observe-tx-end! n +preblock-tx+ t))
-  (ethereum-pre-block! world n blk coinbase block-ctx))
+(defun ethereum-pre-block-hook (dao-block)
+  "The pre-block hook of a network whose DAO irregular state change is at DAO-BLOCK (NIL:
+   it has none)."
+  (lambda (world n blk coinbase block-ctx)
+    (when (< *fork-ord* +fork-ord-byzantium+)
+      ;; Pre-Byzantium receipts carry the post-tx state root, which needs a trie root
+      ;; after every tx; the bloom and the gas still check the block.
+      (setf *receipts-unverifiable* t))
+    (ethereum-header-gate! n blk)
+    (when (eql n dao-block)
+      (observe-tx-begin!)
+      (apply-dao-fork! world)
+      (observe-tx-end! n +preblock-tx+ t))
+    (ethereum-pre-block! world n blk coinbase block-ctx)))
 
-(defun ethereum-chain-spec ()
-  (make-chain-spec
-   :name "Ethereum mainnet" :id 1
-   :genesis-path "chains/ethereum/genesis.json"
-   :banner "fork by block to the Merge, by timestamp after (Evm.Forks.ofBlock)"
-   :rpc-url (sb-ext:posix-getenv "ETH_RPC_URL")
-   :cache-dir (pathname (let ((d (sb-ext:posix-getenv "ETH_CACHE_DIR")))
-                          (if (and d (plusp (length d)))
-                              (if (char= (char d (1- (length d))) #\/) d (concatenate 'string d "/"))
-                              "lean/external/eth-cache/")))
-   :block-setup #'ethereum-block-setup
-   :pre-block #'ethereum-pre-block-hook!))     ; post-block: the Ethereum default
+(defun ethereum-chain-spec (&optional (net "mainnet"))
+  "Mainnet, or the Hoodi testnet: mainnet's rules with its own chain id, genesis and Lean fork
+   schedule, and no DAO block. ETH_RPC_URL and ETH_CACHE_DIR are the installed network's."
+  (let ((hoodi (string= net "hoodi")))
+    (assert (or hoodi (string= net "mainnet")) () "unknown Ethereum network ~S (mainnet, hoodi)" net)
+    (make-chain-spec
+     :name (if hoodi "Ethereum Hoodi" "Ethereum mainnet") :id (if hoodi 560048 1)
+     :genesis-path (if hoodi "chains/hoodi/genesis.json" "chains/ethereum/genesis.json")
+     :banner (if hoodi "Cancun from genesis, then by timestamp (Evm.Fork.ofHoodi)"
+                 "fork by block to the Merge, by timestamp after (Evm.Forks.ofBlock)")
+     :rpc-url (or (sb-ext:posix-getenv "ETH_RPC_URL") (and hoodi "https://rpc.hoodi.ethpandaops.io"))
+     :cache-dir (pathname (let ((d (sb-ext:posix-getenv "ETH_CACHE_DIR")))
+                            (cond ((and d (plusp (length d)))
+                                   (if (char= (char d (1- (length d))) #\/) d (concatenate 'string d "/")))
+                                  (hoodi "lean/external/hoodi-cache/")
+                                  (t "lean/external/eth-cache/"))))
+     :block-setup (ethereum-block-setup (if hoodi (lambda (n ts) (declare (ignore n)) (spec-hoodi-fork-ord ts))
+                                            #'spec-mainnet-fork-ord))
+     :pre-block (ethereum-pre-block-hook (unless hoodi +dao-fork-block+)))))   ; post-block: the Ethereum default
 
 (register-chain-spec "ethereum" #'ethereum-chain-spec)
+(register-chain-spec "hoodi" (lambda () (ethereum-chain-spec "hoodi")))
 
-(defun main-ethereum (args)
-  (install-chain-spec! (ethereum-chain-spec))
+(defun main-ethereum (args &optional (net "mainnet"))
+  (install-chain-spec! (ethereum-chain-spec net))
   (replay-main args))
 

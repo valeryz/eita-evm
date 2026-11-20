@@ -35,6 +35,7 @@
 'Evm.CL.HeaderEmit.headerViolation_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.Flags.charge_is_spec' depends on axioms: [propext]
 'Evm.CL.ForkEmit.mainnetForkOrd_eq_spec' depends on axioms: [propext]
+'Evm.CL.ForkEmit.hoodiForkOrd_eq_spec' depends on axioms: [propext]
 'Evm.CL.BlobEnv.blobbasefee_is_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.BlobEnv.blobhash_is_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.CL.HostEmit.createCollision_eq_spec' does not depend on any axioms

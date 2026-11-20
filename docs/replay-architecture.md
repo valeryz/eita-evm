@@ -21,8 +21,9 @@ extension points.
 
 Chain modules (system `eita/chains`): `src/chains/arc.lisp` + `arc-precompiles.lisp` (Arc:
 `arc-mainnet`, `arc-testnet`), `src/chains/op.lisp` (OP-Stack: `base`, `opt`, `world`),
-`src/chains/ethereum.lisp` (Ethereum, every fork; blocks, receipts and uncles as JSON-RPC
-results from the block source).
+`src/chains/ethereum.lisp` (Ethereum, every fork: mainnet `ethereum` and the Hoodi testnet
+`hoodi`, which differ only in data — chain id, genesis, the Lean fork schedule, the DAO block;
+blocks, receipts and uncles as JSON-RPC results from the block source).
 
 Where blocks come from is not part of this repository's execution path: a block source
 (`make-block-source` in `src/input/source.lisp`) supplies them. The shipped source reads files

@@ -79,7 +79,7 @@
            #:spec-arc-transfer-log-gas #:spec-arc-write-gas #:spec-arc-write-probe-gas
            #:spec-block-credits #:spec-calldata-floor-gas #:spec-coinbase-fee-effect
            #:spec-destroy-effect #:spec-flz-compress-len #:spec-header-violation
-           #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
+           #:spec-hoodi-fork-ord #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
            #:spec-op-deposit-fails #:spec-op-eth-analog-ord #:spec-op-l1-fee
            #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
@@ -188,7 +188,7 @@
            #:verify-block-header))
 
 (defpackage #:eita.chain.ethereum
-  (:documentation "Ethereum mainnet on the generic driver.")
+  (:documentation "Ethereum (mainnet, Hoodi) on the generic driver.")
   (:use #:cl #:cffi #:eita.native #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.chain.arc

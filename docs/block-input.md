@@ -89,6 +89,8 @@ state is `<PREFIX>_FROM_GENESIS`.
 - Without full state, a run needs a block source that also serves state (lazy state: each
   account and slot loaded on first touch at the block before the range). The file source
   serves blocks only, so it refuses lazy runs.
+- The Hoodi testnet runs as `--chain hoodi` (mainnet's rules, Hoodi's id, genesis
+  `chains/hoodi/genesis.json` from eth-clients/hoodi, and fork schedule `Evm.Fork.ofHoodi`).
 - The other chains run the same way: `--chain arc-mainnet` / `arc-testnet`
   (`src/chains/arc.lisp`; the chain's `genesis.json` via `--genesis`), `--chain base` /
   `opt` / `world` (`src/chains/op.lisp`, OP Stack: `--genesis FILE` runs them from the
