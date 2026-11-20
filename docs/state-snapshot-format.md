@@ -128,11 +128,11 @@ each big bucket), aiming at 64–128 records per bucket, 4 bytes per bucket. At
 4.9M (21.9M accounts, 35.8M slots) it is 5.7 MB and builds in 0.8 s from the
 page cache; at 150M / 550M about 80 MB and 11 s. The replay opens a compacted
 base on the compactor thread, so the build never runs on the replay thread
-after resume; the root checker builds one for its base only under layers (a
-plain base check only scans). Measured on the replay's own lookups at 4.9M:
-accounts 0.92 → 0.49 µs, slots 1.04 → 0.57 µs, a slot run's start 2.5 →
-0.95 µs. The cost left is the cold record's page: one miss, where the window
-search took about ten.
+after resume; the root checker builds them for its layers only (it scans the
+base: a layered address takes the base records the scan is at). Measured on
+the replay's own lookups at 4.9M: accounts 0.92 → 0.49 µs, slots 1.04 →
+0.57 µs, a slot run's start 2.5 → 0.95 µs. The cost left is the cold record's page:
+one miss, where the window search took about ten.
 
 ## Semantics (the part that must match the trie)
 

@@ -513,15 +513,20 @@
     (declare (type fixnum i))
     (and (< i count) (zerop (cmp-key key (mapping-sap m) (+ +header+ (* i recsize)) klen)) i)))
 
+(defun acct-index (s addr)
+  "Index of ADDR's account record in S, or NIL."
+  (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec+ (int->octets addr 20) 20))
+
+(defun acct-fields (s i)
+  "(nonce balance codehash exists-empty) of account record I of S."
+  (let ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec+))))
+    (list (sap-be sap (+ off 24) 8) (sap-be sap (+ off 32) 32) (sap-be sap (+ off 64) 32)
+          (logtest +flag-exists-empty+ (sap-be sap (+ off 20) 4)))))
+
 (defun snap-account (s addr)
   "(values found nonce balance codehash exists-empty) for ADDR (an integer)."
-  (let ((i (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec+
-                        (int->octets addr 20) 20)))
-    (if (null i)
-        (values nil 0 0 +empty-code-hash+ nil)
-        (let ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec+))))
-          (values t (sap-be sap (+ off 24) 8) (sap-be sap (+ off 32) 32) (sap-be sap (+ off 64) 32)
-                  (logtest +flag-exists-empty+ (sap-be sap (+ off 20) 4)))))))
+  (let ((i (acct-index s addr)))
+    (if i (values-list (cons t (acct-fields s i))) (values nil 0 0 +empty-code-hash+ nil))))
 
 (defun slot-key (addr slot)
   (let ((k (make-array 52 :element-type '(unsigned-byte 8))))
@@ -536,11 +541,6 @@
 (defun first-slot-of (s addr)
   "Index of the first storage record of ADDR (or where it would be)."
   (lower-bound (snap-slot-map s) (snap-slot-fence s) (snap-n-slots s) +slot-rec+ (slot-key addr 0) 52))
-
-(defun snap-has-storage-p (s addr)
-  (let ((i (first-slot-of s addr)))
-    (and (< i (snap-n-slots s))
-         (zerop (cmp-key (int->octets addr 20) (mapping-sap (snap-slot-map s)) (+ +header+ (* i +slot-rec+)) 20)))))
 
 (defun snap-code (s codehash)
   "The code (a fresh octet vector) whose keccak is CODEHASH, or NIL."
@@ -827,13 +827,14 @@
     (loop while (and (< j n) (zerop (cmp-key key sap (+ +header+ (* j +slot-rec+)) 20))) do (incf j))
     (values i j)))
 
-(defun compose-address (layers base addr out &key final)
+(defun compose-address (layers base addr out &key final base-at)
   "Lean `composeAll` (FINAL NIL) or `apply` over BASE (FINAL true) at ADDR, on raw
    records. LAYERS: layer snaps, newest first; BASE: a base snap or NIL. Writes ADDR's
    slot records (ascending; zeros kept unless FINAL) into the obuf OUT and returns
    (values fields wiped): FIELDS (nonce balance codehash mark) from the newest layer that
    mentions ADDR, else (FINAL) BASE's record, else NIL; WIPED: some layer removed the
-   storage below it (BASE's slots are then not read)."
+   storage below it (BASE's slots are then not read). BASE-AT (I SI SJ): BASE's account
+   record I (NIL: none) and slots SI..SJ-1 at ADDR, from a scan (the root check: no fence)."
   (setf (obuf-count out) 0)
   (let ((runs '()) (fields nil) (wiped nil))
     (dolist (l layers)
@@ -844,12 +845,12 @@
             (when (< i j) (setf runs (nconc runs (list (vector (mapping-sap (snap-slot-map l)) i j))))))
           (when w (setf wiped t) (return)))))
     (when (and final base)
-      (unless fields
-        (multiple-value-bind (found nonce balance codehash flag) (snap-account base addr)
-          (when found (setf fields (list nonce balance codehash flag)))))
-      (unless wiped
-        (multiple-value-bind (i j) (slot-run base addr)
-          (when (< i j) (setf runs (nconc runs (list (vector (mapping-sap (snap-slot-map base)) i j))))))))
+      (destructuring-bind (i si sj)
+          (or base-at (list* (and (not fields) (acct-index base addr))
+                             (if wiped (list 0 0) (multiple-value-list (slot-run base addr)))))
+        (when (and i (not fields)) (setf fields (acct-fields base i)))
+        (when (and (not wiped) (< si sj))
+          (setf runs (nconc runs (list (vector (mapping-sap (snap-slot-map base)) si sj)))))))
     ;; RUNS: newest first, BASE last; on equal keys the first (newest) run wins
     (let* ((runs (coerce runs 'simple-vector)) (k (length runs)))
       (loop

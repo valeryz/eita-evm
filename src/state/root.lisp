@@ -647,22 +647,21 @@
   (setf (worker-big w) (max (worker-big w) (- sj si)))
   (incf (worker-slots w) (- sj si)))
 
-(defun layered-record (w recs r layers s addr &optional (si 0) (base-count 0))
+(defun layered-record (w recs r layers s addr ai si base-count)
   "Bucket record R for ADDR from the stack (Lean `view` at ADDR), or NIL when S1 leaves
-   the address out of the state. Unlike a base account, whose slots are read in place,
-   ADDR's slots are composed into the worker's buffer (88 B a slot), and a large buffer is
-   dropped after use (at 11.5M, with ten threads each keeping its largest copy, 16 GB ran
-   out). Over a giant base storage (BASE-COUNT > *BIG* slots from SI) only the layers are
-   composed, tombstones kept, and GIANT-ROOT lays them over the base's slots in place —
-   unless a layer wiped the storage, when the base's slots are not part of it."
+   the address out of the state. The scan of S is at ADDR: base account AI (NIL: none),
+   BASE-COUNT slots from SI (S has no fence). ADDR's slots are composed into the worker's
+   buffer (88 B a slot), a large one dropped after use (at 11.5M, ten threads each keeping
+   its largest copy ran out of 16 GB). Over a giant base storage (BASE-COUNT > *BIG*) only
+   the layers are composed, tombstones kept, and GIANT-ROOT lays them over the base's
+   slots in place — unless a layer wiped the storage: then the base's slots are not in it."
   (let ((out (worker-obuf w)) (giant (> base-count *big*)) (fields nil) (root nil) (count 0))
     (multiple-value-bind (lfields wiped) (and giant (eita.state.snapshot:compose-address layers nil addr out))
       (if (or wiped (not giant))
           (progn
-            (setf fields (eita.state.snapshot:compose-address layers s addr out :final t))
+            (setf fields (eita.state.snapshot:compose-address layers s addr out :final t :base-at (list ai si (+ si base-count))))
             (multiple-value-setq (root count) (storage-root w (eita.state.snapshot:obuf-sap out) 0 (eita.state.snapshot:obuf-count out))))
-          (multiple-value-bind (found nonce balance codehash flag) (eita.state.snapshot:snap-account s addr)
-            (setf fields (or lfields (and found (list nonce balance codehash flag))))
+          (progn (setf fields (or lfields (eita.state.snapshot:acct-fields s ai)))
             (multiple-value-setq (root count)
               (storage-root w (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-slot-map s)) si base-count
                             (eita.state.snapshot:obuf-sap out) (eita.state.snapshot:obuf-count out))))))
@@ -723,18 +722,18 @@
           (let* ((aoff (+ +header+ (* (+ a0 k) +acct+)))
                  (base-key (eita.state.snapshot:sap-be asap aoff 20)))
             ;; layered addresses below this base account come first
-            (loop while (and touched (< (first touched) base-key))
-                  do (when (layered-record w recs r layers s (pop touched)) (incf r)))
+            (loop while (and touched (< (first touched) base-key))   ; not in the base: no slots there (S5)
+                  do (when (layered-record w recs r layers s (pop touched) nil si 0) (incf r)))
             (let ((sj (slots-end aoff)))
               (if (and touched (= (first touched) base-key))
-                  (when (layered-record w recs r layers s (pop touched) si (- sj si)) (incf r))
+                  (when (layered-record w recs r layers s (pop touched) (+ a0 k) si (- sj si)) (incf r))
                   (progn
                     (replace recs (worker-bkeys w) :start1 (* r +rec+) :start2 (* 32 k) :end2 (* 32 (1+ k)))
                     (base-record w recs r asap aoff ssap si sj)
                     (incf r)))
               (setf si sj))))
         (dolist (addr touched)
-          (when (layered-record w recs r layers s addr) (incf r)))
+          (when (layered-record w recs r layers s addr nil si 0) (incf r)))
         (unless (= si s1)
           (error "~A: ~D storage records belong to no account (S5)" (eita.state.snapshot:snap-dir s) (- s1 si))))
       r)))
@@ -800,7 +799,7 @@
    LAYERS (layer directories, oldest first) for the state of that stack over it (Lean
    `view`): no merged snapshot is written. BUCKETS: the bucket count to use instead of
    the one the state size picks (tests)."
-  (let* ((s (eita.state.snapshot:snap-open dir :fence (and layers :scan)))  ; point lookups only under layers
+  (let* ((s (eita.state.snapshot:snap-open dir :fence nil))   ; scanned, never looked up: see LAYERED-RECORD
          (ls (reverse (mapcar (lambda (l) (eita.state.snapshot:snap-open l :fence :scan)) layers)))   ; newest first
          (top (or (first ls) s))
          (na (+ (eita.state.snapshot:snap-n-accounts s) (reduce #'+ ls :key #'eita.state.snapshot:snap-n-accounts)))
