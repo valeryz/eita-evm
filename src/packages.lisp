@@ -115,14 +115,14 @@
   (:documentation "Binary snapshots and delta layers (docs/state-snapshot-format.md, docs/layered-snapshots.md).")
   (:use #:cl)
   (:export
-           #:*foreign-layer* #:+empty-code-hash+ #:advise-sequential #:component-of #:component-path
-           #:compose-address #:composition-string #:hardware-threads #:int->octets
+           #:*foreign-layer* #:+empty-code-hash+ #:acct-fields #:advise-sequential #:component-of
+           #:component-path #:compose-address #:composition-string #:hardware-threads #:int->octets
            #:layer-account #:layer-map-slots #:layer-path #:layer-slot #:layer-tmp-path
            #:lookup-account #:make-merge #:make-obuf #:map-touched-addresses #:mapping-sap
            #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap #:octets->int
            #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be #:snap
            #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
-           #:snap-dir #:snap-has-storage-p #:snap-kind-p #:snap-layer-p #:snap-manifest
+           #:snap-dir #:snap-kind-p #:snap-layer-p #:snap-manifest
            #:snap-map-account-storage #:snap-map-accounts #:snap-map-codes #:snap-map-storage
            #:snap-n-accounts #:snap-n-codes #:snap-n-slots #:snap-open #:snap-p #:snap-parent
            #:snap-path #:snap-publish #:snap-sealed-p #:snap-slot #:snap-slot-map

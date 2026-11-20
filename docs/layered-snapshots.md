@@ -101,14 +101,14 @@ raw records — a k-way merge of their slot runs, newest wins, stopping at a wip
 minor compaction (zeros kept), major compaction and the layered root check (state: zeros
 dropped, S1 applied by the merge writer, `merge-account :raw-slots`).
 
-The root check (`state/root.lisp <base> <layer>...`) keeps its streaming structure:
-chunks of 4,096 base accounts in parallel; each chunk's address range picks up the layer
-addresses in it (`map-touched-addresses`), and an address any layer mentions is composed
-over the base before its storage root is built — except a giant base storage (over 1M
-slots): only its layers are composed (tombstones kept), and `giant-root` lays them over the
-base's records in place while it builds that storage's trie with every thread (split by the
-hashed keys' top byte; 6 B per slot off the heap). Measured at 4.9M (22M accounts, 36M slots,
-up to 13 layers): 18.3–20.5 s, the plain check of the same state 18.7–21.6 s.
+The root check (`state/root.lisp <base> <layer>...`) keeps its streaming structure: chunks of
+4,096 base accounts in parallel; each chunk's address range picks up the layer addresses in it
+(`map-touched-addresses`), and an address any layer mentions is composed over the base records
+the scan is at (`:base-at`: a merge-join; the base, unfenced, is read once) — except a giant
+base storage (over 1M slots): only its layers are composed (tombstones kept), and `giant-root`
+lays them over the base's records in place while it builds that storage's trie with every
+thread (split by the hashed keys' top byte; 6 B a slot off the heap). At 4.9M (22M accounts,
+36M slots, ≤ 13 layers): 18.3–20.5 s, the plain check of the same state 18.7–21.6 s.
 
 ## 4. Invariants
 
