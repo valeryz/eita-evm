@@ -79,14 +79,16 @@
            #:spec-arc-transfer-log-gas #:spec-arc-write-gas #:spec-arc-write-probe-gas
            #:spec-block-credits #:spec-calldata-floor-gas #:spec-coinbase-fee-effect
            #:spec-destroy-effect #:spec-flz-compress-len #:spec-header-violation
+           #:spec-blob-base-fee-update-fraction #:spec-blob-schedule-max #:spec-blob-schedule-target
            #:spec-hoodi-fork-ord #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
+           #:spec-times-fork-ord
            #:spec-op-deposit-fails #:spec-op-eth-analog-ord #:spec-op-l1-fee
            #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
            #:stream-finalize! #:stream-rollback! #:touch! #:tx #:tx-access-list #:tx-auth-count
            #:tx-auth-list #:tx-blob-hashes #:tx-chain-id #:tx-data #:tx-gas-limit
            #:tx-gas-price #:tx-max-blob-fee #:tx-max-fee #:tx-max-priority #:tx-mint #:tx-nonce
-           #:tx-r #:tx-s #:tx-sender #:tx-source-hash #:tx-system-p #:tx-to #:tx-type #:tx-v
+           #:tx-r #:tx-s #:tx-sender #:tx-sender-recovered #:tx-source-hash #:tx-system-p #:tx-to #:tx-type #:tx-v
            #:tx-value #:verdict #:verifier-note! #:world-account-present-p))
 
 (defpackage #:eita.state
@@ -183,12 +185,12 @@
            #:*recent-headers* #:+postblock-tx+ #:+preblock-tx+ #:block-credit! #:block-ommers
            #:chain-spec-reorg-depth #:eip2935-store-parent-hash! #:ethereum-pre-block!
            #:find-chain-spec #:header-record #:header-violation #:install-chain-spec!
-           #:make-chain-spec #:receipts-block-begin! #:receipts-push! #:recover-tx-sender
+           #:make-chain-spec #:receipts-block-begin! #:receipts-push! #:recover-senders! #:recover-tx-sender
            #:register-chain-spec #:replay-main #:run-post-block! #:run-pre-block! #:system-call
            #:verify-block-header))
 
 (defpackage #:eita.chain.ethereum
-  (:documentation "Ethereum (mainnet, Hoodi) on the generic driver.")
+  (:documentation "Ethereum (mainnet, Hoodi, a devnet) on the generic driver.")
   (:use #:cl #:cffi #:eita.native #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.chain.arc
@@ -231,6 +233,14 @@
    #:make-block-source #:directory-block-source #:*block-source*
    #:*observer* #:make-observer #:attach-subscriber!
    #:make-chain-spec #:install-chain-spec! #:register-chain-spec #:find-chain-spec))
+
+(defpackage #:eita.engine
+  (:documentation "`eita engine`: the Engine API's engine thread and the local socket the edge
+   (rust/engine-api) forwards a consensus client's calls over — a block source
+   (src/engine/engine.lisp). It uses only CL: every engine name it reaches is written with
+   its package.")
+  (:use #:cl)
+  (:export #:run #:engine-block-source))
 
 (defpackage #:eita.cli
   (:documentation "bin/eita: the command line (src/cli.lisp).")

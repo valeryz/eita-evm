@@ -31,10 +31,12 @@ two execution tiers. Load it into a Lisp REPL and you can execute transactions a
 world you build, or against a test's pre-state, and inspect balances, storage, logs and the
 state root.
 
-**What it is not (yet).** Eita has no p2p networking and no Engine API: it does not sync
-from peers or follow a consensus client. Blocks come from you, through a documented
-block-source interface (`docs/block-input.md`); this repository ships a reader for
-per-block JSON files you produce with your own node or tools.
+**What it is not (yet).** Eita has no p2p networking: it does not sync from peers. Blocks
+come from you, through a documented block-source interface (`docs/block-input.md`; this
+repository ships a reader for per-block JSON files you produce with your own node or tools),
+or from a consensus client over the Engine API: `bin/eita engine` validates each new block
+the client sends and answers VALID or INVALID (`docs/run-a-node.md`; validate-only, Prague
+and Osaka).
 
 ## See it running: [eita.run](https://eita.run)
 
@@ -226,6 +228,7 @@ bin/eita fixtures <BlockchainTests file or directory>...   # docs/testing.md
 EITA_NO_JIT=1 bin/eita fixtures <...>                      # interpreter tier
 scripts/verify-host-emit.sh                                # generated code == emitters
 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   # docs/block-input.md
+bin/eita engine --chain hoodi --state DIR --jwt FILE            # docs/run-a-node.md
 ```
 
 Eita replays blocks you supply as files — the JSON-RPC block objects your own node returns —
@@ -253,15 +256,15 @@ interface, documented there.
 | `src/input/` | block decoding and the block-source seam |
 | `src/chains/` | the block pipeline (system calls, receipts and header gates), the chain-spec record, the driver; Ethereum, Arc, OP Stack |
 | `src/fixtures/` | the BlockchainTests runner (`scripts/run-battery.sh` runs a tree) |
+| `src/engine/`, `rust/engine-api/` | the Engine API: the engine thread (`bin/eita engine`) and its HTTP/JWT edge (`bin/eita-engine-api`) |
 | `src/eita.lisp`, `src/cli.lisp` | the API package `eita`; `bin/eita` |
 | `tests/` | the test suites of `(asdf:test-system "eita")` |
 | `docs/` | design notes: start with `replay-architecture.md`, `effect-layer-derivation.md`, `x86-64-backend.md` |
 
 ## Roadmap
 
-- **An Engine API block source**: `engine_newPayload` / `engine_forkchoiceUpdated` from a
-  consensus client, plugged into the same block-source interface — the natural public path
-  from a verifying replayer to a full execution client.
+- **The Engine API beyond validate-only**: sync to the CL's head, reorgs, an incremental
+  state root per block — from a verifying replayer to a full execution client.
 - The proof obligations listed in `scripts/generated/refinement-coverage.md`, down to zero.
 - The x86-64 JIT's proofs at parity with ARM64: the chunk's head charge, op sites,
   terminators and trampolines under the x86-64 semantics (the handlers, gas routines and

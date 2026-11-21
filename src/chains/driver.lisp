@@ -108,7 +108,10 @@
    Bedrock, Arc), else mixHash."
   (if (and (< fork-ord 14) (plusp (blk-difficulty blk))) (blk-difficulty blk) (blk-mix-hash blk)))
 
-(defun run-block (world n)
+(defun run-block (world n &key (layer-point t))
+  "Run block N on WORLD. LAYER-POINT NIL: no layer point at its end (no freeze, no root-check
+   poll) — a caller that freezes only a block it judged (the Engine API: after the header
+   verdict) does both itself."
   (let* ((blk (fetch-verified-block n))
          (ts (blk-timestamp blk))
          (coinbase (blk-miner blk))
@@ -220,7 +223,7 @@
       (setf (gethash n *block-hashes*) (blk-hash blk))
       ;; Layer points: freeze the hot set (no pause; written in the background). An anchor's
       ;; root check is queued; at the tip every block is a layer (a reorg drops layers).
-      (when *full-state*
+      (when (and *full-state* layer-point)
         (let ((anchor (anchor-due-p n)))
           (when (or anchor *tip-freeze* (layer-due-p n) (hot-over-budget-p n))
             (anchor! world n (blk-state-root blk) :anchor anchor)))

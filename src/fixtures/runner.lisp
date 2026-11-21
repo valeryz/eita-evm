@@ -46,7 +46,11 @@
    the withdrawals; the ommer headers (they pay the block rewards) as its uncles."
   (let ((blk (decode-block-json (rpc-header (jval json "blockHeader") (cons "transactions" (jval json "transactions"))
                                             (cons "withdrawals" (jval json "withdrawals"))))))
-    (dolist (tx (blk-txs blk)) (unless (tx-sender tx) (setf (tx-sender tx) (or (recover-tx-sender tx) 0))))
+    (let ((txs (remove-if #'tx-sender (blk-txs blk))))     ; the ones without a "sender"
+      ;; one stops at a signature that does not recover: the rest one by one; such a tx
+      ;; runs as sender 0, and the verifier refuses the block
+      (when (recover-senders! txs)
+        (dolist (tx txs) (unless (or (tx-sender tx) (null (recover-senders! (list tx)))) (setf (tx-sender tx) 0)))))
     (setf (blk-uncles blk) (mapcar (lambda (u) (decode-block-json (rpc-header u))) (jval json "uncleHeaders"))
           (blk-uncle-count blk) (length (blk-uncles blk)))
     blk))

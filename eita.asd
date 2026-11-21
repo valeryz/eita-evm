@@ -7,11 +7,12 @@
 ;;;;   eita/chains     Ethereum, Arc, the OP-Stack chains, and EITA:REPLAY
 ;;;;   eita/fixtures   the BlockchainTests runner
 ;;;;   eita/mpt-live   the incremental state-root validator (kept, not armed: chains/driver.lisp)
-;;;;   eita/cli        bin/eita (asdf:make "eita/cli")
+;;;;   eita/cli        bin/eita (asdf:make "eita/cli"), with the Engine API (`eita engine`)
 ;;;;   eita/test       (asdf:test-system "eita"): the Lisp test suites and oracles (tests/)
 ;;;;
-;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the emitJIT daemon) are built by
-;;;; build.sh and found at RUN time (src/native/libraries.lisp), never baked into a fasl.
+;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the emitJIT daemon, the Engine API
+;;;; edge) are built by build.sh and found at RUN time (src/native/libraries.lisp), never baked
+;;;; into a fasl.
 ;;;; Dependencies come from ocicl (ocicl.csv pins them); build.sh shows how to load them.
 
 (defsystem "eita"
@@ -98,9 +99,11 @@
   :components ((:file "mpt-live")))
 
 (defsystem "eita/cli"
-  :description "bin/eita: replay, fixtures, repl, check-root, recovery, version."
+  :description "bin/eita: replay, engine, fixtures, repl, check-root, recovery, version."
   :depends-on ("eita" "eita/chains" "eita/fixtures")
-  :components ((:file "src/cli"))
+  :serial t
+  :components ((:file "src/engine/engine")     ; the Engine API (rust/engine-api is its edge)
+               (:file "src/cli"))
   :build-operation "program-op"
   :build-pathname "bin/eita"
   :entry-point "eita.cli:main")
@@ -108,8 +111,9 @@
 (defsystem "eita/test"
   :description "The test suites (tests/harness.lisp): native handlers, gas, the MPT oracles,
    snapshots and layers, recovery, the Lean vector audits, the Arc PQ precompile, a
-   BlockchainTests sample on both tiers, optionally the Lean gates."
-  :depends-on ("eita" "eita/chains" "eita/fixtures")
+   BlockchainTests sample on both tiers, the Engine API's genesis and fork window, optionally
+   the Lean gates."
+  :depends-on ("eita" "eita/chains" "eita/fixtures" "eita/cli")
   :pathname "tests/"
   :components ((:file "harness"))
   :perform (test-op (o c) (unless (uiop:symbol-call :eita.test :run-all)

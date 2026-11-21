@@ -73,6 +73,9 @@ jobs:
       - name: Build (Lean emitters, generated code, libeita, bin/eita)
         run: ./build.sh
 
+      - name: The Engine API edge's tests (rust/engine-api)
+        run: cd rust/engine-api && cargo test --quiet
+
       - name: The whole Lean spec and its proofs
         run: cd lean && lake build
 

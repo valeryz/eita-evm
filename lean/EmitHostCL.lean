@@ -37,7 +37,7 @@ open Evm.CL.GasEmit (Expr sha256Gas ripemd160Gas identityGas ecrecoverGas p256ve
   bn256AddGas bn256MulGas bn256PairingGas intrinsicGas codeDepositGas createGas createInitcodeOversize
   selfdestructRefund refundCap retain63of64 newAccountFee blockBaseReward
   uncleInclusionBonus uncleReward effectiveGasPrice priorityFee calldataFloorGas txGasUsed selfdestructColdGas delegateAccessGas
-  fakeExponentialCL blobBaseFee maxBlobGasPerBlock txMaxGasLimit
+  fakeExponentialCL blobBaseFee maxBlobGasPerBlock blobScheduleTarget blobScheduleMax blobBaseFeeUpdateFraction txMaxGasLimit
   blsG1AddGas blsG2AddGas blsMapFpToG1Gas blsMapFp2ToG2Gas blsPairingGas
   blsG1MsmBase blsG2MsmBase blsG1MsmDiscounts blsG2MsmDiscounts
   blsG1MsmMaxDiscount blsG2MsmMaxDiscount)
@@ -177,6 +177,10 @@ def main : IO Unit := do
     -- BPO2; Evm.CL.GasEmitCancun proves it Evm.Osaka.Spec.calculateBlobGasPriceAt)
     , ("spec-blob-base-fee",     "(excess-blob-gas fork-ord)",      blobBaseFee)
     , ("spec-max-blob-gas-per-block", "(fork-ord)",                 maxBlobGasPerBlock)   -- blobGasUsed cap
+    -- the schedule entry itself (a devnet's genesis.json blobSchedule is checked against it)
+    , ("spec-blob-schedule-target", "(fork-ord)",                   blobScheduleTarget)
+    , ("spec-blob-schedule-max",    "(fork-ord)",                   blobScheduleMax)
+    , ("spec-blob-base-fee-update-fraction", "(fork-ord)",          blobBaseFeeUpdateFraction)
     , ("spec-tx-max-gas-limit",  "()",                              txMaxGasLimit)        -- EIP-7825 (Osaka+)
     -- EELS validate_header against the parent header, every fork: the code of the first
     -- clause that raises, 0 = valid (Evm.CL.HeaderEmit.headerViolation_eq_spec; the base fee
@@ -188,6 +192,8 @@ def main : IO Unit := do
     , ("spec-mainnet-fork-ord",  "(n ts)",                        Evm.CL.ForkEmit.mainnetForkOrd)
     -- Hoodi testnet fork schedule (Evm.Forks.ofHoodi; proved in Evm.CL.ForkEmit)
     , ("spec-hoodi-fork-ord",    "(ts)",                          Evm.CL.ForkEmit.hoodiForkOrd)
+    -- a devnet's: Cancun, then its genesis.json times (Evm.Fork.ofTimes; proved in Evm.CL.ForkEmit)
+    , ("spec-times-fork-ord",    "(ts prague osaka bpo1 bpo2)",   Evm.CL.ForkEmit.timesForkOrd)
     -- Circle Arc native-USDC precompiles (Evm.Arc.Spec.NativeCoin; arc-nodee76402).
     -- Circle Arc post-block compute_gas_values (Evm.Arc.Spec.BlockSystem; proved = the spec)
     , ("spec-arc-smoothed-gas-used", "(gas-used smoothed-parent alpha have-params)", Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr)

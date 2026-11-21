@@ -7,7 +7,9 @@
 ;;;;   identity      name id genesis-path banner rpc-url cache-dir
 ;;;;   tip           reorg-depth (blocks a reorg may undo; 0: final at once)  — snapshot-world.lisp
 ;;;   lazy state    prestate-overlay (pre-block state from debug traces, one fetch per block)
-;;;;   per block     block-setup (fork table, chain hardfork flags)   — chains/driver.lisp
+;;;;   per block     fork-ord (n ts → the fork of a block, when the chain has a schedule: the
+;;;;                 Engine API checks a payload's method version by it) block-setup (fork
+;;;;                 table, chain hardfork flags)                     — chains/driver.lisp
 ;;;;                 pre-block post-block (system calls)              — block-system.lisp
 ;;;;                 system-rule (a system call's warm-up, GASPRICE, end) — block-system.lisp
 ;;;;   per tx        run-tx (non-user tx kinds) tx-prewarm upfront-extra fee — evm/run-tx.lisp
@@ -39,7 +41,7 @@
 (defstruct chain-spec
   (name "Ethereum") (id 1) genesis-path (banner "") rpc-url cache-dir prestate-overlay
   (reorg-depth 64)
-  block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
+  fork-ord block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
   header-foreign observe-kinds
   precompile-p precompile-run frame-init frame-init-log selfdestruct p256verify)
 

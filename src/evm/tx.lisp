@@ -24,7 +24,8 @@
   (type 0) sender to (nonce 0) (gas-limit 0) (gas-price 0) max-fee max-priority (value 0)
   (data #()) access-list blob-hashes max-blob-fee mint (auth-count 0) auth-list
   (hash 0) chain-id v r s source-hash system-p
-  (zero-bytes nil))                     ; #(zero nonzero al-addrs al-keys), counted on first use
+  (zero-bytes nil)                      ; #(zero nonzero al-addrs al-keys), counted on first use
+  (sender-recovered nil))               ; T: SENDER is the signature's (recover-senders!), not input
 
 (defun calldata-byte-counts (tx)
   "Seam: (values zero-bytes nonzero-bytes access-list-addresses access-list-keys) of TX,

@@ -102,6 +102,23 @@ theorem maxBlobGasPerBlock_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord"
   rw [bySchedule_eq ρ f hf 786432 1179648 1966080 2752512
         (fun p => p.max * Evm.Cancun.Spec.gasPerBlob) rfl rfl rfl rfl]
 
+/-- **The emitted schedule entry is the spec's**, field by field: target and max (blobs) and
+    the update fraction of `blobParamsAt f`. -/
+theorem blobScheduleTarget_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobScheduleTarget.eval ρ = (blobParamsAt f).target := by
+  simp only [blobScheduleTarget]
+  rw [bySchedule_eq ρ f hf 3 6 10 14 (fun p => p.target) rfl rfl rfl rfl]
+
+theorem blobScheduleMax_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobScheduleMax.eval ρ = (blobParamsAt f).max := by
+  simp only [blobScheduleMax]
+  rw [bySchedule_eq ρ f hf 6 9 15 21 (fun p => p.max) rfl rfl rfl rfl]
+
+theorem blobBaseFeeUpdateFraction_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobBaseFeeUpdateFraction.eval ρ = (blobParamsAt f).fraction := by
+  simp only [blobBaseFeeUpdateFraction]
+  rw [bySchedule_eq ρ f hf 3338477 5007716 8346193 11684671 (fun p => p.fraction) rfl rfl rfl rfl]
+
 /-- EIP-7825: the emitted cap is `Evm.Osaka.Spec.txMaxGasLimit`. -/
 theorem txMaxGasLimit_eq_spec (ρ : Env) : txMaxGasLimit.eval ρ = Evm.Osaka.Spec.txMaxGasLimit := by
   rfl

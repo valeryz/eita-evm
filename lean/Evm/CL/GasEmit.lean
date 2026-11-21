@@ -437,6 +437,10 @@ def maxBlobGasPerBlock : Expr := bySchedule 786432 1179648 1966080 2752512
     reserve-branch ratio `blob_gas_used · delta // max`. -/
 def blobScheduleMax   : Expr := bySchedule 6 9 15 21
 def blobScheduleDelta : Expr := bySchedule 3 3 5 7
+/-- `BLOB_SCHEDULE_TARGET` (blobs): with `blobScheduleMax` and `blobBaseFeeUpdateFraction`, the
+    entry a network's genesis.json `blobSchedule` must name for the fork (a devnet's, checked
+    in src/chains/ethereum.lisp: the fork ords carry these). -/
+def blobScheduleTarget : Expr := bySchedule 3 6 10 14
 
 /-- `calculate_blob_gas_price(excess) = fake_exponential(MIN_BASE_FEE_PER_BLOB_GAS = 1,
     excess, fraction)`. Inputs: `excess-blob-gas`, `fork-ord`. -/
