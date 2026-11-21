@@ -2,10 +2,9 @@ import Evm.CL.AsmEncode
 /-!
 # Evm.CL.ARM64.JITEmit — the `movz`/`movk` primitive of the byte path.
 
-Once the mechanical `List Item` transcription of the chunk emitter (#235); the
-chunk algebra is now written once as `AInstr` (`JIT.instrOut`, stage 4s) and
-lowered through `AsmItems`, so only the immediate materialiser that `AsmItems`
-itself uses remains here. -/
+The chunk algebra is written once as `AInstr` (`JIT.instrOut`) and lowered
+through `AsmItems`, so only the immediate materialiser that `AsmItems` itself
+uses lives here. -/
 namespace Evm.CL.ARM64.JITEmit
 open Evm.CL.AsmEncode Evm.CL.AsmEncode.Insn Evm.CL.AsmEncode.Item
 

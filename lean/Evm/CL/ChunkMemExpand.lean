@@ -1,8 +1,8 @@
 /-
   Evm.CL.ChunkMemExpand — the chunk's folded memory-expansion charge.
 
-  Stage 1 of #238. `AsmCore.memExpand_charges_eels` proves the PER-OP gadget
-  charges the EELS delta. The JIT does something stronger and so far unproved:
+  `AsmCore.memExpand_charges_eels` proves the PER-OP gadget charges the EELS
+  delta. The JIT does something stronger:
   `ARM64.JIT.memExpandFlushT` charges ONE delta for the whole chunk, from the
   frame's runtime entry memory size to the chunk's maximum touched end, and its
   docstring justifies that with
@@ -16,8 +16,7 @@
   `telescope` below is that claim. `last_end_undercharges` is why the fold has
   to take the MAXIMUM rather than the final end: a chunk whose later op touches
   less memory than an earlier one would be undercharged, and an undercharge
-  moves the sender refund and the coinbase fee, i.e. the state root — the same
-  consequence as #266.
+  moves the sender refund and the coinbase fee, i.e. the state root.
 -/
 
 import Evm.CL.AsmCore

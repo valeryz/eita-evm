@@ -1,9 +1,9 @@
 /-!
 # Evm.CL.AsmEncode — ARM64 instruction IR with `encode` (machine code) + `asm` (text)
 
-The chunk JIT (`Evm.CL.ARM64.JIT`) and the handlers (`Evm.CL.AsmCore`) currently
-emit ARM64 as *strings* that an external `clang` assembles+links. For in-process
-JIT (#235) we need the *bytes* directly. This module is the shared foundation:
+The handlers (`Evm.CL.AsmCore`) are printed as ARM64 *text* that an external
+`clang` assembles for `c/handlers.S`; the in-process JIT needs the *bytes*
+directly. This module is the shared foundation:
 one `Insn` per ARM64 instruction with two interpretations —
 
   * `Insn.encode : Insn → UInt32`  — the fixed 32-bit machine encoding
@@ -95,7 +95,7 @@ inductive Insn where
   /-- `ldr/str xt, [xn, #imm]` (imm in BYTES; scaled by 8) -/
   | ldr    (rt rn : Nat) (imm : Nat)
   | str    (rt rn : Nat) (imm : Nat)
-  -- 32-bit forms (stage 4q: the frame bodies' flag words)
+  -- 32-bit forms (the frame bodies' flag words)
   | ldrW   (rt rn : Nat) (imm : Nat)       -- ldr wt, [xn, #imm]   (imm = 4·k)
   | strW   (rt rn : Nat) (imm : Nat)       -- str wt, [xn, #imm]
   | andMask (rd rn k : Nat)                -- and xd, xn, #(2^k − 1), 1 ≤ k ≤ 63

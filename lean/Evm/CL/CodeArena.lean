@@ -1,15 +1,15 @@
 import Evm.CL.Arena
 
-/-! # CL/CodeArena — bounded executable arena for JIT chunks (#259), proved safe
+/-! # CL/CodeArena — bounded executable arena for JIT chunks, proved safe
 
 The DoS region JITs thousands of unique throwaway contracts; each goes into its
 own `mmap` of executable memory, and on macOS every new executable mapping makes
 dyld re-serialize its whole process-image atlas → an O(n²) storm that is ~70 % of
-the peak batch (#248, measured via #247). The fix is to `mmap` **one** fixed
-RX region and bump/evict chunks within it (ring/LRU): dyld serializes once, the
-storm is gone, and threshold=1 / full all-JIT coverage is preserved.
+the peak batch. So the JIT `mmap`s **one** fixed RX region and bumps/evicts
+chunks within it (ring/LRU): dyld serializes once, and threshold=1 / full
+all-JIT coverage is preserved.
 
-The subtle bug this hides is a lifetime one, the executable twin of
+The subtle hazard is a lifetime one, the executable twin of
 `Evm.CL.Arena`'s escape-safety: when a contract CALLs a not-yet-JIT'd callee, the
 **caller's chunk is on the call stack, executing**. If allocating the callee's
 chunk evicts/overwrites the caller's chunk, the caller crashes on return. So the

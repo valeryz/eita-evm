@@ -1,10 +1,10 @@
 /-
   Evm.CL.X86Handler — a whole handler through the x86-64 pipeline.
 
-  Stage 4 of #238. `AsmCore.Op.toAInstrs` gives MLOAD and MSTORE an `AInstr`
+  `AsmCore.Op.toAInstrs` gives MLOAD and MSTORE an `AInstr`
   body text-identical to the ARM64 one. Lowering that body for x86-64 needs
-  one more thing the per-instruction lowering cannot see: the stage-4d
-  decision that `sp` is a BYTE offset on x86-64. In the ARM64 body `x23` counts
+  one more thing the per-instruction lowering cannot see: the decision that
+  `sp` is a BYTE offset on x86-64. In the ARM64 body `x23` counts
   words, so
 
       sub  x23, x23, #2                 two words popped
@@ -24,7 +24,7 @@
   handler level, between `Op.toAInstrs` and `x86Items`, so the per-instruction
   lowering stays faithful and the refinement decision lives in one place.
 
-  `mstoreX86` wraps the result in the stage-4d frame with `_eita_oog` and
+  `mstoreX86` wraps the result in the byte-offset frame with `_eita_oog` and
   `_eita_stack_underflow` bound to local stubs, and `X86RunVectors` runs it
   under Rosetta against a state, a stack and a memory in the harness array —
   five cases: a plain store, a store that expands memory, an underflow, an
@@ -225,13 +225,12 @@ theorem framed_handlers_lower :
   native_decide
 
 
-/-! ## Register aliasing is safe (stage 5, the first x86-64 Linux divergence)
+/-! ## Register aliasing is safe
 
 The x86-64 register map gives several `Reg`s one home: x1/x15 → rdx,
 x2/x17 → rsi, x3/x4/x16 → rdi. That is sound only while no two of them are
-live at once. The CALL family's gas load (`ldp x15, x16 ; ldp x0, x1`) broke
-it — limb 3 landed on limb 0 — and nothing said so until a sub-frame on x86-64 Linux
-started with gas 0. This check is conservative (mention ranges, not exact
+live at once: in the CALL family's gas load (`ldp x15, x16 ; ldp x0, x1`) limb 3
+would land on limb 0 and every sub-frame start with gas 0. This check is conservative (mention ranges, not exact
 liveness): for every x86-64 body, no two registers with the same home have
 overlapping mention ranges. -/
 

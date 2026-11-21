@@ -1,9 +1,9 @@
 /-
   Evm.CL.DispatchTable — the 256-entry opcode table, checked.
 
-  Stage 1 of #238. With every per-op handler now structured and the gas-bearing
-  gadgets denoted, the remaining hand-written asm in `ARM64.lean` is the
-  threading machinery and this DATA table:
+  Every per-op handler is structured and the gas-bearing gadgets are
+  denoted; besides the threading machinery, `ARM64.lean` emits this DATA
+  table:
 
       _eita_dispatch_table:
           .quad   _eita_handler_<name>     -- 256 of these

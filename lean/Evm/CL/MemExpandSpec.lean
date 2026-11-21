@@ -2,10 +2,10 @@ import Evm.CL.AsmCore
 import Evm.Frontier.Vm.Gas
 import Mathlib.Tactic
 
-/-! # CALL/CREATE memory-expansion refinement (#260, S1)
+/-! # CALL/CREATE memory-expansion refinement
 
-The structured `memRangeInstrs`/`memRangeEnd` combinator (AsmCore) replaced the
-hand-written u64-truncating CALL memexp prologue. Here we PROVE it refines the
+The structured `memRangeInstrs`/`memRangeEnd` combinator (AsmCore) reads the
+memexp operands over all four limbs. This module proves it refines the
 EELS memory-expansion semantics (`Evm.Frontier.Vm.Gas.memoryCost`):
 
 * `memRangeEnd_some_eq` — when it yields an end, that end EXACTLY equals the true
@@ -16,7 +16,7 @@ EELS memory-expansion semantics (`Evm.Frontier.Vm.Gas.memoryCost`):
 
 This is the guarantee replay can't give: it quantifies over ALL u256 operands —
 including the adversarial `argsLen = 0x..._0000000000000000` (low limb 0, high
-limbs huge) that block 4466928's relay used and that we previously mis-ran. -/
+limbs huge) that block 4466928's relay uses. -/
 
 namespace Evm.CL.AsmCore
 open Evm.Frontier.Vm
@@ -143,7 +143,7 @@ theorem memexp_unaffordable (off len : U256) (g : Nat) (hg : g < 2^64)
     rwa [e] at h
   exact Nat.lt_of_lt_of_le hg (memoryCost_ge hwords)
 
-/-! ## S3: the shared memexp gadget's denote charges exactly EELS gas
+/-! ## The shared memexp gadget's denote charges exactly EELS gas
 
 `memExpandInstrs` (the `.memExpand` op) accumulates `cost(nw) − cost(ow)` into
 x17 (`acc`). We prove that delta IS `Gas.memoryExpansionCost ow nw` — so MLOAD/

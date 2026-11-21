@@ -7,9 +7,7 @@ import Evm.CL.Journal
 
 /-! # CL/MacroSpec — the SBCL macro expansion modeled in Lean
 
-The CL-side refinement obligations in `Evm.CL.OpRefinement` were
-stated as `axiom cl_X_refines : True` — placeholders. This module
-tightens them: every CL `op-X` macro gets a **Lean function**
+Every CL `op-X` macro gets a **Lean function**
 `stepOp_X : CLState → Option CLState` that mirrors what the macro
 should emit, plus a refinement theorem proving `stepOp_X` matches
 the Lean reference handler.
@@ -126,9 +124,7 @@ namespace CLState
 
 variable {Addr Val : Type} [DecidableEq Addr] [DecidableEq Val]
 
-/-- The contract's view of storage at a slot — same definition as
-    `OpRefinement.Storage.viewedStorage`, restated here so this
-    module is self-contained for the audit script. -/
+/-- The contract's view of storage at a slot: the cached value, else the oracle's. -/
 def viewed (oracle : Oracle Addr Val Val) (s : CLState Addr Val)
     (a : Addr) (k : Val) : Val :=
   match s.cache a k with
@@ -267,7 +263,7 @@ For ops whose Lean semantics needs the concrete `Evm.U256` type
 (comparison → 0/1 result, bitwise → BitVec ops, zero-guard
 arithmetic, unary ops), specialize here. The CLState stays
 parametric in `Val`; these functions instantiate at
-`Val := Evm.U256` for the corresponding axioms in `OpRefinement`. -/
+`Val := Evm.U256`. -/
 
 namespace U256Ops
 
@@ -1142,10 +1138,9 @@ What's still trusted (one axiom per op):
     sbcl_macroexpand '(op-X s :fork :mode) ≅ stepOp_X
                        (where ≅ matches AST shape against the Lean term)
 
-The LHS isn't a Lean term, so this can't be a theorem. But it's
-now a stated equation against a concrete Lean function — the
-audit script's job is to discharge it by diffing the macroexpand-1
-output against the pretty-printed `stepOp_X`. Before this module,
-the obligation was `True`, which means absolutely nothing. -/
+The LHS isn't a Lean term, so this can't be a theorem. But it is
+a stated equation against a concrete Lean function (not `True`) —
+the audit script's job is to discharge it by diffing the macroexpand-1
+output against the pretty-printed `stepOp_X`. -/
 
 end Evm.CL.MacroSpec

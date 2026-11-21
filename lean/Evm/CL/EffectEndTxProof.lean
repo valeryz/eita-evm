@@ -230,7 +230,7 @@ theorem obs_finishTx (X : State) (D L : List Evm.Address) (x : Evm.Address) :
     have hac : (Evm.Frontier.destroyAccounts X D).getAccount x = X.getAccount x := congrArg (fun p => p.2.1) hd
     simp only [pSweep, hex, hac, Bool.and_eq_true]; rw [hd]
 
-/-- **The open item of stage 1, closed at the tx boundary.** At Spurious Dragon and after,
+/-- **The SELFDESTRUCT beneficiary form, equal at the tx boundary.** At Spurious Dragon and after,
     the SELFDESTRUCT handlers credit the beneficiary `b` only a non-zero `v` and touch it
     always; EELS (spurious_dragon … london `vm/instructions/system.py`) credits it always —
     an absent `b` comes into existence — and touches it only if it is then an existing

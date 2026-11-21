@@ -1,8 +1,8 @@
 /-
-  Evm.CL.ARM64.JIT — per-chunk native emit (Phase 6, tier 2).
+  Evm.CL.ARM64.JIT — per-chunk native emit (tier 2).
 
   Consumes `IR.Chunk` (the verified compiler's output) and emits one
-  straight-line native function per chunk. Stage 6a is subroutine-
+  straight-line native function per chunk. The base form is subroutine-
   threaded: every op site branches to the SAME audited handler the
   interp tier uses, with the continuation register pointing at the
   next inline site instead of the `next` dispatch loop. What the JIT
@@ -11,7 +11,7 @@
   handler bodies (and therefore the fixture audit that covers them)
   are shared verbatim.
 
-  Stage 6b adds the chunk-head gas pre-charge (the spec-side contract
+  **Chunk-head gas pre-charge** (the spec-side contract
   `IR.execute` already states: charge the chunk's static gas up
   front). The head subtracts Σ `Interp.chargedCost` over the chunk's
   ops once, and op sites branch to the `_f` (flat, cost-0) handler
@@ -19,7 +19,7 @@
   (memory expansion, per-word/per-byte, callback-returned) still
   charges inside the shared bodies. Mid-chunk OOG thereby moves to
   the chunk head: an OOG frame halts with gas=0/reverted=1 as
-  before, but its pc/stack at death differ from the interp tier —
+  in the interp tier, but its pc/stack at death differ —
   per-opcode accounting is explicitly out of scope (the audit
   compares exceptional halts on the flattened observables only).
 
@@ -45,14 +45,14 @@
   have no opcode byte: the former syncs with pc = next chunk entry,
   the latter is the implicit STOP.
 
-  Stage 6c folds constant-stack regions at emit time (see the
+  **Constant folding** of constant-stack regions at emit time (see the
   "Constant folding" section): PUSH/PC-fed pure ops never emit a
   site; their results materialize as inline constant pushes at the
   first dynamic use. The folding evaluator IS `IR.execOp` run on a
   synthetic frame, so the fold inherits the verified semantics
   rather than re-deriving them.
 
-  Stage 6d (issue #11 stage 2) generalizes 6c from constant to
+  **Symbolic regions** generalize constant folding from constant to
   symbolic regions: any run of stack-pure ops — known values or not
   — executes at emit time over `SymExpr.SymStack` (whose `symStep`
   is proved sound against `IR.execOp` in Evm/IR/SymExpr.lean).
@@ -61,17 +61,17 @@
   expression DAG evaluated into an SP scratch frame — shared
   subtrees (DUP) compute once. Cheap ops inline the audited handler
   cores verbatim (same carry chains, same condition codes); hard
-  ops `bl` the same C helpers the handlers call. The 6c constant
+  ops `bl` the same C helpers the handlers call. The constant
   folder still runs first, on the region's constant prefix, because
   it alone can evaluate EXP and fold its dynamic gas into the head
   pre-charge. Underflow is discharged with one region-entry depth
   check (`symStep`'s consumed count is monotone, and DUP peeks are
   folded into the same bound); overflow with one peak-net check, as
-  in 6c. Both fault to the shared stubs, landing in the same
+  for constant regions. Both fault to the shared stubs, landing in the same
   flattened exceptional-halt observables the audit compares.
 
-  Stage 6e (issue #11 stage 3) promotes constant-offset memory
-  writes into the region: an MSTORE/MSTORE8 whose offset is a
+  **Buffered memory writes**: constant-offset memory writes join
+  the region: an MSTORE/MSTORE8 whose offset is a
   compile-time constant buffers (offset, value-DAG) instead of
   flushing. The region commits the writes at its flush: one merged
   memory-expansion charge (per-op deltas telescope to
@@ -84,9 +84,6 @@
   alias analysis). This keeps the dominant Solidity mapping-slot
   idiom (MSTORE key→0x00, MSTORE slot→0x20, KECCAK256(0,64))
   inside one region.
-
-  Later stages: hotness-gated runtime integration in the SBCL
-  replay (6f).
 -/
 
 import Evm.CL.ARM64
@@ -173,7 +170,7 @@ def termName : Terminator → Option String
 
 def chunkSym (startPc : Nat) : String := s!"_eita_chunk_{startPc}"
 
-/-! ## Constant folding (Stage 6c)
+/-! ## Constant folding
 
     A chunk region whose values all come from PUSH literals (or PC, or
     ops over those) is evaluated at emit time and materialized as
@@ -232,12 +229,12 @@ def foldDynCost (f : Evm.Fork) (ks : List Evm.U256) : Op → Nat
 def limb (v : Evm.U256) (i : Nat) : Nat :=
   (v.toNat >>> (64 * i)) % (2 ^ 64)
 
-/-! ## Symbolic regions (Stage 6d, issue #11 stage 2)
+/-! ## Symbolic regions
 
     A region is a maximal run of stack-pure ops. It executes at emit
     time over the verified symbolic stack: `SymExpr.symStep` (proved
     sound against `IR.execOp` by `symStep_sound`) when values are
-    unknown, the 6c `foldStep` on the region's constant prefix when
+    unknown, the constant `foldStep` on the region's constant prefix when
     they are known (that path alone evaluates EXP and folds its
     dynamic gas into the head pre-charge). The region emits no code
     per op; everything materializes once at the flush.
@@ -256,7 +253,7 @@ def limb (v : Evm.U256) (i : Nat) : Nat :=
          canonical stack, which is intact until step 3; cheap ops
          inline the audited handler cores; hard ops `bl` the same
          C helpers the handlers call (slots live in memory, so the
-         AAPCS caller-saved clobber is harmless); then (6e) buffered
+         AAPCS caller-saved clobber is harmless); then buffered
          constant-offset memory writes commit: one merged expansion
          charge to the writes' max end, one mp update, the words in
          program order;
@@ -275,7 +272,7 @@ def constPrefix : List Expr → List Evm.U256
   | .const v :: tl => v :: constPrefix tl
   | _ => []
 
-/-- A buffered constant-offset memory write (stage 6e): `off` is the
+/-- A buffered constant-offset memory write: `off` is the
     compile-time byte offset, `val` the value DAG. `isByte` marks
     MSTORE8 (one byte: the value's low byte) vs MSTORE (32 BE bytes). -/
 structure MemWrite where
@@ -285,12 +282,12 @@ structure MemWrite where
 
 /-- One op against the open region. -/
 inductive RegStep where
-  /-- 6c constant fold over the const prefix; `dyn` = folded dynamic
+  /-- Constant fold over the const prefix; `dyn` = folded dynamic
       gas (EXP only), to be added to the chunk-head pre-charge. -/
   | fold (ss' : SymStack) (dyn : Nat)
   /-- Verified symbolic step. -/
   | sym (ss' : SymStack)
-  /-- Constant-offset memory write absorbed into the region (6e). -/
+  /-- Constant-offset memory write absorbed into the region. -/
   | store (ss' : SymStack) (w : MemWrite)
   /-- Not stack-pure (or `swap 0`): flush and emit a handler site. -/
   | flush
@@ -336,7 +333,7 @@ structure Region where
   /-- Peak of (prefix length − consumed) after any op: the region's
       maximal net growth over the entry depth. -/
   maxNet : Int := 0
-  /-- Buffered constant-offset memory writes, in program order (6e). -/
+  /-- Buffered constant-offset memory writes, in program order. -/
   writes : List MemWrite := []
 
 def Region.step (r : Region) (op : Op) (ss' : SymStack) : Region :=
@@ -458,8 +455,8 @@ def observesGas : Op → Bool
     `Evm.CL.ARM64.ChunkGas`, with a denotation and the refinement theorem that
     says the scheme charges exactly what per-op charging would
     (`compensation_refines`). Both emitters below go through those definitions,
-    so there is one source for each gadget and the unchecked re-take that was
-    the second JIT bug is not representable. -/
+    so there is one source for each gadget and an unchecked re-take is not
+    representable. -/
 
 /-! ## The chunk emitter, once
 
@@ -583,7 +580,7 @@ def emitChunkGen {α : Type} (O : ChunkOut α) (f : Evm.Fork) (c : Chunk) : α :
   let s := if total > 0 then O.cat s (O.gas (ChunkGas.GInstr.charge total s!"Lg_{id}")) else s
   O.cat s body
 
-/-! ## The algebra at `List AInstr` (stage 4s)
+/-! ## The algebra at `List AInstr`
 
 The chunk emitter written once as `AInstr`; `emitChunk` prints it (the clang
 `.S` path) and `emitChunkItems` lowers it through `AsmItems` (the in-process
@@ -598,7 +595,7 @@ def spAddrA (r : Reg) (slot : Nat) : List AInstr :=
   let off := 32 * slot
   if off ≤ 4095 then [.addSp r off] else movImmA r off ++ [.addSpReg r]
 
-/-! ### The flush, target-generically (stage 4x)
+/-! ### The flush, target-generically
 
 The region flush is one algorithm over a few target choices: which registers
 hold the right operand of a binary core (ARM64 caches NOS in x10-x13; x86-64
@@ -801,7 +798,7 @@ def depthUpdate (net : Int) : List AInstr :=
   if net > 0 then [.addImm .x23 .x23 net.toNat]
   else if net < 0 then [.subImm .x23 .x23 (-net).toNat] else []
 
-/-- The region flush, once, at a target, as list combinators (stage 7: so the
+/-- The region flush, once, at a target, as list combinators (so the
     pieces can be reasoned about one at a time). Numeric local labels as in
     the text; each byte path's `resolveLocals` makes them unique. -/
 def emitRegionFlushT (T : FlushTarget) (r : Region) : List AInstr :=
@@ -890,7 +887,7 @@ def corpusChunks : Option (List Chunk) := Id.run do
     | .error _ => return none
   return some out
 
-/-- The entry, printed from `Frame.runChunk` (stage 4r). -/
+/-- The entry, printed from `Frame.runChunk`. -/
 def runChunkCode : String := Frame.text Frame.runChunk
 
 /-- First-occurrence-wins dedup of `Program.chunks` (overlapping-chunk
@@ -925,7 +922,7 @@ def emitProgram (f : Evm.Fork) (p : Program) : String :=
   String.intercalate "\n" (chunks.map fun (_, c) => emitChunk f c) ++ "\n" ++
   entriesTable chunks
 
-/-! ## In-process `List Item` emitter (#235)
+/-! ## In-process `List Item` emitter
 
 The byte path is `instrOut` lowered through `AsmItems` — the same instructions
 the text is printed from. Nothing here describes a chunk a second time; what
@@ -944,8 +941,8 @@ private def syncContI : List Item := Evm.CL.AsmItems.progItems Frame.syncCont
 def emitChunkItems (f : Evm.Fork) (c : Chunk) : List Item :=
   Evm.CL.AsmItems.resolveLocals (Evm.CL.AsmItems.progItems (emitChunkInstrs f c))
 
-/-- The entry as items, from the same program the text comes from (stage 4r):
-    the two paths no longer describe the prologue twice. -/
+/-- The entry as items, from the same program the text comes from:
+    the two paths do not describe the prologue twice. -/
 def runChunkItems : List Item :=
   Evm.CL.AsmItems.resolveLocals (Evm.CL.AsmItems.progItems Frame.runChunk)
 

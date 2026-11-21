@@ -1,18 +1,18 @@
 /-
   Evm.CL.ARM64.Interp — per-op handler registry for the threaded
-  interpreter (Phase 5).
+  interpreter.
 
   Instantiates the shape emitters in `Evm.CL.ARM64` with static gas
   costs drawn from `IR.Op.metadata` / `IR.Terminator.metadata` — the
   same tables the verified IR pipeline (`Evm.IR.Compile`) is contracted
   to use. No handler redeclares a gas constant: the cost an emitted
   handler charges IS `(metadata interpFork op).staticCost`, so the
-  Phase 2 per-op soundness theorems pin the schedule in one place.
+  per-op soundness theorems pin the schedule in one place.
 
   Dynamic-gas *coefficients* (6/word KECCAK, 50/byte EXP, 8/byte LOG,
   3/word copy, memory-expansion 3w + w²/512) remain inline in the
   shape emitters: `DynamicGasShape` declares the shape, not the
-  multiplier, and those formulas are what the JIT (Phase 6) will share.
+  multiplier, and the JIT shares those formulas.
 
   Emit via:  lake exe emitARM64 > c/handlers.S
 -/
@@ -32,9 +32,9 @@ namespace Evm.CL.ARM64.Interp
 open Evm.IR
 
 /-- The fork whose cost schedule the threaded interpreter implements.
-    The hand-written handlers this module replaced used Cancun-era
-    constants (warm EIP-2929 access costs, PUSH0, TLOAD/MCOPY/BLOBHASH
-    present), so the registry is pinned there. -/
+    The registry is pinned to Cancun-era constants (warm EIP-2929 access
+    costs, PUSH0, TLOAD/MCOPY/BLOBHASH present); per-fork differences go
+    through the dispatch tables and variant bodies. -/
 def interpFork : Evm.Fork := .cancun
 
 /-- Static cost of an op per the IR metadata table on fork `f`. Panics
@@ -218,7 +218,7 @@ def flatOpHandlers : List (String × String) :=
    ("exp_pre160_f",
     suffixDefinedLabels (expHandler 0 (expByteCost .frontier)) "_pre160_f")]
 
-/-! ## Per-fork dispatch (Stage A of fork-parametric emission)
+/-! ## Per-fork dispatch
 
     The registry bodies are pinned to `interpFork` (Cancun) constants,
     but almost nothing in them actually varies by fork:
@@ -233,9 +233,8 @@ def flatOpHandlers : List (String × String) :=
     `_eita_set_fork` repoints. Any OTHER cost drift the metadata tables
     introduce later panics at emit time — no silent gaps.
 
-    Known Stage-A limitation: CALL-family terminators still branch to
-    the Berlin-pinned `_eita_call_gas` plans, so pre-Berlin tables carry
-    wrong call gas until Stage B emits per-fork call-gas plans. -/
+    CALL-family gas is not in the tables: the host prices a call with the
+    fork's `_eita_call_gas*` plan (`ARM64.CallGas`, src/evm/calls.lisp). -/
 
 /-- What the registry name keys into the metadata tables. -/
 inductive RegKey where
@@ -346,7 +345,7 @@ def variantHandlers : List (String × String) := [
    suffixDefinedLabels (sstoreHandler 0) "_nosentry")
 ]
 
-/-! ## The registry as programs (stage 4v)
+/-! ## The registry as programs
 
 `handlersWith` above is the registry as STRINGS: each entry is a shape
 emitter that prints `hdr name ++ body.emit` for one `AsmCore` body.
@@ -479,7 +478,7 @@ theorem registry_from_progs :
   native_decide
 
 /-- **Every body checks the stack its op needs** (pops from the Osaka IR metadata; an
-    overflow check when it grows the stack). ADDMOD/MULMOD/BLOBHASH once had none. -/
+    overflow check when it grows the stack). -/
 theorem handler_stack_guards :
     (handlerProgs (fun _ => 0)).all (fun (nm, p) =>
       let guard := (p.findSome? fun | .underflow n => some n | _ => none).getD 0
@@ -504,10 +503,8 @@ def memexpGuarded (is : List AInstr) : Bool :=
 
 /-- **Every handler bounds its memory operands over the full 256 bits** before memory
     expansion: an offset or length with a nonzero high limb, or an end past 2^64, is OOG
-    (EELS: the expansion gas alone exceeds any gas limit). LOG0-4 (low limbs only, the
-    end added unchecked, on BOTH backends — x86 has its own LOG list) and EXTCODECOPY
-    (no high-limb guard) once violated it; checked on the ARM64 and x86 bodies. The
-    CALL family (#260) and CODECOPY (u256 src) were earlier instances of the class. -/
+    (EELS: the expansion gas alone exceeds any gas limit). Checked on the ARM64 and x86
+    bodies (x86 has its own LOG list). -/
 theorem handler_memory_operands_guarded :
     (handlerProgs (fun _ => 0)).all (fun (_, p) =>
       memexpGuarded (Evm.CL.OpInstrs.bodyInstrs p) &&
@@ -517,8 +514,8 @@ theorem handler_memory_operands_guarded :
 open Evm.CL.AsmCore in
 /-- **Every RETURNDATACOPY bounds its source first** (EIP-211): any body (base or fork
     variant) that calls the return-buffer copy helper runs `returndataBounds` before
-    it, so a read past the buffer halts instead of zero-padding as CALLDATACOPY does.
-    It once copied with zero padding (ethereum/tests stReturnDataTest, Byzantium+). -/
+    it, so a read past the buffer halts instead of zero-padding as CALLDATACOPY does
+    (ethereum/tests stReturnDataTest, Byzantium+). -/
 theorem handler_returndata_bounded :
     ((handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2)).all (fun (p : AsmCore.Prog) =>
       match p.findIdx? (· == Op.copyCbPop3 "_eita_helper_returndatacopy") with
@@ -547,18 +544,17 @@ open Evm.CL.AsmCore Evm.CL.OpInstrs in
     marshalling ops right before it), from the frame's live-in roles, on every path,
     and not clobbered by an intervening call — on both backends, for every base and
     fork-variant body, with the callee's arity from the vtable (`cbArity`) or the C
-    helper table (`helperArity`); an unknown callee fails. EXTCODECOPY's ARM64 cb op
-    passed `len` in x4 without writing it: the gas gadget before it used to leave
-    len.l0 there, f812945 rebuilt that gadget on `memRangeInstrs`, and the host read a
-    stale x4 (mainnet 4,972,698 tx 17: an 8·10^18-byte memset past the memory arena;
-    x86-64 loads len itself and was unaffected). `Op.denote` is coarse at callbacks,
-    which is how it slipped past `extcodecopyBody`'s proofs — the #260 family. -/
+    helper table (`helperArity`); an unknown callee fails. An EXTCODECOPY cb op that
+    passes `len` in x4 without writing it relies on the gas gadget before it; the host
+    then reads a stale x4 (mainnet 4,972,698 tx 17: an 8·10^18-byte memset past the
+    memory arena). `Op.denote` is coarse at callbacks, so `extcodecopyBody`'s proofs
+    cannot see this; this check does. -/
 theorem handler_callback_args_defined :
     ((handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2)).all callArgsDefined = true := by
   native_decide
 
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
-/-- …and it rejects the bug: without the one `ldr x4, [x14]` the fix added, the
+/-- …and it rejects the counterexample: without its `ldr x4, [x14]`, the
     EXTCODECOPY body passes len from whatever x4 held. -/
 theorem callback_args_rejects_inherited_len :
     (callArgsBad false
@@ -568,10 +564,10 @@ theorem callback_args_rejects_inherited_len :
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
 /-- **Every body keeps the register-cached stack coherent** (ARM64): entered with
     x6-x9 = stack[sp-1] and x10-x13 = stack[sp-2], every `br x27` leaves them so for the
-    sp it leaves (`cacheCoherent`, a value numbering over the instructions). CLZ
-    computed in x10-x13 and broke it: `clz(x) & ~1` read a clobbered NOS (mainnet
+    sp it leaves (`cacheCoherent`, a value numbering over the instructions). A CLZ
+    that computes in x10-x13 breaks it: `clz(x) & ~1` reads a clobbered NOS (mainnet
     26,042,126 tx 135). `Op.denote` keeps `nos` apart from the registers, so
-    `clz_correct` could not see it. -/
+    `clz_correct` cannot see it. -/
 theorem handler_stack_cache_coherent :
     ((handlerProgs (fun _ => 0)).map (·.2) ++ variantProgs.map (·.2.2)).all cacheCoherent = true := by
   native_decide
@@ -595,7 +591,7 @@ theorem handler_runs_cache_coherent :
   exact cacheIncoherent_sound _ this m₀ hsp hc hsep
 
 open Evm.CL.AsmCore Evm.CL.OpInstrs in
-/-- …and it rejects the bug: the CLZ body on the former x10-x13 temporaries. -/
+/-- …and it rejects the counterexample: the CLZ body on x10-x13 temporaries. -/
 theorem cache_coherence_rejects_clz_on_nos :
     (cacheIncoherent ((clzBody 5).flatMap fun o =>
       if o == .clzReduce then

@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86Interp — the x86-64 threaded interpreter, as one assembly file.
 
-  Stage 4 of #238: the x86-64 twin of `ARM64.Interp.emit`. The same program
+  The x86-64 twin of `ARM64.Interp.emit`. The same program
   registry (`Interp.handlerProgs`, `flatProgs`, `variantProgs`) is taken
   through `Op.instrsX86?` (`X86Handler.x86Body`) and the x86-64 text lowering;
   the frame is `X86Run`'s role-map prologue and epilogue with the production
@@ -69,7 +69,7 @@ def suffixItems (suf : String) : XItem → XItem
 /-- The continuation every interpreter handler ends with, in place of `ret`
     (direct threading, the x86 twin of ARM64's `br x27`): fetch the next
     opcode, pre-increment, jump through `EvmState.cont_table`. rax and rcx
-    are scratch at a `brCont` (the old loop clobbered both after the `ret`).
+    are scratch at a `brCont`.
     The table is the frame's choice: the fork table (`eita_run`), the trace
     table (`eita_run` with `cb->trace_step` set), or the return table
     (`eita_run_one`, the JIT tier), whose one entry undoes the pre-increment
@@ -97,8 +97,8 @@ def traceCall : List XItem :=
 
 /-- `eita_run`'s loop start. The hook is decided once per frame, not per op:
     `cb->trace_step` set → the trace table, else the active fork's table. The
-    handlers run one word below the loop's rsp, where the old loop's `call`
-    put them, so their SysV alignment is unchanged. -/
+    handlers run one word below the loop's rsp (where a `call` would put them),
+    so their SysV alignment is that of a called function. -/
 def startLoop : List XItem :=
   [ .I (.aluRI .sub .rsp 8),
     .I (.movRM .rax { base := .rbx, disp := cbOff }),

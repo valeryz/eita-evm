@@ -1,7 +1,7 @@
 /-
   Evm.CL.ARM64.PredFold — the predicate prologue: limb folds to booleans.
 
-  Stage 1 of #238, and the piece that completes `SstoreGasDenote`. The five
+  The piece that completes `SstoreGasDenote`. The five
   SSTORE routines open with six predicates computed by folding 64-bit limbs:
 
       isZero p dst           isEq p q dst
@@ -17,9 +17,9 @@
   u256 is four limbs; `cmp`/`cset eq` reads ONE 64-bit register, so correctness
   rests on the OR (resp. XOR-then-OR) collapsing all four limbs into that
   register without losing a bit. This is the same family as the chained-`sbcs`
-  Z-flag trap (`AsmCore.chained_z_unreliable`), where a comparison that looked
-  fine was only testing the high limb — EQ/GT/SGT were all wrong, and random
-  fixtures missed it because single-limb differences are rare by chance.
+  Z-flag trap (`AsmCore.chained_z_unreliable`), where a comparison that looks
+  fine tests only the high limb (EQ/GT/SGT), and random fixtures miss it
+  because single-limb differences are rare by chance.
 
   With `prologue_predicates` below, the SSTORE routines are denoted end to end:
   the prologue produces exactly the six booleans the tree theorems in

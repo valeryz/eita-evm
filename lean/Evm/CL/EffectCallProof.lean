@@ -531,10 +531,10 @@ theorem na_eq (k : Nat) (kd : Kind) (s : State) (to : Evm.Address) (v : Evm.U256
   cases kd <;> by_cases h4 : k ≥ 4 <;>
     simp [newAcct, kindNat, Rules.ofOrd, h4, Evm.Frontier.Vm.Call.isDead, EffectIR.isDead]
 
-/-- v4.29 normal-form bridges: simp now leaves `!decide (v = 0)` and `decide
-    (4 ≤ k)` where it used to produce `decide (v ≠ 0)` / `decide (k ≥ 4)`, so
-    `vf_eq` / `na_eq` no longer match as rewrite rules. These restore the
-    shapes they are stated in. -/
+/-- v4.29 normal-form bridges: simp leaves `!decide (v = 0)` and `decide
+    (4 ≤ k)` rather than `decide (v ≠ 0)` / `decide (k ≥ 4)`, so `vf_eq` /
+    `na_eq` do not match as rewrite rules. These restore the shapes they are
+    stated in. -/
 theorem decide_ne_zero (v : Evm.U256) :
     (!decide (v = 0)) = decide (v ≠ 0) := decide_not.symm
 
@@ -634,7 +634,7 @@ macro "call_bind" a:term:max K:term:max b:term:max : tactic => `(tactic| (
   simp only [specCall, Terminator.stepHandler, stepHandlerFrontier, stepHandlerHomestead,
     stepHandlerTangerine, stepHandlerSpurious, stepHandlerByzFamily, Evm.Fork.atLeast, Evm.Fork.ord,
     Option.map_some, Option.some.injEq, reduceCtorEq]
-  -- v4.29: the per-argument equation lemmas no longer rewrite the bare,
+  -- v4.29: the per-argument equation lemmas do not rewrite the bare,
   -- not-yet-applied handler constants under `Option.map`; unfold whichever
   -- handler this goal binds, before the opcode-unfolding simp below.
   first

@@ -12,8 +12,8 @@ BLOBBASEFEE pushes (EvmState #568). `nextExcessBlobGas` (a clause of `spec-heade
 BPO2) and EELS `calculate_blob_gas_price` / `calculate_excess_blob_gas` (with EIP-7918's
 reserve-price clause from Osaka) over it. This file proves the emitted terms the same
 functions of the fork and the parent fields, so the executable can neither price one
-schedule's blobs on another's curve (which the hand-written Cancun-only formula did until
-2026-10-25) nor skip EIP-7918. Same pattern as `GasEmitParis` / `GasEmitShanghai`. -/
+schedule's blobs on another's curve (as a Cancun-only formula would) nor skip EIP-7918.
+Same pattern as `GasEmitParis` / `GasEmitShanghai`. -/
 
 namespace Evm.CL.GasEmitCancun
 

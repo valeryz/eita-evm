@@ -1,7 +1,7 @@
 /-
   Evm.CL.Flags — carry polarity and the Z-flag, denotationally, on both targets.
 
-  Stage 3 of #238. The x86-64 encoder is gated byte-for-byte against clang, and
+  The x86-64 encoder is gated byte-for-byte against clang, and
   the lowering assembles; neither says anything about what the FLAGS mean, and
   that is where a port of this code goes wrong silently. Two traps, one per
   flag:
@@ -28,10 +28,9 @@
 
   ## Z: after a chain, it is the last limb's, on both targets
 
-  `feedback_chained_sbcs_zflag` records the ARM64 trap: after a `subs/sbcs`
-  chain over four limbs, Z reflects only the HIGH limb's result, so a u256
-  equality read from Z is wrong whenever the values differ only in a lower limb.
-  It killed EQ/GT/SGT. x86-64 has the same behaviour — `sbb` sets ZF from its
+  The ARM64 trap: after a `subs/sbcs` chain over four limbs, Z reflects only the
+  HIGH limb's result, so a u256 equality read from Z is wrong whenever the values
+  differ only in a lower limb (EQ/GT/SGT). x86-64 has the same behaviour — `sbb` sets ZF from its
   own result — so the trap transfers unchanged, and so does the fix: fold the
   limb differences with OR and test THAT for zero (`PredFold`). Both halves are
   proved here, including the counterexample.

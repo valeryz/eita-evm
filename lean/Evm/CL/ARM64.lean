@@ -213,11 +213,10 @@ def gasHandler (cost : Nat) : String :=
 
 /-- MSIZE: pushes mp (always loaded from memory; not cached). -/
 -- MSIZE returns the *aligned* memory size — `memory_size` (#48, kept aligned by
--- memExpandInto), NOT the raw high-water mark `mp` (#24). This handler is now
+-- memExpandInto), NOT the raw high-water mark `mp` (#24). This handler is
 -- emitted from the typed DSL `Evm.CL.AsmCore`, where `AsmCore.msize_correct`
 -- PROVES `denote (msizeBody cost)` pushes `fields .memSize` (and
--- `msize_bug_rejected` shows the `mp` version violates the spec). Emit is
--- byte-identical to the previous hand-written asm.
+-- `msize_bug_rejected` shows the `mp` version violates the spec).
 def msizeHandler (cost : Nat) : String :=
   hdr "msize" ++ (AsmCore.msizeBody cost).emit
 
@@ -264,7 +263,7 @@ def calldataloadHandler (cost : Nat) : String :=
 def stateTernaryHandler (name : String) (cost : Nat) (helperName : String) : String :=
   hdr name ++ (AsmCore.copyBody helperName cost).emit
 
-/-- MCOPY (#270): like stateTernaryHandler but memexp covers max(dst+len,src+len)
+/-- MCOPY: like stateTernaryHandler but memexp covers max(dst+len,src+len)
     since the source is memory too. -/
 def returndatacopyHandler (cost : Nat) : String :=
   hdr "returndatacopy" ++ (AsmCore.returndatacopyBody cost).emit
@@ -353,7 +352,7 @@ def extcodecopyHandler : String :=
       3 = STATICCALL    (6 args: no value; staticp=1 in sub-frame)
     For with-value variants (kind 0/1), value is pulled from stack[sp-3].
     The handler structure is identical otherwise. The arg-position arithmetic +
-    the whole body now live in `AsmCore.callFamilyBody`. -/
+    the whole body live in `AsmCore.callFamilyBody`. -/
 def callFamilyHandler (name : String) (kind : Nat) (staticpFlag : Nat) (withValue : Bool) : String :=
   -- memexp(max in/out range), build CallParams, cb->call, returndata→mem, pop
   -- args, push success, charge gas_used. See AsmCore.callFamilyBody.
@@ -581,7 +580,7 @@ def dispatchTable (handlerNames : List (String × String)) (present : String →
 
 /-! ## Label suffixing (JIT flat-handler variants)
 
-    The JIT tier (Phase 6b) emits a second copy of every op handler
+    The JIT tier emits a second copy of every op handler
     with static cost 0, so a chunk can pre-charge the sum at its head.
     A verbatim second copy would redefine the handler's symbol and its
     internal labels; instead we rename every label DEFINED in the body

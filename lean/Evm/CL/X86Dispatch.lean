@@ -1,11 +1,10 @@
 /-
   Evm.CL.X86Dispatch — the x86-64 dispatch: an offset table, no relocations.
 
-  Stage 4 of #238. ARM64 keeps the dispatch table's address in x25, loaded at
-  entry through an absolute symbol the loader patches (`AbsSym
-  _eita_dispatch_ptr`). Stage 0 noted x86-64 has no register to spare for it
-  and would reach the table RIP-relatively. This is that, one step further:
-  the table holds OFFSETS from the image's start rather than addresses, so a
+  ARM64 keeps the dispatch table's address in x25, loaded at entry through an
+  absolute symbol the loader patches (`AbsSym _eita_dispatch_ptr`). x86-64 has
+  no register to spare for it (`Evm.CL.Target`) and reaches the table
+  RIP-relatively; the table holds OFFSETS from the image's start rather than addresses, so a
   mapped image needs no relocation at all for its dispatch —
 
       lea  rcx, [rip + table]        ; the table, wherever the image landed
