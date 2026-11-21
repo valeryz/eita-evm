@@ -59,22 +59,22 @@ def history : Array (String × String × Nat × String) := #[
 /-- The code the design models (CompactionV2, RootWorker) describe before it is written:
     (tag, the section of docs/state-snapshot-format.md that specifies it). -/
 def planned : Array (String × String) := #[
-  ("emit-write-set", "The root worker's input"),
+  ("emit-write-set", "The write set"),
   ("root-worker-ingest", "One block"),
   ("root-worker-block", "One block"),
-  ("root-verdict", "The root worker"),
+  ("root-verdict", "The root worker's interface"),
   ("root-worker-checkpoint!", "The frontier checkpoint"),
   ("root-worker-checkpoint!/publish", "The frontier checkpoint"),
   ("root-worker-checkpoint!/swap", "The frontier checkpoint"),
   ("root-worker-drop-above!", "Reorgs: drop-above!"),
   ("root-worker-view!", "The root worker's view"),
   ("anchor-line!", "Anchors"),
-  ("settle!", "Layers under v2: the RAM window"),
-  ("settle!/quarter", "Layers under v2: the RAM window"),
+  ("settle!", "The RAM reorg window"),
+  ("settle!/quarter", "The RAM reorg window"),
   ("start-compaction!/root", "Compaction to a verified anchor"),
-  ("live-components/worker", "Recovery and GC"),
+  ("live-components/worker", "Garbage collection"),
   ("close-retired!/worker", "The root worker's view"),
-  ("rollback-to!/floor", "Layers under v2: the RAM window")]
+  ("rollback-to!/floor", "The RAM reorg window")]
 
 /-- Every planned row names a section of the spec that exists. -/
 def plannedSpec : IO (Array String) := do

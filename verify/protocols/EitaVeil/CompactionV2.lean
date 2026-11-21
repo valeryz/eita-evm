@@ -4,8 +4,8 @@ public import EitaVeil.CompactionParts
 
 /-! # The layer stack under snapshot v2's persistence stages P2–P3 (planned): safe
 
-The design model of the stack after R1 (`docs/state-snapshot-format.md`, "Layers,
-compaction and anchors under v2"), written before its code: steps that change cite
+The design model of the stack under snapshot v2 (`docs/state-snapshot-format.md`, "The RAM
+reorg window" and "Compaction to a verified anchor"), written before its code: steps that change cite
 `@planned` names (`CheckCode.lean` lists them and fails once one exists in the code). It
 replaces `Compaction` / `CompactionDeepReorg` when the code lands; until then those describe
 the running code.

@@ -51,8 +51,8 @@ files, not here:
 - **On a schedule: the state root**, recomputed from the replay's own state and compared with
   the header at anchors (`src/state/root.lisp`). Between anchors, the header gate is the
   check. Specified, not yet built: a per-block root from snapshot v2's frontier
-  ([state-snapshot-format.md](state-snapshot-format.md), v2); its Lisp-to-Lean gap is the
-  stated `layered_frontier_root_eq` ([trusted-surface.md](trusted-surface.md#the-per-block-state-root-snapshot-v2-specified-not-yet-built)).
+  ([state-snapshot-format.md](state-snapshot-format.md)); its Lisp-to-Lean gap is the
+  stated `layered_frontier_root_eq` ([trusted-surface.md](trusted-surface.md#the-per-block-state-root-snapshot-v2-specified)).
 - **Conformance.** The ethereum/tests BlockchainTests battery on both execution tiers, the
   threaded interpreter and the JIT; results, skips and expected failures with their reasons
   in [`docs/testing.md`](testing.md). A sample runs in CI.
