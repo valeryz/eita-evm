@@ -1,23 +1,22 @@
-# Read sets and state witnesses: a Lean-specified, C-callable interface (design)
+# Read sets and state witnesses: a Lean-specified, C-callable interface
 
-Status: design, 2026-11-13. Nothing here is built. Owner direction (2026-11-13): the read set of a
-transaction or a block is a first-class concept for Eita's users, and the open core exposes it,
-together with **state witnesses**, through a C interface specified in Lean, for stateless
-re-execution. The first consumer is the RISC-V / Baochip light client: a hardware-wallet-class
-device that simulates a transaction on-chip before signing. It replays a transaction only when it
-holds all of the transaction's inputs, and a missing input must fail hard.
+This document specifies how Eita exposes the read set of a transaction or a block, together with
+**state witnesses**, through a C interface specified in Lean, for stateless re-execution. The
+read set itself is built: its definition is `lean/Evm/Witness/ReadSet.lean`
+([`readset.md`](readset.md)), and the recorder is `src/evm/readset.lisp`
+([`readset-format.md`](readset-format.md)). The witness, the stateless executor and the C
+interface below are specified and not yet built (§6).
 
-The device (owner, 2026-11-13) is Baochip "dabao": RV32 (RV32IMC per the owner; the published
+The first consumer is a hardware-wallet-class RISC-V device that simulates a transaction on-chip
+before signing. It replays a transaction only when it holds all of the transaction's inputs, and a
+missing input fails hard. The target board is the Baochip "dabao": an RV32 core (the published
 Baochip-1x core is a 350 MHz VexRiscv RV32-IMAC), 2 MiB SRAM, 4 MiB ReRAM (non-volatile, like
-flash), attached to a host machine over USB (the chip has a USB 2.0 high-speed device port) or
-Bluetooth. The simulation runs **interactively during signing**: the chip runs the executor and
-asks the host for state as it goes (§3). A pre-built witness is the secondary mode, for tests,
-offline replays and other users of the core.
+flash), attached to a host machine over USB (a USB 2.0 high-speed device port) or Bluetooth. The
+simulation runs **interactively during signing**: the chip runs the executor and asks the host for
+state as it goes (§3). A pre-built witness is the secondary mode, for tests, offline replays and
+other users of the core.
 
-Related work: the read-set recorder (core branch `readset`, `src/evm/readset.lisp`, format in
-`docs/readset-format.md` on that branch), the persistence review §8 (incremental MPT) and §9
-(archive read API) in the private repository, and `lean/Evm/Parallel/Reads.lean`, where reads are
-already a first-class notion for Block-STM.
+Related: `lean/Evm/Parallel/Reads.lean`, where reads are a first-class notion for Block-STM.
 
 ## 0. Principles
 
@@ -30,10 +29,10 @@ already a first-class notion for Block-STM.
    access list that is wrong, or a provider that lies can only make a run *fail*. None of them can
    make it return a wrong result. Correctness rests on proof soundness (§2.1) and on the executor's
    refinement of the spec (§2.3). The recorder only affects liveness.
-4. **Provider-agnostic (owner, 2026-11-13).** The executor must work with more or less any Ethereum
-   RPC provider, not only with an Eita server. A witness can be built from standard JSON-RPC alone
-   (`eth_getProof`, `eth_getCode`, `eth_createAccessList`, `eth_getBlockByNumber`). Where a provider
-   exposes `debug_executionWitness`, the executor accepts its output as is. Eita's own server is one
+4. **Provider-agnostic.** The executor works with more or less any Ethereum RPC provider. A witness
+   can be built from standard JSON-RPC alone (`eth_getProof`, `eth_getCode`,
+   `eth_createAccessList`, `eth_getBlockByNumber`). Where a provider exposes
+   `debug_executionWitness`, the executor accepts its output as is. Eita's own server is one
    provider among others; its extra is precomputed, exact per-tx read sets.
 5. **The trust anchor is a header, not a provider.** A proof is only as good as the root it is
    checked against. The root comes from a block header that the client trusts independently of the
@@ -50,18 +49,15 @@ already a first-class notion for Block-STM.
 
 ## 1. Definitions (Lean)
 
-Proposed home: `lean/Evm/Witness/` (fork-invariant, beside `Evm/Trie`). The statements below
-typecheck against the current core. The spike files are `witness-scratch/WitnessSpike.lean` and
-`OracleProg.lean`, outside the tree. `OracleProg.lean` is fully proved; `WitnessSpike.lean` contains
-`sorry`.
-
+Home: `lean/Evm/Witness/` (fork-invariant, beside `Evm/Trie`). `ReadSet.lean` exists; the other
+definitions below are specified and typecheck against the current core.
 ### 1.1 ReadSet
 
 Defined in `lean/Evm/Witness/ReadSet.lean` (`ReadKey`, `ReadSet`, `Answer`, `Oracle`, `oracleOf`)
 and explained in [`readset.md`](readset.md): the key kinds, the subtle cases, the recorder's gap.
 The recorder's per-tx record (`readset-format.md`) is a `ReadSet` together with a written bit. A
 witness covers an account as a whole, since one account proof yields all four fields.
-`Parallel/Reads.lean`'s `Key` is still separate; the fold into `ReadKey` is listed in
+`Parallel/Reads.lean`'s `Key` is separate; the fold into `ReadKey` is listed in
 `readset.md` §Open, and its `Faithful`/`Deterministic` become theorems about the executor (§2.3).
 
 ### 1.2 Witness
@@ -91,8 +87,8 @@ def lookup (p : Pool) (root key : Bytes) : Lookup               -- key = keccak(
 
 `walk` resolves a 32-byte reference by finding a pool node whose keccak is the reference. It takes
 an inline (< 32 bytes) node as given, follows branches, extensions and leaves, and returns `absent`
-on a proof of exclusion. The spike contains a complete definition, about 60 lines. It is total and
-structurally recursive, so it can be proved about.
+on a proof of exclusion. It is total and structurally recursive (about 60 lines), so it can be
+proved about.
 
 ### 1.4 PartialState
 
@@ -163,11 +159,11 @@ are checked by `keccak(rlp(header)) = parentHash` back from the trusted header.
 decoder is therefore harmless. The structural heart is `walk` over `patricialise items` =
 `find? items`.
 
-**Prerequisite (W0).** `Rlp.encode`, `Rlp.decodeAt`, `Trie.patricialise` and `Trie.nodeRef` are
-`partial def`s today, which makes them opaque to the kernel. They must be made total, and
+**Prerequisite: total RLP and trie (§6).** `Rlp.encode`, `Rlp.decodeAt`, `Trie.patricialise` and `Trie.nodeRef` are
+`partial def`s, which makes them opaque to the kernel. They must be made total, and
 `decode (encode i) = some i` must be proved. This is the same prerequisite that
 `Trie/Stack.lean` (the `sorry`s of `build_eq_patricialise`) and `Trie/Frontier.lean`
-(`patricialise_assemble`, `build_emits_frontier`) already record, so one stage pays for all of
+(`patricialise_assemble`, `build_emits_frontier`) already record, so one piece of work pays for all of
 them.
 
 ### 2.2 (b) Witness sufficiency
@@ -188,8 +184,8 @@ state diff.
 
 ### 2.3 (c) Read-set completeness, and missing read = hard failure
 
-These hold *generically* for every oracle program. They are proved now, without `sorry`, in the
-spike `OracleProg.lean` (Lean v4.35.0, about 90 lines with `runI_sound` below):
+These hold *generically* for every oracle program; their proofs (about 90 lines with `runI_sound`
+below, no `sorry`) need nothing EVM-specific:
 
 ```lean
 def Consistent (po) (o) : Prop := ∀ q v, po q = some v → v = o q        -- what (a) gives
@@ -200,13 +196,13 @@ theorem runP_complete    : (∀ q ∈ p.asked o, po q = some (o q)) → p.runP p
 ```
 
 - `runP_sound`: a stateless run that completes returns exactly the full run's result.
-- `asked_sufficient`: the asked set is a sufficient read set. This is `Reads.Tx.Deterministic`,
-  now a theorem.
+- `asked_sufficient`: the asked set is a sufficient read set. It makes `Reads.Tx.Deterministic`
+  a theorem.
 - `runP_missing`: a failure names a key the full execution really reads and the witness really
   lacks. This is the Baochip requirement.
 - `runP_complete`: a witness that covers the asked set always completes.
 
-The interactive mode has its own theorem, also proved in the spike. The host's answer may depend on
+The interactive mode has its own theorem. The host's answer may depend on
 the whole history of queries, which models an adaptive and malicious host:
 
 ```lean
@@ -339,7 +335,7 @@ A message is at most 64 KiB, and a sender splits anything larger.
 - A whole simulation has a budget (default 30 s). Past it, the chip reports "cannot simulate", and
   the wallet must not sign blind.
 - Proof windows are short. A public endpoint refused `eth_getProof` a few blocks behind its head
-  ("distance to target block exceeds maximum proof window", publicnode, 2026-11-13). The host
+  ("distance to target block exceeds maximum proof window", publicnode). The host
   fetches at the trusted block promptly. If the window closes, the session restarts on a newer
   trusted header.
 
@@ -466,7 +462,7 @@ probe mode out.
     products and MULMOD/EXP are the cost centres.
   - There are two derived routes:
     - a 32-bit `LimbC` printing, proved like the 64-bit one;
-    - the RV32 lowering of AsmCore, the third backend after ARM64 and x86-64 (new-ideas item 4).
+    - the RV32 lowering of AsmCore, a third backend after ARM64 and x86-64.
 
     The C route comes first, because it is portable and checkable with CBMC.
 - **Keccak in software.**
@@ -481,14 +477,14 @@ probe mode out.
   estimated tens of ms per recovery at 350 MHz.
 - **Interpreter.** On RV32 the handlers are C at first, not the JIT. A wallet tx is about 50–300k
   gas. At an estimated 100–300 cycles per opcode, that is 10–50 ms.
-- **Code size.** An estimated 0.4–0.8 MiB in ReRAM (§3.3), to be measured in W5. The pairing and
+- **Code size.** An estimated 0.4–0.8 MiB in ReRAM (§3.3), to be measured on the board. The pairing and
   KZG precompiles are left out of the chip build.
 
 ### 3.6 Budget, from measured read sets
 
 **Read sets, real (keys per tx).**
 
-1. *Ethereum*, recorder output (branch `readset`): mainnet block 24,538,111, 756 txs, from the
+1. *Ethereum*, recorder output: mainnet block 24,538,111, 756 txs, from the
    core's repro fixture, run locally with the recorder on. Accounts include the sender, the
    recipient and the coinbase, and the codes column counts code reads.
 
@@ -501,8 +497,7 @@ probe mode out.
    | other (132) | 6/15/85 | 9/46/483 | 5/15/84 | 29.4K/136K/304K |
    | all (756) | 3/5/85 | 2/8/483 | 2/4/84 | 10.6K/25.7K/304K |
 
-2. *Arc*, the re-replay's read sets on x300 (`/data/eita/arc-rr/readset`, blocks 1–1,392,640, 986
-   user txs; Arc's early chain is light): accounts p50/p90/p99/max 4/7/13/67, slots 4/7/22/243,
+2. *Arc*, recorder output over blocks 1–1,392,640 (986 user txs; Arc's early chain is light): accounts p50/p90/p99/max 4/7/13/67, slots 4/7/22/243,
    codes 3/5/11/65.
 
 3. *Witness bytes, real (path B on a public endpoint).* `eth_createAccessList` + `eth_getProof` +
@@ -566,20 +561,20 @@ All of this is well inside 2 MiB of SRAM (§3.3).
 | part | source | checked by |
 |---|---|---|
 | opcode handlers, gas formulas, fork tables | emitted from Lean (existing; on RV32 as C over the 32-bit `LimbC`, later the RV32 AsmCore lowering) | existing emit drift checks, AsmCore proofs for a lowering |
-| effect layer: CALL, CREATE, SSTORE, SLOAD, settle, end-of-tx, tx | effect IR → **C** printer (`Evm.CL.EffectC`, today SLOAD/SSTORE only; extend to every term) | `Effect*Proof` (spec refinement), printer trusted like `toCL` |
+| effect layer: CALL, CREATE, SSTORE, SLOAD, settle, end-of-tx, tx | effect IR → **C** printer (`Evm.CL.EffectC`: SLOAD/SSTORE; to be extended to every term) | `Effect*Proof` (spec refinement), printer trusted like `toCL` |
 | read seam: overlay, then `lookup`; the one-shot pool or the interactive request | **emitted**: `walk`/`lookup` are first-order and total, printed to C like `LimbC` | `lookup_*_sound`, `runI_sound`, CBMC on the printed C (bounds, no OOB on adversarial bytes) |
-| RLP decode, hex-prefix | emitted from the totalized `Rlp.decodeAt` (W0) | round-trip theorem, CBMC |
+| RLP decode, hex-prefix | emitted from the totalized `Rlp.decodeAt` (§2.1) | round-trip theorem, CBMC |
 | keccak | `lean/c/keccak.c` (existing, trusted; a 32-bit interleaved variant for RV32) | test vectors (trusted surface) |
 | ecrecover | libsecp256k1 (existing, trusted) | fixtures |
 | arena, node cache, protocol codec, header parsing, API marshalling | hand-written glue (~600 lines) | CBMC harness (`c/cbmc/` pattern), property tests vs the Lean reference, a fuzzing host (random reorderings, drops, forged nodes) |
 
 The native accounts plus CALL/CREATE in C is the same work as the "all-C core" the RISC-V port
-needs (new-ideas item 5). The read seam is that core's world view, and it does not add a second
+needs. The read seam is that core's world view, and it does not add a second
 core.
 
 ### 3.8 Pinning
 
-`lean/Comparator/Challenge.lean` gains, with owner review, `lookup_found_sound`,
+`lean/Comparator/Challenge.lean` gains, reviewed, `lookup_found_sound`,
 `lookup_absent_sound`, `runP_sound`, `runP_missing`, `runI_sound`, `txProg_refines`,
 `stateless_sound` and `interactive_sound`. The standard axioms suffice: keccak appears as an opaque
 constant inside `Collision`, not as an axiom.
@@ -708,7 +703,7 @@ The device follows the beacon chain's **sync committee**: 512 validators, rotate
   - Estimate: the 342-point G1 aggregation is small next to the pairing check, which is roughly
     0.3–1 s on a 350 MHz RV32 without a big-number engine.
   - That gives about 10–30 s per month of gap and about 2–5 min per year.
-  - This is to be measured in W5. If the Baochip's accelerators include a big-number engine, it
+  - This is to be measured on the board. If the Baochip's accelerators include a big-number engine, it
     shrinks.
   - A per-simulation header costs one more verify; a cached session header avoids repeating it.
 
@@ -794,7 +789,7 @@ The assumptions are:
 #### 4.3.8 Arc
 
 The structure is the same, with Arc's consensus in place of the sync committee. Read from
-`~/arc-node`, commit 6e76402:
+the arc-node source, commit 6e76402:
 
 - **Consensus.** Malachite BFT. Each height has a **commit certificate**: height, round,
   `block_hash` (the `ValueId`), and Ed25519 precommit signatures from validators, 64 B each
@@ -825,7 +820,7 @@ The structure is the same, with Arc's consensus in place of the sync committee. 
   If the set rotated so far that the >1/3 overlap fails, the host supplies intermediate heights
   (bisection).
 - **Costs.**
-  - Ed25519 verify is an estimated ~1–3 M cycles on RV32; measured in W5.
+  - Ed25519 verify is an estimated ~1–3 M cycles on RV32; to be measured on the board.
   - Each certificate needs one verify per signer, so a set of a few tens of validators costs well
     under a second.
   - The stored set is small: keys and powers, a few KB, in the same A/B slots.
@@ -846,24 +841,24 @@ N".
 
 Eita adds three things:
 
-1. **Exact per-tx read sets** from the recorder (branch `readset`), so a replayed tx needs no
+1. **Exact per-tx read sets** from the recorder, so a replayed tx needs no
    access-list guessing and no loop.
 2. **Block-prefix witnesses** for historical txs at their true pre-state (§2.4).
 3. **The same format.**
 
 What it needs in order to produce proofs:
 
-- **Nodes at a root.** Eita keeps no persistent trie today: `mpt-live.lisp` is refused at startup,
-  and roots are checked per anchor by the stack build (`src/state/root.lisp`, `Trie/Stack.lean`),
+- **Nodes at a root.** Eita keeps no persistent trie: the incremental validator (`mpt-live.lisp`)
+  is not armed (`EITA_MPT_CHECK` is refused), and roots are checked per anchor by the stack build (`src/state/root.lisp`, `Trie/Stack.lean`),
   which hashes nodes and discards them.
-- **Minimal path (W4a): witnesses at anchors.** Give the stack build a *proof-extraction* mode: for
+- **Minimal path: witnesses at anchors.** Give the stack build a *proof-extraction* mode: for
   a sorted set of target keys, emit every node whose key range contains a target, at the moment it
   closes. One streaming pass over the anchor's snapshot then serves every request batched for that
   anchor. It costs minutes per pass on Ethereum, adds no new trie store, and is the same code as
   the root check.
-- **Tip (W4b):** stage 8's incremental trie (persistence review §8) holds the tip's nodes, so
-  `eth_getProof` and witnesses at the tip are reads of it.
-- **Arbitrary historical N:** stage 8 together with §9's archive (state at N, from the nearest
+- **Tip:** an incremental trie at the tip holds the tip's nodes, so `eth_getProof` and witnesses
+  at the tip are reads of it.
+- **Arbitrary historical N:** that trie together with an archive of state at N (the nearest
   snapshot plus diffs), or a stack build over the state at N. This comes last and is gated on
   measured demand.
 
@@ -895,66 +890,58 @@ a section is free, because the index sorts by hash.
 The read-set recorder's segment format (`docs/readset-format.md`) is a separate archive of
 *keys*, not values. A witness is built *from* it (path C), so the two do not overlap.
 
-## 6. Staging, effort, dependencies, risks, complexity
+## 6. What exists and what remains
 
-| stage | what | effort | needs |
-|---|---|---|---|
-| **W0** | totalize `Rlp.encode/decodeAt`, `Trie.patricialise/nodeRef`; `decode ∘ encode = some`; `patricialise` characterization (items ↔ structure) | 2–3 wk | — (also unblocks the `Trie/Stack` and `Trie/Frontier` `sorry`s) |
-| **W1** | `Evm/Witness/{ReadKey,Pool,Lookup}.lean`; prove (a) and the account layer; `Prog` + the four generic theorems (done in the spike) | 1–2 wk | W0 |
-| **W2** | `txProg`: effect IR `ask` semantics (one induction over `Stmt`), frame state yields as `ask`, tx/call/create glue reads; `txProg_refines` for every fork; block bind (d) | 4–8 wk | existing `Effect*Proof`, total trampoline with fuel |
-| **W3** | C: `lookup`/RLP printed from Lean, glue + arena + node cache, `eita_wx_*` (session and one-shot), the wire protocol codec; CBMC harness; property tests vs Lean with scripted adversarial hosts; stateless BlockchainTests on host | 4–5 wk | W1; effect IR → C for the remaining terms (all-C core) |
-| **W4a** | the host program: the protocol's host side, path B prefetch (access list + getProof + probe loop) against two hosted providers and one public endpoint, path A ingestion, PUSH | 2 wk | W3 |
-| **W4b** | path C: stack-build proof extraction at anchors; recorder read sets → witnesses | 2 wk | `readset` branch merged |
-| **W5** | RV32IMC build (32-bit `LimbC`, interleaved keccak), on the dabao: code size in ReRAM, SRAM high-water, cycles per class (§3.6 classes), USB HS and BLE timings; ReRAM code cache; the on-device light client (§4.3: sync-committee updates with BLS aggregate verify, A/B trust slots, staleness limit, vendor-signed checkpoints and firmware; Arc certificates with Ed25519 and the stateless validator-set call), with BLS and Ed25519 verify timed | 5–8 wk | all-C core; the dabao board |
-| **W6** | stateless block validation with post-root (deletion siblings); tip witnesses | later | stage 8 incremental MPT |
+Built: `lean/Evm/Witness/ReadSet.lean` (`ReadKey`, `Answer`, `Oracle`, `oracleOf`, `AgreeOn`,
+`Sufficient` and their lemmas), the recorder (`src/evm/readset.lisp`) and its format. The rest is
+specified here, in dependency order:
 
-The critical path is W0 → W1 → W2, which is proof work. W3 and W4a can run against the Lean
-reference before W2 is closed, and (c) holds for any `Prog` already. Until `txProg_refines` is
-proved it is a listed open obligation in the coverage matrix, which raises the debt ratchet
-explicitly. It is not a hidden gap.
+| piece | what | needs |
+|---|---|---|
+| total RLP and trie | totalize `Rlp.encode/decodeAt`, `Trie.patricialise/nodeRef`; `decode ∘ encode = some`; `patricialise` characterization (items ↔ structure) | — (also closes the `Trie/Stack` and `Trie/Frontier` `sorry`s) |
+| lookup and `Prog` | `Evm/Witness/{Pool,Lookup}.lean`; theorem (a) and the account layer; `Prog` and the four generic theorems of §2.3 | total RLP and trie |
+| `txProg` | effect IR `ask` semantics (one induction over `Stmt`), frame state yields as `ask`, tx/call/create glue reads; `txProg_refines` for every fork; the block bind (d) | the `Effect*Proof` refinements, a total trampoline with fuel |
+| the C library | `lookup`/RLP printed from Lean, glue + arena + node cache, `eita_wx_*` (session and one-shot), the wire protocol codec; CBMC harness; property tests vs Lean with scripted adversarial hosts; stateless BlockchainTests on the host | lookup and `Prog`; the effect IR → C printer for the remaining terms (an all-C core) |
+| the host program | the protocol's host side, path B prefetch (access list + getProof + probe loop), path A ingestion, `PUSH` | the C library |
+| path C | stack-build proof extraction at anchors; recorder read sets → witnesses | the C library |
+| the device build | RV32IMC (32-bit `LimbC`, interleaved keccak) on the dabao: code size in ReRAM, SRAM high-water, cycles per class (§3.6), USB HS and BLE timings; the ReRAM code cache; the on-device light client (§4.3: sync-committee updates with BLS aggregate verify, A/B trust slots, staleness limit, vendor-signed checkpoints and firmware; Arc certificates with Ed25519 and the stateless validator-set call) | the all-C core; the board |
+| stateless block validation | the post-root (deletion siblings); tip witnesses | an incremental trie at the tip |
+
+The critical path is the three proof pieces. The C library and the host program can run against
+the Lean reference before `txProg_refines` is proved, and (c) holds for any `Prog` already. Until
+`txProg_refines` is proved it is a listed open obligation in the coverage matrix.
 
 **Risks.**
 
-1. W2's size. The tx glue reads `State` directly in many places, and turning each read into an
-   `ask` without forking the spec needs care.
-   - Mitigation: route the glue's reads through a small set of accessors first (a refactor, proved
-     equal), then make the accessors the `ask` points.
-2. The all-C core (native accounts + CALL/CREATE in C) is a prerequisite for the chip but is not
+1. `txProg`'s size. The tx glue reads `State` directly in many places, and turning each read into
+   an `ask` without forking the spec needs care. Mitigation: route the glue's reads through a small
+   set of accessors first (a refactor, proved equal), then make the accessors the `ask` points.
+2. The all-C core (native accounts + CALL/CREATE in C) is a prerequisite for the chip and is not
    built.
 3. Device fit. The firmware size and whether it runs in place from ReRAM are estimates
-   (0.4–0.8 MiB), and the cycles per Keccak and per opcode on the VexRiscv are unmeasured. W5
-   measures all of them. A tx that exceeds the arena is `ENOMEM` ("cannot simulate"), never a wrong
-   answer.
+   (0.4–0.8 MiB), and the cycles per Keccak and per opcode on the VexRiscv are unmeasured. A tx
+   that exceeds the arena is `ENOMEM` ("cannot simulate"), never a wrong answer.
 4. Provider behavior: `eth_createAccessList` quirks and `debug_executionWitness` gaps (QuickNode's
-   own "incomplete witness" fix).
-   - Mitigation: the loop, and hard failure.
-5. Post-root nodes for deletions (W6) are absent on path B.
+   own "incomplete witness" fix). Mitigation: the loop, and hard failure.
+5. Post-root nodes for deletions are absent on path B.
 
-**Complexity budget.** This is an owner-approved feature, and it should replace ad-hoc pieces.
-Proposed offsets, each of which removes a second copy or an unverified path:
+**What it replaces.** Each removes a second copy or an unverified path:
 
-1. **Delete `lean/Evm/Frontier/Trie.lean`** (44 lines). It is a placeholder whose `root` returns a
-   constant and whose only user is an unused import in `Frontier/Fork.lean`. `Evm.Trie` and
-   `Witness.Lookup` supersede it. Delete it in W1.
-2. **Replace the Base track's unverified lazy RPC state** (`src/chains/op.lisp`: the
-   prestateTracer overlay, the disk cache and `eth_getStorageAt`/`eth_getCode` faults, where a miss
-   is "counted + warned"). It becomes the witness path: the same fault hooks, proof-verified
-   against the header `stateRoot`, with a miss as a hard failure. Alchemy serves
-   `debug_executionWitness` on Base. Done in W4a. It removes the overlay and cache code, an
-   estimated 100+ lines, and closes a silent-gap class.
-3. **One read-key type.** `Parallel/Reads.lean`'s abstract `Key` and its `Faithful`/`Deterministic`
-   hypotheses are replaced by `ReadKey` and the `Prog` theorems, done in W1. The recorder's kinds
-   are the same enumeration.
-4. **The stack build's proof extraction** (W4b) is a mode of the existing root check, not a new
-   trie store.
+1. `lean/Evm/Frontier/Trie.lean`, a placeholder whose `root` returns a constant and whose only
+   user is an unused import in `Frontier/Fork.lean`; `Evm.Trie` and `Witness.Lookup` supersede it.
+2. The Base track's unverified lazy RPC state (`src/chains/op.lisp`: the prestateTracer overlay,
+   the disk cache and `eth_getStorageAt`/`eth_getCode` faults, where a miss is counted and warned).
+   It becomes the witness path: the same fault hooks, proof-verified against the header
+   `stateRoot`, with a miss as a hard failure.
+3. `Parallel/Reads.lean`'s abstract `Key` and its `Faithful`/`Deterministic` hypotheses, replaced
+   by `ReadKey` and the `Prog` theorems. The recorder's kinds are the same enumeration.
 
-Estimated net: W1–W3 add about 1,500 Lean and about 600 C/glue lines. The offsets above recover
-several hundred. The rest is the feature's cost and is stated in each stage's commit.
+The stack build's proof extraction (path C) is a mode of the existing root check, not a new trie
+store.
 
-## 7. Open questions (for the owner)
+## 7. Open questions
 
-1. *(Answered 2026-11-13: dabao, RV32IMC, 2 MiB SRAM + 4 MiB ReRAM, USB/BLE to a host,
-   interactive during signing.)* Still open about the part:
+1. About the part:
    - Can firmware execute in place from ReRAM?
    - Do the "cryptographic accelerators" include Keccak (which would remove ~0.15 s on the largest
      tx) or a big-number engine (for secp256k1)?
@@ -977,7 +964,6 @@ several hundred. The rest is the feature's cost and is stated in each stage's co
    beside it, and `Prog`, the executor and the C API are unchanged.
 6. Does Arc/OP need anything beyond the header's `stateRoot`? Arc's native-USDC precompile state is
    ordinary storage, so it should not.
-
 7. What is Arc's trusting period for the skipping rule (§4.3.8)? It follows from how fast the
    permissioned validator manager can rotate keys and from what a removed validator risks.
 8. Should v1 ship with the root taken from the host, which requires the plain on-device warning of

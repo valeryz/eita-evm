@@ -1,5 +1,5 @@
 ;;;; tests/native-storage-hooks.lisp — observers see SLOAD/SSTORE exactly as the deleted Lisp
-;;;; effect path showed them (docs/native-storage.md, owner note 6 step 5 and addendum 2).
+;;;; effect path showed them (docs/native-storage.md §5).
 ;;;;
 ;;;; Each fixture directory runs twice under an observer: without and with the watch filter
 ;;;; (tier (b): the accounts the first run changed most, *storage-access-hook* on each of their

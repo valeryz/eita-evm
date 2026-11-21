@@ -195,32 +195,33 @@ any spec-theorem change.
 For each new fork: write the same `Refinement.lean` covering the
 fork's NEW relations only (the rest is by `import` of predecessor
 refinement). Aim for `simp [unfold_chain]` one-liners
-wherever the relation shape allows. (An earlier revision of this
-line recommended `loom_smt`, an SMT-backed tactic whose discharge
-rested on a `trust_smt` axiom; it was removed — keep these proofs
-kernel-only so `#print axioms` stays clean.)
+wherever the relation shape allows, and keep these proofs
+kernel-only (no SMT-backed tactic) so `#print axioms` stays clean.
 
 ## Bug-class log — what to make sure your spec captures
 
 When an implementation bug closes on EELS, the matching spec almost
-always was missing the invariant the bug exposed. Lessons from the
-2026-05-30 validation push:
+always was missing the invariant the bug exposed. The classes found so
+far:
 
 1. **CREATE/CREATE2 sender nonce bump SURVIVES init-code REVERT and
    deposit-OOG.** The spec must mention the nonce-bump-persistence,
    not just "fail and push 0." Otherwise an implementation can
    silently roll back the bump and let the same sender retry at the
    same derived address. See
-   `Homestead/Spec/CreateStep.lean::IsCreateDepositRevert` (now
+   `Homestead/Spec/CreateStep.lean::IsCreateDepositRevert` (it
    takes `sender`/`senderAccNonce`) and
    `Byzantium/Spec/CreateInitRevertStep.lean`.
 
-2. **An account with non-empty STORAGE is "in use" for collision
-   purposes,** even at `nonce = 0` and empty code. The naive
-   `nonce > 0 ∨ code.size > 0` predicate misses tests like
-   `stSStoreTest/InitCollision_*`. See
-   `Constantinople/Spec/Create2Step.lean::AccountInUse`. EIP-7610
-   makes this normative at Cancun; EELS enforces it pre-7610 too.
+2. **A creation over an account that holds storage wipes the storage;
+   it is not a collision.** The collision rule is nonce or code
+   (EIP-684); EELS dropped EIP-7610's storage leg from every fork and
+   runs `destroy_storage` in `process_create_message` before the init
+   code. The spec must state the wipe, or an implementation can keep
+   stale slots under the new contract. See `Frontier/Vm/Create.lean`
+   (`Create.collides`, `childState`) and
+   `docs/effect-layer-derivation.md` §5, item 12 (the fixtures that
+   expect EIP-7610's abort are expected failures).
 
 3. **Per-fork precompile-table dispatch.** Each fork's spec should
    pin the set of precompile addresses. An implementation that

@@ -1,6 +1,6 @@
 import Evm.CL.EffectIR
 
-/-! # CL/EffectSstore — `cb-sstore`, derived (docs/effect-layer-derivation.md §7.3)
+/-! # CL/EffectSstore — `cb-sstore`, derived (docs/effect-layer-derivation.md §4.4)
 
 The SSTORE host callback as one `EffectIR` term for every fork, proved in
 `Evm.CL.EffectSstoreProof` (`sstore_refines`) against the handler the IR binds

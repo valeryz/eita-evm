@@ -1,8 +1,8 @@
 /-! # CL/JournalSpec — provably-correct storage journal & revert (#236 / GH #15)
 
 The replay's per-frame revert engine (`cb-sstore` journals `(addr, slot, old)`,
-`revert-journal-to` replays it backward) is hand-written, unverified CL — Tier A
-in `docs/vericoding-host-layer.md`. Its bug class has now bitten THREE times:
+`revert-journal-to` replays it backward) is hand-written, unverified CL. Its bug
+class has now bitten THREE times:
 #256 (apply-tx revert order, block 1,936,837), #264 (CREATE deposit rollback),
 and the state-root drift at block 4,085,884 (a failed/OOG `addHashes` tx whose
 `hashes`-array SSTORE we kept and mainnet reverted — contract 0xfb4ebcf2, slot

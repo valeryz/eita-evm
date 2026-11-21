@@ -1,6 +1,6 @@
 # Replay architecture: generic EVM replay, chains as specs
 
-Since 2026-10-17 the replay is one generic driver plus per-chain specs. Nothing in the
+The replay is one generic driver plus per-chain specs. Nothing in the
 generic modules knows which chain it runs; a chain changes behaviour only through the
 fields of a `chain-spec` (`src/chains/chain-spec.lisp`), which is the complete list of
 extension points.

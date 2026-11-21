@@ -1,5 +1,5 @@
 /*
- * storage_host.h — SLOAD and SSTORE (docs/native-storage.md, owner note 6 and its addendum 2).
+ * storage_host.h — SLOAD and SSTORE (docs/native-storage.md).
  *
  * The callbacks vtable's slots 0 and 1 are eita_cb_sload / eita_cb_sstore, the one execution
  * path of the two opcodes: they run the effects EMITTED from the effect IR
