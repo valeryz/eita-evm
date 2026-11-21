@@ -229,6 +229,8 @@
    #:set-fork #:fork #:hex #:addr #:*block*
    ;; replaying a chain (src/chains/replay.lisp)
    #:replay
+   ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
+   #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*

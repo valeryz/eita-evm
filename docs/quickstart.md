@@ -109,6 +109,7 @@ NIL
 - `src/evm/run-tx.lisp` (`run-evm-tx`), `src/evm/tx.lisp` (`apply-tx`) and
   `src/evm/calls.lisp`, `callbacks.lisp` (the callbacks) are the host; `src/generated/host.lisp` is what Lean emitted for it.
 - `lean/Evm/Prague/` is the spec of the fork you just ran, as a delta over Cancun.
+- `docs/hooks.md`: your own metric folds and notifications, fed each verified block.
 - Hooks: a chain spec (`src/chains/chain-spec.lisp`) changes behaviour only through its
   fields — precompiles, fee routing, system calls, warming rules. `src/chains/arc.lisp` is a
   complete example.

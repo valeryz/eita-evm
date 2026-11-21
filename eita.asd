@@ -62,6 +62,7 @@
                (:file "state/snapshot-world")
                ;; the chain-neutral block pipeline and driver
                (:file "chains/block-system")
+               (:file "evm/hooks")            ; eita:subscribe: handlers fed verified blocks
                (:file "chains/chain-spec")
                (:file "chains/driver")
                (:file "state/mpt")
