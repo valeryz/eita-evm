@@ -100,14 +100,16 @@ wiped its account, else the base. The account is then materialized by the inclus
 (`s1-included-p`): present iff non-empty, with storage, or marked. Faults go through these
 (`snap-fault-account`, `snap-fault-slot`, `snap-cold-storage-map`).
 
-`compose-address` folds one address through a run of layers (optionally with the base) on raw
-records, a k-way merge of their slot runs, newest wins, stopping at a wipe. It serves minor
-compaction (zeros kept), major compaction and the root check (zeros dropped, S1 applied by the
-merge writer, `merge-account :raw-slots`).
+`compose-range` is the one merge of sorted record runs over a key range: a k-way merge, newest
+wins, stopping at a source that wiped the account (Lean `composeRuns`,
+`docs/state-snapshot-format.md` §6). `compose-address` gives it one address's slot runs through a
+run of layers (optionally with the base), on raw records. It serves minor compaction (zeros kept),
+major compaction and the root check (zeros dropped, S1 applied by the merge writer,
+`merge-account :raw-slots`).
 
 **The root check** (`state/root.lisp <base> <layer>...`) streams: chunks of 4,096 base accounts
-in parallel; each chunk's address range picks up the layer addresses in it
-(`map-touched-addresses`), and an address any layer mentions is composed over the base records
+in parallel; each chunk's address range picks up the layer addresses in it (`compose-range`
+over the layers' account records), and an address any layer mentions is composed over the base records
 the scan is at (`:base-at`, a merge-join; the base is read once, without its fence). A base
 storage of over 1M slots is the exception: only its layers are composed (tombstones kept), and
 `giant-root` lays them over the base's records in place while it builds that storage's trie

@@ -19,9 +19,19 @@
   files are `((:base b) . status)` / `((:layer p n) . status)` / `((:frontier n) . status)`,
   points `(b comp…)`; resume
   is `resumePoint` over `dumpsOf`, gcfiles is `gcFiles` (in file order).
+
+  Key-range merges (`Evm.Persist.Layered`, Part E: snapshot v2's `compose-range`), one line
+  each:
+
+    (:compose ((((k v)…) stop)…) ((k v)…) ((k v)…))
+
+  the sources newest first, each an ascending run of keys below 12 with values 0..3 (0 a
+  tombstone) and its wipe flag, then `composeRuns` of them, then that merge with the
+  tombstones dropped (the filter of `viewRange_slot`).
 -/
 import Evm.Persist.Recovery
 import Evm.Persist.Layered
+import Mathlib.Data.Nat.Basic
 
 open Evm.Persist.Recovery
 open Evm.Persist.Layered
@@ -104,6 +114,24 @@ def showFile (e : FileEntry) : String :=
 
 def showPoint (p : Point) : String := sexpList (toString p.1 :: p.2.map showComp)
 
+def genRun : Nat → Nat → List (Nat × Nat) × Nat
+  | 0, s => ([], s)
+  | k + 1, s =>
+    let (rest, s) := genRun k s
+    let (keep, s) := draw s 3
+    let (v, s) := draw s 4
+    (if keep = 0 then (11 - k, v) :: rest else rest, s)
+
+def genSources : Nat → Nat → List (List (Nat × Nat) × Bool) × Nat
+  | 0, s => ([], s)
+  | k + 1, s =>
+    let (r, s) := genRun 12 s
+    let (stop, s) := draw s 4
+    let (rest, s) := genSources k s
+    ((r, stop = 0) :: rest, s)
+
+def showRun (r : List (Nat × Nat)) : String := sexpList (r.map fun (k, v) => s!"({k} {v})")
+
 def main : IO Unit := do
   let mut s := 20261018
   for _ in [0:20000] do
@@ -125,3 +153,11 @@ def main : IO Unit := do
     IO.println <| sexpList [":layered", sexpList (as.map showAnchor), sexpList (fs.map showFile),
       sexpList (ps.map showPoint), showResume (resumePoint as (dumpsOf fs ps)),
       sexpList ((gcFiles as fs ps).map showComp)]
+  for _ in [0:20000] do
+    let (n, s1) := draw s 5
+    let (srcs, s2) := genSources n s1
+    s := s2
+    let merged := composeRuns srcs
+    IO.println <| sexpList [":compose",
+      sexpList (srcs.map fun (r, stop) => sexpList [showRun r, if stop then "t" else "nil"]),
+      showRun merged, showRun (merged.filter fun e => e.2 != 0)]
