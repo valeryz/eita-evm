@@ -1,7 +1,7 @@
 ;;;; cli.lisp — bin/eita, the one executable.
 ;;;;
 ;;;;   eita replay --chain C --from N [--to M | --to tip] [--blocks DIR] [--state DIR]
-;;;;               [--checkpoint-every N] [--source FILE] [--observer FILE]
+;;;;               [--checkpoint-every N] [--source FILE] [--observer FILE] [--factlog DIR]
 ;;;;               [--resume N] [--genesis FILE] [--lazy | --full-state]
 ;;;;   eita engine --chain C --state DIR --jwt FILE [--engine-listen ADDR] [--genesis FILE]
 ;;;;               [--blocks DIR]               the Engine API for a consensus client
@@ -26,7 +26,7 @@
   "usage: eita <command> [arguments]
   replay --chain ethereum|hoodi|devnet|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
          [--blocks DIR] [--state DIR] [--checkpoint-every N] [--source FILE]
-         [--observer FILE] [--resume N] [--genesis FILE] [--lazy | --full-state]
+         [--observer FILE] [--factlog DIR] [--resume N] [--genesis FILE] [--lazy | --full-state]
   engine --chain ethereum|hoodi|devnet --state DIR --jwt FILE [--engine-listen 127.0.0.1:8551]
          [--genesis FILE] [--blocks DIR]
                                    an execution client for a consensus client (docs/run-a-node.md)
@@ -129,7 +129,7 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   (multiple-value-bind (o rest)
       (parse-options args '(("--chain" :value) ("--from" :value) ("--to" :value) ("--blocks" :value)
                             ("--state" :value) ("--checkpoint-every" :value) ("--source" :value)
-                            ("--observer" :value) ("--resume" :value) ("--genesis" :value)
+                            ("--observer" :value) ("--factlog" :value) ("--resume" :value) ("--genesis" :value)
                             ("--lazy" :flag) ("--full-state" :flag)))
     (when rest (usage-error "replay: unexpected ~{~A~^ ~}" rest))
     (unless (getf o :chain) (usage-error "replay: --chain is required"))
@@ -139,6 +139,7 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
       (apply #'eita:replay (getf o :chain) (if (getf o :from) (int-arg (getf o :from) "--from") 0)
              :to (cond ((null to) nil) ((string-equal to "tip") :tip) (t (int-arg to "--to")))
              :blocks (getf o :blocks) :source (getf o :source) :observer (getf o :observer)
+             :factlog (getf o :factlog)
              :state (getf o :state) :genesis (getf o :genesis)
              :checkpoint-every (and (getf o :checkpoint-every) (int-arg (getf o :checkpoint-every) "--checkpoint-every"))
              :resume (and (getf o :resume) (int-arg (getf o :resume) "--resume"))

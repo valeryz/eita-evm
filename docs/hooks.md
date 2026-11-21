@@ -317,8 +317,106 @@ The rules:
 
 ## Querying history
 
-A question about the past is a fold over the past: replay the range with the subscription
-loaded, and the same handlers that follow the chain live answer it for the range (a backfill;
-`--from`/`--to`, or `--resume` from an anchor). A value the answer needs at a given block —
-a balance, a slot — is a watch or a fold that records it as the block passes. The node's
-snapshots (`docs/layered-snapshots.md`) are its resume points, not a query interface.
+A replay with `--factlog DIR` records every verified block in the fact log
+(docs/fact-log.md): the same records your handlers get, as rows of seven tables, with a
+history index. Questions about the past are then answered from the log instead of a replay:
+a **lookup** (a value at a block, a value's changes) goes through the index and reads only the
+shards that changed the key; a **scan** (every Transfer of a token, daily totals) reads the
+range's shards of one table, one group at a time, decoding only the columns it names. A
+**backfill** feeds your subscriptions past blocks from the log, so a fold covers history
+without executing it again.
+
+The examples are in `examples/history/`; `tests/history.lisp` runs each on the shipped mainnet
+block and checks it against what the replay delivered. To try them:
+
+```lisp
+$ gzip -dc tests/data/mainnet-24538111.json.gz > /tmp/block.json
+$ bin/eita repl
+* (eita.factlog.writer:install-factlog-observer! "/tmp/factlog/")   ; what --factlog does for a replay
+* (run-fixture-file "/tmp/block.json")
+PASS mainnet_24538111
+* (mapc #'load (directory "examples/history/*.lisp"))
+```
+
+**A balance or a slot at block N** (`state-at.lisp`, a lookup):
+
+```lisp
+* (history.state:account-at "/tmp/factlog/" "0xdadb0d80178819f2319190d340ce9a924f783711" 24538111)
+(:NONCE 2206362 :BALANCE 56971586277019285818 :CODE-HASH 0)
+* (defparameter *weth* "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+* (defparameter *holder* "0xfbd4cdb413e45a52e2c8312f670e9ce67e794c37")
+* (history.state:erc20-balance-at "/tmp/factlog/" *weth* *holder* 24538111 :slot 3)   ; WETH9's balanceOf: slot 3
+2308227983381338681508
+* (history.state:erc20-balance-at "/tmp/factlog/" *weth* *holder* 24538110 :slot 3)   ; the block before
+2278419931574630784217
+```
+
+`eita-factlog:state-at` takes `(address)` for an account or `(address slot)` for a slot;
+`mapping-slot` computes a Solidity mapping's slot (keccak256 of key and slot). The answer is
+`:unknown` when the log never saw the key change (its value predates the log).
+
+**A value's history** (`changes.lisp`, through the index): every change of a slot or of an
+account's balance, nonce or code, with its block and transaction.
+
+```lisp
+* (history.changes:changes "/tmp/factlog/" *weth* 24538000 24538111
+                           :slot (history.state:mapping-slot (eita:addr *holder*) 3))
+((:BLOCK 24538111 :TX 0 :PRE 2278419931574630784217 :POST 2304467532858488539775)
+ (:BLOCK 24538111 :TX 30 :PRE 2304467532858488539775 :POST …)
+ …
+ (:BLOCK 24538111 :TX 263 :PRE 2308326283574687286427 :POST 2308227983381338681508))
+* (history.changes:changes "/tmp/factlog/" "0xdadb0d80178819f2319190d340ce9a924f783711" 24538000 24538111 :kind :nonce)
+((:BLOCK 24538111 :TX 754 :PRE 2206360 :POST 2206361) (:BLOCK 24538111 :TX 755 :PRE 2206361 :POST 2206362))
+```
+
+**A token's transfers between two blocks** (`token-transfers.lisp`, a scan with a filter: the
+log table's address column is decoded first, topics and data only at the token's logs):
+
+```lisp
+* (length (history.transfers:transfers "/tmp/factlog/" *weth* 24538000 24538111))
+64
+* (first (history.transfers:transfers "/tmp/factlog/" *weth* 24538000 24538111 :address *holder*))
+(:BLOCK 24538111 :TX 0 :FROM 781565920503084522588735353684212164031210804800
+ :TO 1437702360754755276895429293666340640506234096695 :VALUE 26047601283857755558)
+```
+
+**Analytics as a reduce** (`daily.lisp`): per UTC day, transactions, gas, fees burnt and distinct
+senders. It reads two columns of the block table and two of the tx table, shard by shard; its
+memory is one shard's blocks and the current day's senders, whatever the range.
+
+```lisp
+* (history.daily:daily "/tmp/factlog/" 24538000 24538111)
+((:DAY "2026-02-26" :TXS 756 :GAS 59896574 :BURNT 2298267182841530 :SENDERS 661))
+```
+
+**A backfill, then live** (`backfill.lisp`): the same subscription folds the logged range and
+then follows the replay.
+
+```lisp
+* (load "examples/hooks/gas-per-block.lisp")              ; subscribes
+* (eita:backfill "/tmp/factlog/" 24538111 24538111)         ; the past, from the log: 1 block
+* (hooks.gas:summary)                                       ; = the live run's
+;; then the chain from the log's newest block on, same subscription, no second :start:
+* (history.backfill:catch-up "/data/factlog/" 24000000 "ethereum" :to :tip :blocks "/data/blocks/" :factlog "/data/factlog/")
+```
+
+`eita:backfill` delivers through the same path as a replay: `:start` before the first block,
+then per block the tx, transfer, log and change records and `:block`. The log does not carry
+a block's hash and parent hash or a transaction's nonce and gas limit (those fields are `NIL`),
+and a transaction's state changes come in key order. A fold that reads the other fields and
+does not depend on that order (the examples above) gets the same state both ways. Run a
+backfill while no replay runs; it refuses blocks past the log's `committed`.
+
+What to use when:
+
+| question | how | cost |
+|---|---|---|
+| a value at block N | `state-at` | the shards that changed the key (Bloom filters skip the rest) |
+| a value's changes over a range | `key-history` | the same, over the range |
+| every row of a kind in a range, filtered | `map-rows` with `:cols` / `:where` | the range's shards of that table, the named columns |
+| a fold over history, then live | `eita:backfill`, then a replay | the range's shards of five tables |
+| a question the tables do not answer (a value the log never recorded, a call's return data) | a replay of the range with the subscription | execution |
+
+`python3 scripts/factlog.py DIR index` keeps `blooms.idx` (every shard's filter in one file)
+current; with it a lookup over a long history opens only the shards whose filter admits the
+key.

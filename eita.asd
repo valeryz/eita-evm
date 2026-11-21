@@ -3,7 +3,7 @@
 ;;;; Systems:
 ;;;;   eita            the engine: native libraries, the EVM (interpreter and JIT tiers, the
 ;;;;                   Lean-emitted host effects), world state and snapshots, block input, the
-;;;;                   chain-neutral block pipeline and driver, the EITA API package
+;;;;                   chain-neutral block pipeline and driver, the fact log, the EITA API package
 ;;;;   eita/chains     Ethereum, Arc, the OP-Stack chains, and EITA:REPLAY
 ;;;;   eita/fixtures   the BlockchainTests runner
 ;;;;   eita/mpt-live   the incremental state-root validator (kept, not armed: chains/driver.lisp)
@@ -70,6 +70,10 @@
                (:file "chains/receipts")
                (:file "state/worlds")
                (:file "state/root")
+               ;; the fact log: its format (standalone), the writer (an observer), backfills
+               (:file "factlog/format")
+               (:file "factlog/writer")
+               (:file "factlog/backfill")
                ;; the API
                (:file "eita"))
   :in-order-to ((test-op (test-op "eita/test"))))

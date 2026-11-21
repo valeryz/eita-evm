@@ -73,8 +73,8 @@ bin/eita replay --chain ethereum --blocks /path/to/blocks --from 1 --to 1000 --c
 Every flag is also an environment variable the driver reads (`EITA_<NAME>`, or the chain's
 prefix: `ETH_`, `ARC_`), as deployments set them: `--blocks` is `EITA_BLOCKS_DIR`, `--state`
 `EITA_STATE_DIR`, `--checkpoint-every` `EITA_CHECKPOINT_EVERY`, `--resume` `EITA_RESUME_FROM`,
-`--genesis` `EITA_GENESIS`, `--source` `EITA_SOURCE`, `--observer` `EITA_OBSERVER`; full
-state is `<PREFIX>_FROM_GENESIS`.
+`--genesis` `EITA_GENESIS`, `--source` `EITA_SOURCE`, `--observer` `EITA_OBSERVER`, `--factlog`
+`EITA_FACTLOG_DIR`; full state is `<PREFIX>_FROM_GENESIS`.
 
 - Full state (the default for Ethereum and Arc; `--lazy` turns it off): the world starts as the chain's genesis allocation
   (`chains/ethereum/genesis.json` for Ethereum mainnet), checked against block 0's state
