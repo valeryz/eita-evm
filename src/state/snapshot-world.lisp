@@ -33,7 +33,7 @@
 (defvar *stack-lock* (sb-thread:make-mutex :name "layer stack"))
 
 (defvar *code-intern* (make-hash-table :test 'eql :weakness :value)
-  "codehash -> the one code vector for it (P4: proxies and clones share one copy). Weak
+  "codehash -> the one code vector for it (proxies and clones share one copy). Weak
    on the value and kept across freezes: a code stays shared while anything — the world,
    the JIT cache's key — still holds it.")
 (defvar *snap-stats* (list :acct-faults 0 :slot-faults 0 :freezes 0))
@@ -111,7 +111,7 @@
         (when exists-empty (acct-set-flag! tb a +acct-marked+))))))
 
 (defun snap-fault-slot (addr slot)
-  "A slot is faulted iff its key is present in ADDR's packed table (P5; fault-slot! calls
+  "A slot is faulted iff its key is present in ADDR's packed table (fault-slot! calls
    this for an absent key only): the value read from the stack is installed even when it
    is 0, and stays present when set to 0."
   (with-acct (tb a) *current-world* addr
@@ -247,11 +247,11 @@
    against a live hot set of 3.5 GB, 250k blocks into a life at Ethereum 14.0M) and stay
    until those generations' rare collections, scattered over the heap; SBCL's large
    allocations search only upward from the highest page allocated since the last GC, so
-   at 33-50 % heap use they found no free run of 64 KB-38 MB (four production deaths).
+   at 33-50 % heap use they find no free run of 64 KB-38 MB and the heap is exhausted.
    Counted in the tables' memory, heap and native, not in their layers' bytes on disk: at
    the tip (a layer per block, Ethereum 25M) a block's layer is 0.27 MB on disk and its
    table 0.5 MB of heap plus 0.28 MB of native slot tables (0.8 MB of heap before those),
-   so the old trigger, a quarter of the nursery in disk bytes, let 1.8 GB pile up at a
+   so a trigger on a quarter of the nursery in disk bytes would let 1.8 GB pile up at a
    10 GB heap and twice that at 20 GB, the native part unseen. The tables are cut loose first: the writer's stack may still hold the struct (a
    conservative root); their native slot tables go with them (finalizers). A full GC at
    ~2 GB live costs 1-2 s."
@@ -320,11 +320,11 @@
 (defun live-components ()
   "What GC must not delete under the replay, as recovery.lisp names files: the running
    stack's disk components, its frozen RAM layers (the writer publishes layer-P-N/ before
-   the snap replaces the RAM layer in the stack: unpinned, a GC in that window deleted the
-   layer under the writer — `rename: No such file`, the replay died; Arc stress, 2026-11-08),
+   the snap replaces the RAM layer in the stack: unpinned, a GC in that window deletes the
+   layer under the writer and the writer's rename fails),
    a compaction's output (written, not yet in the stack) and what the root check in flight
    reads (a minor compaction may have replaced it in the stack).
-   One read of the stack, under *STACK-LOCK*: read twice, it was correct only because
+   One read of the stack, under *STACK-LOCK*: read twice, it would be correct only because
    APPEND reads the RAM layers before the snaps; in the other order the writer's swap of
    layer N between the two reads drops N from both (a Veil protocol model, 10 steps)."
   (multiple-value-bind (base layers)

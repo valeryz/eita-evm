@@ -107,7 +107,7 @@
   (declare (ignore ctx))
   ;; EELS extcodehash (EIP-1052): 0 iff the account is the EMPTY_ACCOUNT
   ;; sentinel (dead = absent or all-zero), else keccak256(code). The "is zero"
-  ;; decision is now DERIVED: `spec-extcodehash-zero-p` is emitted from
+  ;; decision is DERIVED: `spec-extcodehash-zero-p` is emitted from
   ;; Evm.CL.HostEmit.extcodehashZero (= the `empty` world-seam query), so the
   ;; EIP-161 dead-account test can't drift from the one the new-account charge
   ;; uses. A LIVE account with no code returns keccak256("")=+empty-code-hash+
@@ -130,11 +130,11 @@
     ((ctx :pointer) (blk :pointer) (out :pointer))
   (declare (ignore ctx))
   ;; BLOCKHASH gas is fixed 20; charged via exitWithGas in the handler.
-  ;; The validity window is now DERIVED: `spec-blockhash-valid` is emitted from
+  ;; The validity window is DERIVED: `spec-blockhash-valid` is emitted from
   ;; Evm.CL.HostEmit.blockhashValid (src/generated/host.lisp), the EELS
   ;; predicate `n < cur AND cur <= n+256` (oldest valid = cur-256, inclusive),
-  ;; with kernel-checked boundary examples — so the #265 off-by-one (the old
-  ;; hand-written `(> n (- cur 256))` excluded cur-256) is unrepresentable. The
+  ;; with kernel-checked boundary examples, so an off-by-one that excludes
+  ;; cur-256 is unrepresentable. The
   ;; hash LOOKUP (*block-hashes*) stays the runtime-pluggable world seam.
   (let* ((n (u256-read blk))
          (cur *current-block-number*))

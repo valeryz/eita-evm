@@ -228,7 +228,7 @@
     (when (and pending (or force (not (sb-ext:process-alive-p (third pending)))))
       (destructuring-bind (n expected-hex proc out comps kind t0) pending
         ;; a forced wait says so, then every 5 min: the replay is paused, not hung (a
-        ;; 25-min check at an x86-64 Linux anchor looked like a stall, 2026-11-01)
+        ;; root check can take 25 min, which otherwise looks like a stall)
         (loop while (sb-ext:process-alive-p proc)
               do (format t "~&[anchor] waiting for the root check of block ~D (pid ~D, running ~D min)~%"
                          n (sb-ext:process-pid proc) (floor (- (get-universal-time) t0) 60))
@@ -280,9 +280,9 @@
           t)))))
 
 (defparameter *mpt-armed* nil
-  "Incremental state-root validation (src/state/mpt-live.lisp, #237): the account trie
-   maintained per block on a worker thread. Never T today — chains/driver.lisp refuses
-   to arm it until step F gives it the snapshot (seeding and the anchor verdict); the
+  "Incremental state-root validation (src/state/mpt-live.lisp): the account trie
+   maintained per block on a worker thread. Never T — chains/driver.lisp refuses to arm
+   it until it reads snapshots (seeding and the anchor verdict); the
    per-block hook sites stay wired on this flag.")
 
 (defun drop-stale-rootouts! ()
@@ -314,7 +314,7 @@
 (defun root-check-command (argv)
   "The program and arguments that run ARGV (the checker's own command line) at background priority:
    the root check reads the whole state from disk while the replay runs, and on a busy disk it must
-   not take the replay's reads' place (GCP 2026-11-04: the replay fell behind during a root check).
+   not take the replay's reads' place (otherwise the replay falls behind during a root check).
    On Linux, through `ionice -c2 -n7` (best effort, lowest; not idle, which a busy replay could
    starve) and `nice -n 10`, when ionice exists; elsewhere ARGV as is."
   (if (and (member :linux *features*) (probe-file "/usr/bin/ionice") (probe-file "/usr/bin/nice"))

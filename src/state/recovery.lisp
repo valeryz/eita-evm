@@ -1,7 +1,6 @@
-;;;; recovery.lisp — the recovery decisions over the durable artifacts (P0, rev. 2 §2.4).
+;;;; recovery.lisp — the recovery decisions over the durable artifacts.
 ;;;;
-;;;; One owner for what used to be split between arc-follow.sh (latest_anchor,
-;;;; prune_dumps, the genesis guard) and state/anchors.lisp (prune-dumps!):
+;;;; The one owner of the resume point, the dump GC and the genesis guard:
 ;;;;
 ;;;;   eita recovery resume <state-dir>   prints N | genesis | refuse
 ;;;;   eita recovery gc <state-dir>       deletes the GC set, prints it
@@ -11,7 +10,7 @@
 ;;;; replay code: it starts in milliseconds and reads only anchors.sexp and the directory.
 ;;;;
 ;;;; The decisions are pure functions of a VIEW of the durable state, so the Lean model
-;;;; (P1, lean/Evm/Persist/Recovery.lean; layered files: lean/Evm/Persist/Layered.lean,
+;;;; (lean/Evm/Persist/Recovery.lean; layered files: lean/Evm/Persist/Layered.lean,
 ;;;; Part D) can state and prove them over the same inputs:
 ;;;;   anchors : list of (block ok hash-or-nil)      from anchors.sexp (torn lines skipped)
 ;;;;   files   : list of (component . status)        status :sealed | :torn | :corrupt

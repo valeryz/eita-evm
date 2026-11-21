@@ -75,8 +75,8 @@
 
 (defun read-file-string (path)
   "The contents of file PATH as text, inflated when it is gzip. As octets, not through the
-   per-character UTF-8 stream decoder, which was 11 % of the Arc replay (sb-sprof,
-   2026-10-17): the files are RPC JSON."
+   per-character UTF-8 stream decoder, which costs 11 % of the Arc replay (sb-sprof):
+   the files are RPC JSON."
   (sb-ext:octets-to-string (read-file-octets path) :external-format :latin-1))
 
 ;;; --- Decoding: a block's JSON bytes straight to values ---------------------------------

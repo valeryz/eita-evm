@@ -11,7 +11,7 @@
 ;; call-gas plan symbol cb-call binds.
 (defparameter *fork-ord* 16)
 
-;;; --- Hotness-gated JIT tier (Phase 6d) -----------------------------
+;;; --- Hotness-gated JIT tier ---------------------------------------
 ;;;
 ;;; Frames whose code has run *jit-threshold* times get compiled
 ;;; through `lake exe emitJIT` (per-chunk subroutine-threaded native
@@ -23,7 +23,7 @@
 ;;; interp tier. Both tiers share the EvmState ABI and callbacks, so
 ;;; nothing else in this file changes behavior.
 ;;;
-;;; --- In-process binary loader (#235): no clang, no dlopen ------------
+;;; --- In-process binary loader: no clang, no dlopen -----------------
 ;;;
 ;;; `emitJIT bin` writes a serialized image blob (machine bytes + movabs
 ;;; relocs + (pc,off) entries; see Evm.CL.ARM64.JIT.emitProgramImage). We
@@ -54,10 +54,10 @@
 (defun %rd64 (v o) (loop for i below 8 sum (ash (aref v (+ o i)) (* 8 i))))
 (defun %roundup (n k) (* k (ceiling n k)))
 
-;;; --- Bounded executable code arena (#259) ----------------------------------
-;;; One RWX mmap holds ALL JIT chunks; load-jit-image bump-allocates into it
-;;; instead of mmap'ing a fresh page per chunk (which made macOS dyld re-serialize
-;;; its process-image atlas per chunk — the O(n²) DoS-peak storm, #248). Chunks are
+;;; --- Bounded executable code arena ----------------------------------------
+;;; One executable mapping holds ALL JIT chunks; load-jit-image bump-allocates into
+;;; it rather than mmap'ing a fresh page per chunk (each new mapping makes macOS dyld
+;;; re-serialize its process-image atlas: O(n²) over a DoS-region JIT batch). Chunks are
 ;;; position-independent (only libeita symbols are reloc'd; inter-block flow goes
 ;;; through the dispatcher via the manifest's fn-abs, recomputed from the placement
 ;;; base), so any chunk can live anywhere in the arena. On wrap, evict non-pinned
@@ -69,13 +69,12 @@
 ;;; macOS/Apple-Silicon will NOT mmap a region RWX (W∧X is denied without MAP_JIT),
 ;;; and MAP_JIT's per-thread `pthread_jit_write_protect_np` toggle flips W^X for the
 ;;; WHOLE thread — which on SBCL 2.5.8/arm64 (its own code space is MAP_JIT) makes
-;;; Lisp itself non-executable and faults the next instruction.  So we get one fixed
-;;; executable region the portable JIT way: a RW/RX DOUBLE MAP.  `vm_allocate` an RX
+;;; Lisp itself non-executable and faults the next instruction.  So the one fixed
+;;; executable region is made the portable JIT way: a RW/RX DOUBLE MAP.  `vm_allocate` an RX
 ;;; region, `vm_remap` a RW alias of the SAME physical pages, then `vm_protect` the
-;;; two views.  We WRITE chunks through the RW view and EXECUTE them through the RX
+;;; two views.  Chunks are WRITTEN through the RW view and EXECUTED through the RX
 ;;; view — never W∧X on one mapping, no MAP_JIT, no toggle, and only TWO mappings for
-;;; the whole run, so dyld serializes its image atlas once instead of per chunk (the
-;;; #248 storm).  Trust surface = these three mach calls + the view-offset arithmetic.
+;;; the whole run, so dyld serializes its image atlas once, not per chunk.  Trust surface = these three mach calls + the view-offset arithmetic.
 ;; macOS double-map primitives (mach VM): vm_allocate an RX region, vm_remap a
 ;; RW alias of the SAME physical pages, vm_protect the two views.
 #+darwin
@@ -112,8 +111,8 @@
 (defparameter *code-exec-head*   0)      ; bump offset
 ;; Live chunks indexed by the arena PAGE(s) they occupy (a spatial hash): a
 ;; placement examines only chunks sharing a page with its byte range, so eviction
-;; is O(amortized-1) instead of the old whole-list `remove-if` scan that was O(n²)
-;; over a JIT batch (#259).  Overlap is decided by exact offset arithmetic — there
+;; is amortized O(1) per placement (a whole-list scan would be O(n²) over a JIT
+;; batch).  Overlap is decided by exact offset arithmetic — there
 ;; is NO assumption about allocation/FIFO order, which a bump-with-wrap-and-pins
 ;; allocator routinely violates (the FIFO-oldest chunk can sit at a high offset
 ;; after a wrap, so a FIFO front-walk would stop before reaching a low-offset
@@ -245,7 +244,7 @@
         (setf (gethash cname *foreign-sym-cache*) (pointer-address p)))))
 
 (defun load-jit-image (b key)
-  "Bump-allocate the emitJIT blob B into the shared double-mapped code arena (#259)
+  "Bump-allocate the emitJIT blob B into the shared double-mapped code arena
    under cache KEY, returning (values run-chunk-ptr manifest off imgsz). Bytes and
    relocs are written through the RW view (*code-write-base*); the run-chunk pointer,
    manifest fn-abs and icache flush use the RX view (*code-exec-base*) — the address
@@ -260,7 +259,7 @@
     (let* ((wbase (inc-pointer *code-write-base* aoff))  ; write view
            (xbase (inc-pointer *code-exec-base*  aoff))  ; execute view (same pages)
            (baseaddr (pointer-address xbase)))
-      ;; image bytes (RW view): memcpy (a byte loop here was ~1.3 s per 134 MB of images)
+      ;; image bytes (RW view): memcpy (a byte loop takes ~1.3 s per 134 MB of images)
       (bytes->foreign wbase b imgsz 40)
       ;; patch relocs: kind 4 = ARM64 movabs (4 movz/movk words: OR the addr halfwords
       ;; into imm16), kind 5 = x86-64 abs64 slot (8 bytes)
@@ -299,7 +298,7 @@
   "Load the disk-cached emitJIT blob at PATH into the code arena under KEY."
   (load-jit-image (%read-file-bytes path) key))
 
-;;; --- Persistent emit server client (#235) ---------------------------
+;;; --- Persistent emit server client ---------------------------------
 ;;;
 ;;; One `emitJIT serve <sock>` daemon serves the whole run over a Unix
 ;;; domain socket: the replay streams (fork, code) and gets back the loader
@@ -399,8 +398,8 @@
 ;;     leave it stale; only built-in :test 'eq tables get auto-rehashed.)
 ;;   - jitk=: eq fast-path (repeated same-contract frame — the hot case) -> O(1);
 ;;     else compare memoized codehashes (clones with identical bytecode share).
-;; Same (fork . code) key + single table as before, so the #259 arena eviction
-;; (`remhash (svref c 2) *jit-cache*`) is unchanged. Content identity is preserved
+;; One (fork . code) key and a single table, so the arena eviction
+;; (`remhash (svref c 2) *jit-cache*`) removes exactly one entry. Content identity is preserved
 ;; (codehash == the disk cache's identity), so the SAME chunk is selected — no
 ;; consensus change.
 (defparameter *code-hash-memo* (make-hash-table :test 'eq :weakness :key)
@@ -533,7 +532,7 @@
    before any emit, so the Lean `emitJIT` daemon is never spawned. EITA_NO_JIT=1
    selects this at startup: a Leanless interp-only deploy needs no Lean at
    runtime (just libeita + the committed host.lisp). Also bound true per-frame
-   for the differential mode's tier-B pass (diff-run-tiers / #241).")
+   for the differential mode's tier-B pass (diff-run-tiers).")
 
 (defun jit-for-code (code)
   "Count an execution of CODE; (values run-chunk entries) once hot
@@ -561,7 +560,7 @@
              (cond
                (run-chunk
                 (incf (getf *jit-stats* :codes-jit))
-                ;; aoff/alen locate the chunk in the arena (#259); they
+                ;; aoff/alen locate the chunk in the arena; they
                 ;; pin this chunk while it runs so a nested JIT can't evict it.
                 (when (and *jit-max-pc*
                            (or (null *jit-max-pc-codelen*)
@@ -610,10 +609,9 @@
                               (1+ (mem-ref state :uint64 8))))))
     ;; Gas is a u64 everywhere below this seam, so an unchecked subtraction in a
     ;; handler or in the JIT's chunk pre-charge bookkeeping does not halt the
-    ;; frame — it wraps gas_left just under 2^64 and the frame runs on. The only
-    ;; symptom used to be a bare CFFI TYPE-ERROR from a callback trampoline,
-    ;; naming neither the frame nor the op (the second JIT bug, retakeRem). One
-    ;; compare per JIT frame names the frame instead.
+    ;; frame — it wraps gas_left just under 2^64 and the frame runs on, and the
+    ;; first symptom is a bare CFFI TYPE-ERROR from a callback trampoline naming
+    ;; neither the frame nor the op. One compare per JIT frame names the frame.
     (let ((g (mem-ref state :uint64 8)))
       (when (>= g (ash 1 63))
         (error "JIT chunk left gas_left=~D (= ~D - 2^64) exit-pc=~D codelen=~D depth=~A rc=~A"

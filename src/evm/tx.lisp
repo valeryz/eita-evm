@@ -61,8 +61,8 @@
 
 (defun precompile-seed (&aux (max (precompile-max-for-fork)) (p256 (precompile-address-p 256)))
   "This fork's precompile seed: (max p256 list . buffer), the list and its u256s in foreign
-   memory, built once per set (a tx used to cons the list and warm it one crossing at a time:
-   6 % of the x86 replay thread's allocation, 2026-11-05)."
+   memory, built once per set (consing the list and warming it one crossing at a time per tx
+   costs 6 % of the x86 replay thread's allocation)."
   (or (find-if (lambda (e) (and (eql (first e) max) (eq (second e) p256))) *precompile-seeds*)
       (let* ((l (append (loop for i from 1 to max collect i) (when p256 (list 256))))
              (buf (foreign-alloc :uint64 :count (* 4 (length l)))))
@@ -113,7 +113,7 @@
       (return-from run-tx-frame! (list :return gas #())))
     (ensure-arenas)
     (setf *memory-arena-base* 0 *stack-arena-base* 0 *journal-arena-base* 0)
-    (let* ((state    (substate-slot 0))   ; tx-level frame = arena slot 0 (#248)
+    (let* ((state    (substate-slot 0))   ; tx-level frame = arena slot 0
            (stack    (inc-pointer *stack-arena*  *stack-arena-base*))
            (mem      (inc-pointer *memory-arena* *memory-arena-base*))
            (mem-cap  (- +memory-arena-bytes+ *memory-arena-base*))
@@ -132,7 +132,7 @@
       (setf (mem-ref state :pointer 32) stack)
       (setf (mem-ref state :pointer 40) mem)
       (setf (mem-ref state :uint64 56)  mem-cap)
-      ;; #250: the top frame starts with no returndata.
+      ;; The top frame starts with no returndata.
       (setf (mem-ref state :pointer 96) (null-pointer))
       (setf (mem-ref state :uint64 104) 0)
       (when (plusp calldata-len)
@@ -173,7 +173,7 @@
         (zero-bytes *memory-arena* 0 (mem-ref state :uint64 48))
         (setf *current-state* (null-pointer))
         (when (and (plusp calldata-len) (not (typep calldata-bytes 'octets))) (foreign-free calldata))
-        ;; #250: the top frame ended — free the returndata of its last call.
+        ;; The top frame ended — free the returndata of its last call.
         (free-frame-returndata state)
         (list status gas-left output))))))))
 
@@ -287,7 +287,7 @@
 (defun intrinsic-gas (tx)
   "Tx intrinsic gas. The byte counting + access-list sizing is the hand-written CL
    SEAM; the cost FORMULA is the Lean-emitted spec-intrinsic-gas (Evm.CL.GasEmit,
-   src/generated/host.lisp). #261: derived, not hand-written."
+   src/generated/host.lisp)."
   (let* ((data (tx-data tx))
          (is-create (if (null (tx-to tx)) 1 0)))
     (multiple-value-bind (zero nonzero al-addrs al-keys) (calldata-byte-counts tx)

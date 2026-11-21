@@ -31,7 +31,7 @@
                               :if-exists :supersede :if-does-not-exist :create)
              (format s "~D~%" *cur-block*)
              (loop for b across code do (format s "~2,'0X" b)))))
-       ;; #259: pin this chunk's arena range while it executes, so a JIT triggered
+       ;; Pin this chunk's arena range while it executes, so a JIT triggered
        ;; by a sub-CALL cannot evict/overwrite the chunk we're running (proved
        ;; safe by Evm.CL.CodeArena.place_safe). aoff is nil on the clang/dlopen
        ;; path (separate dylibs, not arena-managed) — nothing to pin.
@@ -44,7 +44,7 @@
          (incf *frames-interp*))
        (eita-run state)))))
 
-;;; --- Differential tier replay (#241) --------------------------------
+;;; --- Differential tier replay --------------------------------------
 ;;;
 ;;; EITA_DIFF_TIERS: run each top-level tx frame on BOTH tiers (JIT, then the
 ;;; whole tx on the interp) from the SAME pre-state, and compare the observables
@@ -55,7 +55,7 @@
 ;;; journal cursor before tier A, restore + revert-journal-to before tier B.
 (defstartup *diff-tiers*
   (let ((v (sb-posix:getenv "EITA_DIFF_TIERS"))) (and v (string/= v "0")))
-  "When set, every top-level tx frame is cross-checked JIT-vs-interp (#241).")
+  "When set, every top-level tx frame is cross-checked JIT-vs-interp.")
 (defparameter *diff-stats* (list :txs 0 :checked 0 :divergences 0))
 (defstartup *diff-every*
   (let ((v (sb-posix:getenv "EITA_DIFF_TIERS"))) (max 1 (or (and v (parse-integer v :junk-allowed t)) 1))))
@@ -73,7 +73,7 @@
    under/overflow, static-context write, out-of-bounds returndata, ... -- gas_left := 0,
    output := b\"\"). The interpreter and the JIT raise `reverted` (offset 129) for REVERT and
    for every exceptional halt; only REVERT writes the output pointer (offset 112, zeroed per
-   frame), so reverted with a NULL output is the exceptional halt (stop #16)."
+   frame), so reverted with a NULL output is the exceptional halt."
   (let ((halted (not (zerop (mem-ref state :uint8 128))))
         (reverted (not (zerop (mem-ref state :uint8 129)))))
     (cond ((and halted (not reverted)) :return)

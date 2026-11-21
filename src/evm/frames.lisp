@@ -67,14 +67,14 @@
 (defparameter +stack-bytes-per-frame+
   (* +stack-slots-per-frame+ +stack-slot-bytes+))   ; 32 KiB
 
-;; Head pad below the stack arena (#272). The emitted threaded interpreter caches
+;; Head pad below the stack arena. The emitted threaded interpreter caches
 ;; the second-from-top operand in registers: after a stack-shrinking op it
 ;; speculatively pre-loads stack[depth-2] for the next handler (e.g. eita_handler_eq
 ;; `ldp [stack_base + (depth-2)*32]`). Every binary op guards depth>=2, so the
 ;; minimum index is -1 — one u256 slot BELOW the live stack. The value is
 ;; discarded (the next op underflow-checks or overwrites), so it is a benign
 ;; speculative under-read — but for the depth-0 frame stack_base == arena base,
-;; so it touches one slot below the arena. We reserve that slot as valid zeroed
+;; so it touches one slot below the arena. That slot is reserved as valid zeroed
 ;; slack (symmetric to +code-tail-pad-bytes+ for PUSH's forward over-read); two
 ;; slots for margin. Lets the PROT_NONE guard stay on for ALL platforms.
 (defconstant +stack-head-pad-bytes+ (* 2 +stack-slot-bytes+))   ; 64 B (>= 1 slot)
@@ -160,15 +160,15 @@
 ;; A frame runs its code in place: EvmState points at the code's frame image, an octet
 ;; vector [code | pad | map] built once per code OBJECT (world code vectors are stable
 ;; and immutable; init code is fresh per CREATE and its image is GC'd with it) and pinned
-;; while the frame runs. Rebuilding the JUMPDEST map on every frame was 25 % of the 2020
-;; replay (9M frames x 11 us); copying code + map into a per-depth arena slot on every
-;; frame was 3.8 % of the x86-64 near-tip replay (2026-11-01). One image per code also
+;; while the frame runs. Rebuilding the JUMPDEST map on every frame would cost 25 % of a
+;; mainnet replay (9M frames x 11 us); copying code + map into a per-depth arena slot on
+;; every frame, 3.8 % of an x86-64 near-tip replay. One image per code also
 ;; means no slot to overflow: pre-Shanghai init code over 49152 bytes needs no
 ;; separate placement.
 (defparameter *code-image-cache* (make-hash-table :test 'eq :weakness :key)
   "code vector -> its frame image (octets: code, +code-tail-pad-bytes+ zeros, JUMPDEST map).")
 
-;; A weak table's GETHASH takes SBCL's system lock (1.4 % of the x86 replay thread, 2026-11-05),
+;; A weak table's GETHASH takes SBCL's system lock (1.4 % of the x86 replay thread),
 ;; so a direct-mapped front of (code . image) conses answers the hot codes without it: indexed
 ;; by the length and three tail bytes (where Solidity's metadata hash sits), confirmed by EQ.
 ;; It holds at most +code-image-front+ codes strongly; a slot is one cons, so a reader on
@@ -203,7 +203,7 @@
           img))))
 
 (defmacro with-frame-code ((state code len) &body body)
-  "Run BODY with STATE's code (#64/#72) and JUMPDEST map (#136) pointing into CODE's frame
+  "Run BODY with STATE's code (offsets 64/72) and JUMPDEST map (offset 136) pointing into CODE's frame
    image, pinned for BODY's extent. The one place a frame's code is installed — tx, CALL
    family and CREATE."
   (let ((img (gensym "IMG")) (n (gensym "LEN")) (st (gensym "STATE")))
@@ -274,10 +274,10 @@
   (s :pointer) (c :int) (n :size))
 
 ;; libc memcpy + the two copy helpers across the foreign boundary. The code,
-;; output and input copies used to be per-byte Lisp loops; with the vector's
-;; type unknown at the call site each byte went through
-;; HAIRY-DATA-VECTOR-REF/CHECK-BOUNDS — 26 % of the Arc replay's CPU
-;; (sb-sprof, x86-64 Linux 2026-10-17: every CALL copied the whole callee code that way).
+;; output and input copies are not per-byte Lisp loops: with the vector's type
+;; unknown at the call site each byte would go through
+;; HAIRY-DATA-VECTOR-REF/CHECK-BOUNDS (26 % of the Arc replay's CPU under
+;; sb-sprof, as every CALL copies the whole callee code).
 (defcfun ("memcpy" %memcpy) :pointer
   (dst :pointer) (src :pointer) (n :size))
 (deftype octets () '(simple-array (unsigned-byte 8) (*)))
@@ -324,10 +324,10 @@
 
    EITA_NO_GUARD_ARENAS is a DEBUG-ONLY escape hatch, NOT deployment config: when
    a guard *does* fire, run once with it set to A/B whether results still match
-   (benign over-read) or diverge (real corruption) — the bisect that pinned #272.
+   (benign over-read) or diverge (real corruption).
    Never set it merely to push a faulting run to completion; fix the bounds bug.
-   (#272: the Linux/aarch64 speculative stack[depth-2] under-read that used to
-   fault here is fixed by the stack arena's +stack-head-pad-bytes+ head pad.)")
+   (The interpreter's speculative stack[depth-2] under-read is covered by the
+   stack arena's +stack-head-pad-bytes+ head pad.)")
 (defconstant +guard-page-bytes+ 16384)   ; Apple Silicon / common arm64 page
 
 (defun %calloc-guarded (nbytes)
@@ -352,13 +352,13 @@
           (finish-output *error-output*))
         p)))
 
-;; #248/#250: the per-sub-call EvmState (608 B, c/evm_state.h) and TxArena header (72 B) are
+;; The per-sub-call EvmState (608 B, c/evm_state.h) and TxArena header (72 B) are
 ;; pure scratch — freed by frame pop = slot reuse, never escaping (only the
 ;; RETURN output escapes, and that is still copied to a fresh disjoint buffer,
 ;; matching the proved discipline in Evm.CL.Arena.arena_refines_spec). So they
 ;; live in depth-indexed arena slots instead of a foreign-alloc per call, which
-;; in the DoS region was ~70% of execution (CFFI parse-type + malloc + zeroing,
-;; #248). Slot = frame depth: the tx-level frame is slot 0, a sub-frame is slot
+;; in the DoS region would be ~70% of execution (CFFI parse-type + malloc + zeroing).
+;; Slot = frame depth: the tx-level frame is slot 0, a sub-frame is slot
 ;; (1+*call-depth*) which the depth guard keeps <= +max-call-depth+.
 (defconstant +subarena-bytes+ 72)
 (defparameter *substate-arena* nil)
@@ -368,10 +368,10 @@
   "Allocate the arenas + native TxState once, on first tx. Idempotent."
   (unless *memory-arena*
     (setf *memory-arena*  (%calloc-guarded +memory-arena-bytes+))
-    ;; #272: reserve +stack-head-pad-bytes+ of valid slack BELOW the usable stack
+    ;; Reserve +stack-head-pad-bytes+ of valid slack BELOW the usable stack
     ;; region (the interp's speculative stack[depth-2] pre-load reads one slot
     ;; below the depth-0 frame's base). Frame bases = *stack-arena* + depth*frame
-    ;; are unchanged; the guard still follows the (now slightly larger) body.
+    ;; are unchanged; the guard still follows the (padded) body.
     (setf *stack-arena*   (inc-pointer (%calloc-guarded (+ +stack-head-pad-bytes+
                                                            +stack-arena-bytes+))
                                        +stack-head-pad-bytes+))
@@ -410,7 +410,7 @@
 
 (declaim (inline alloc-bytes))
 (defun alloc-bytes (nbytes)
-  "Raw malloc of NBYTES — no CFFI type-parse (the #248 hot cost) — for a buffer its
+  "Raw malloc of NBYTES — no CFFI type-parse (a hot cost per call) — for a buffer its
    caller fills whole at once (an input or output copy), so it is not zeroed first."
   (cffi-sys:%foreign-alloc nbytes))
 
@@ -477,7 +477,7 @@
 
 (defun install-blob-env! (state)
   "Point STATE (any frame of the current tx) at the tx's blob-hash table and count
-   (#552/#560) and give it the block's blob base fee (#568)."
+   (offsets 552/560) and give it the block's blob base fee (offset 568)."
   (setf (mem-ref state :pointer 552) (or *blob-hash-table* (null-pointer))
         (mem-ref state :uint64 560)  *tx-blob-count*)
   (u256-write (inc-pointer state 568) *tx-blob-base-fee*))
