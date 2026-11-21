@@ -10,11 +10,12 @@
 # One model at a time, each under a memory cap (EITA_PROTOCOLS_MAX_GB, default 32: the whole
 # process tree, Veil's compiled model checker included, is stopped above it); prints each
 # model's wall time and peak RSS.
-#   scripts/verify-protocols.sh            the code check and all six models (~30 min on an M-series
+#   scripts/verify-protocols.sh            the code check and all eight models (~35 min on an M-series
 #                                          Mac; CompactionDeepReorg alone peaks above 32 GB)
-#   scripts/verify-protocols.sh --quick    the code check and the four models under 10 GB (CI:
-#                                          ~11 min on that Mac, 9 GB peak): LayerGcFixed's
-#                                          certificate, Compaction's VC proofs, two violations
+#   scripts/verify-protocols.sh --quick    the code check and the six models under 10 GB (CI:
+#                                          ~16 min on that Mac, 9 GB peak): LayerGcFixed's
+#                                          certificate, the VC proofs of Compaction and of snapshot
+#                                          v2's design models (CompactionV2, RootWorker), two violations
 #   scripts/verify-protocols.sh LayerGcFixed ...   the code check and the named models
 set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,8 +25,8 @@ tmp=${TMPDIR:-/tmp}/_verify_protocols.$$
 mkdir -p "$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
-all="LayerGcFixed LayerGcOld LayerGcSwapped CompactionDeepReorgOld CompactionDeepReorg Compaction"
-quick="LayerGcFixed LayerGcSwapped CompactionDeepReorgOld Compaction"
+all="LayerGcFixed LayerGcOld LayerGcSwapped CompactionDeepReorgOld CompactionDeepReorg Compaction CompactionV2 RootWorker"
+quick="LayerGcFixed LayerGcSwapped CompactionDeepReorgOld Compaction CompactionV2 RootWorker"
 case "${1:-}" in
   --quick) models=$quick ;;
   "") models=$all ;;
@@ -38,7 +39,7 @@ expect() {
     LayerGcFixed) printf '%s\n' 'No violation' "'LayerGcFixed.ic3_safe' depends on axioms" ;;
     LayerGcOld) printf '%s\n' 'Violation: safety_failure' 'Satisfying trace found' "'LayerGcOld.ic3_unsafe' depends on axioms" ;;
     LayerGcSwapped) printf '%s\n' 'Violation: safety_failure' ;;
-    Compaction) printf '%s\n' 'No violation' 'theorems; axioms:' ;;
+    Compaction|CompactionV2|RootWorker) printf '%s\n' 'No violation' 'theorems; axioms:' ;;
     CompactionDeepReorg) printf '%s\n' 'No violation' 'theorems; axioms:' 'Satisfying trace found' ;;
     CompactionDeepReorgOld) printf '%s\n' 'Violation: safety_failure' 'Satisfying trace found' ;;
     *) echo "no expected result for model $1" >&2; return 1 ;;

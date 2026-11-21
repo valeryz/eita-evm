@@ -128,8 +128,23 @@ one action per step of the code they cite.
   `; @veil` markers in the Lisp and 9 structural ordering checks); the atomicity each action assumes; sequential
   consistency (ARM64 publication order is argued from the write barriers, which an ordering check enforces); for
   `Compaction` only, the caller's fork bound (`CompactionDeepReorg` holds without it).
-- `scripts/verify-protocols.sh --quick` runs in CI (the code check and four models, under 14 GB); `CompactionDeepReorg`
+- `scripts/verify-protocols.sh --quick` runs in CI (the code check and six models, under 14 GB); `CompactionDeepReorg`
   (over 32 GB) runs by hand on a large machine.
+- **Design models, ahead of their code:** `RootWorker` and `CompactionV2` (snapshot v2's per-block root worker and
+  its layer stack, `docs/state-snapshot-format.md`) are proved the same way, against the specification: their changed
+  steps cite `@planned` names, which `CheckCode.lean` fails on once the code exists, so each becomes a checked `@code`
+  citation in the change that writes it.
+
+## The per-block state root (snapshot v2, specified)
+
+The root worker (`docs/state-snapshot-format.md`, "The root worker"; its code is not yet written) mirrors
+`lean/Evm/Trie/Frontier.lean` by hand, as `src/state/root.lisp` mirrors `Trie.Stack`. The gap is stated:
+`layered_frontier_root_eq` (R, `sorry`) says the worker's two-level step over the layered store's composition yields
+the fork's `stateRootBytes`. It assembles the proved lemmas F1–F3 with three stated ones (`patricialise_assemble`, L2;
+`build_emits_frontier`, L1′; `stateRoot_two_levels`, L4), which wait on the total trie spec. Until R is proved, the
+run-time checks are the header root of every block (every catch-up interval, bisected on mismatch), DenseAbove on
+every recomputed dense branch, 32-byte references, the compaction's in-pass root with its entry-by-entry frontier
+comparison, and the resume self-check.
 
 ## Statements pinned by the Lean comparator
 

@@ -165,7 +165,7 @@ jobs:
 
   protocols:
     # The state layer's Veil models (verify/protocols/): a separate job so the main one does not wait on cvc5 and
-    # the model checkers. --quick runs the code-citation check and four models under a 14 GB cap; the largest model
+    # the model checkers. --quick runs the code-citation check and six models under a 14 GB cap; the largest model
     # (CompactionDeepReorg, > 32 GB) runs on a large machine by hand.
     runs-on: ubuntu-latest
     timeout-minutes: 90

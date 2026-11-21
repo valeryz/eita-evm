@@ -30,7 +30,8 @@ files, not here:
 - **The rest of the proofs**: the IR compiler's soundness against the spec, the handlers'
   denotations under ARM64 and x86-64 instruction semantics, Block-STM, the layered state and
   its recovery, the native slot table (Velvet, `verify/velvet-slots/`), the state layer's
-  concurrent protocols (Veil models, `verify/protocols/`; what they assume is in
+  concurrent protocols (Veil models, `verify/protocols/`, including the design models of
+  snapshot v2's root worker and stack, ahead of their code; what they assume is in
   [trusted-surface.md](trusted-surface.md#concurrency-protocols-of-the-state-layer-modelled-in-veil-verifyprotocols)).
 - **Open debt, ratcheted.** The open refinement obligations and every `sorry` are listed in
   the coverage matrix; `scripts/verify-coverage.sh` fails CI if the debt rises (and if the
@@ -49,7 +50,9 @@ files, not here:
   (ethash). Code: `src/chains/block-system.lisp`, `src/chains/receipts.lisp`.
 - **On a schedule: the state root**, recomputed from the replay's own state and compared with
   the header at anchors (`src/state/root.lisp`). Between anchors, the header gate is the
-  check.
+  check. Specified, not yet built: a per-block root from snapshot v2's frontier
+  ([state-snapshot-format.md](state-snapshot-format.md)); its Lisp-to-Lean gap is the
+  stated `layered_frontier_root_eq` ([trusted-surface.md](trusted-surface.md#the-per-block-state-root-snapshot-v2-specified)).
 - **Conformance.** The ethereum/tests BlockchainTests battery on both execution tiers, the
   threaded interpreter and the JIT; results, skips and expected failures with their reasons
   in [`docs/testing.md`](testing.md). A sample runs in CI.
