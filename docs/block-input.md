@@ -1,7 +1,9 @@
 # Replaying a chain from your own block files
 
-Eita executes blocks; it does not fetch them. You supply blocks — from your own node, an
-archive you exported, a test generator — as files, and the replay driver runs them with
+Eita has two block sources. As an execution client, it takes each new block from a
+consensus client over the Engine API (`bin/eita engine`, `docs/run-a-node.md`). To replay
+history — the subject of this document — you supply blocks: from your own node, an archive
+you exported, a test generator, as files, and the replay driver runs them with
 the same code paths it runs everywhere: the chain spec's fork table and rules, the
 transactions, the system calls, the header gate (EELS `validate_header`/`validate_ommers`),
 the receipts root and logs bloom, and, in full-state mode, the state root at anchors.

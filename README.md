@@ -1,11 +1,11 @@
 # Eita
 
-**An open-source EVM engine for Ethereum (non-validating at this point): it executes and
-verifies every block from genesis, with EVM semantics written in Lean 4 — translated clause
-by clause from the Ethereum execution specs (EELS) and proved — and native execution code
-emitted from that spec, not written by hand. It is built so that turning it into a full
-execution client is a small step: an Engine API block source (see Roadmap), plus the usual
-client scaffolding.**
+**An open-source EVM engine and validating execution client for Ethereum: it executes and
+verifies every block, with EVM semantics written in Lean 4 — translated clause by clause
+from the Ethereum execution specs (EELS) and proved — and native execution code emitted
+from that spec, not written by hand. Blocks come from a consensus client over the Engine
+API ([docs/run-a-node.md](docs/run-a-node.md)), or, to replay history, from blocks you
+supply.**
 
 > **Here from the post on the Lean spec?** The proofs held; the specification was the weak
 > link. Deriving the Lean effect layer and checking it against the tested Lisp host found
@@ -31,12 +31,20 @@ two execution tiers. Load it into a Lisp REPL and you can execute transactions a
 world you build, or against a test's pre-state, and inspect balances, storage, logs and the
 state root.
 
-**What it is not (yet).** Eita has no p2p networking: it does not sync from peers. Blocks
-come from you, through a documented block-source interface (`docs/block-input.md`; this
-repository ships a reader for per-block JSON files you produce with your own node or tools),
-or from a consensus client over the Engine API: `bin/eita engine` validates each new block
-the client sends and answers VALID or INVALID (`docs/run-a-node.md`; validate-only, Prague
-and Osaka).
+**Where blocks come from.** Eita has two block sources:
+
+- **A consensus client, over the Engine API** (`bin/eita engine`, [docs/run-a-node.md](docs/run-a-node.md)).
+  Eita runs as an execution client beside Nimbus or another CL: each new block the CL sends
+  is executed and answered VALID only after its header, transactions, gas, receipts and
+  state root match; a block that fails is INVALID and rolled back. Validate-only (it builds
+  no blocks), for Prague and Osaka chains: mainnet, Hoodi, devnets on mainnet's rules.
+- **Blocks you supply, to replay history** (`bin/eita replay`, [docs/block-input.md](docs/block-input.md)):
+  per-block JSON files, the objects your own node's JSON-RPC returns, read through a
+  documented block-source interface that other sources plug into.
+
+**What it is not (yet).** Eita has no p2p networking: it does not sync from peers, so the
+state a node starts on comes from a replay or the genesis. It builds no blocks and does
+not follow reorgs.
 
 ## See it running: [eita.run](https://eita.run)
 
@@ -231,9 +239,11 @@ bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   # docs/block-
 bin/eita engine --chain hoodi --state DIR --jwt FILE            # docs/run-a-node.md
 ```
 
-Eita replays blocks you supply as files — the JSON-RPC block objects your own node returns —
-from genesis with full state and state-root checks: `docs/block-input.md`. Other block
-sources (following a node, importing archives, lazy RPC-backed state) plug in through one
+As an execution client, Eita takes each new block from a consensus client over the Engine
+API and answers VALID once its state root matches: `docs/run-a-node.md`. To replay history,
+it runs blocks you supply as files — the JSON-RPC block objects your own node returns — from
+genesis with full state and state-root checks: `docs/block-input.md`. Other block sources
+(following a node, importing archives, lazy RPC-backed state) plug in through the same
 interface, documented there.
 
 ## Layout

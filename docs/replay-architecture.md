@@ -26,11 +26,18 @@ Chain modules (system `eita/chains`): `src/chains/arc.lisp` + `arc-precompiles.l
 the Lean fork schedule, the DAO block;
 blocks, receipts and uncles as JSON-RPC results from the block source).
 
-Where blocks come from is not part of this repository's execution path: a block source
-(`make-block-source` in `src/input/source.lisp`) supplies them. The shipped source reads files
-you produce with your own node or tools; a source that follows a node over RPC, reads
-archives, or serves lazy state is plugged in the same way (`--source FILE` / `EITA_SOURCE`,
-a Lisp file that installs it, or an ASDF system that depends on `eita` and sets it).
+Blocks come from a block source (`make-block-source` in `src/input/source.lisp`); the driver
+runs whatever it supplies the same way. Two sources ship here:
+
+- **the Engine API** (`src/engine/engine.lisp`, `bin/eita engine`): a consensus client sends
+  each new block; the driver's verdict, after the block's state root, is the answer (VALID,
+  or INVALID with the state rolled back to the parent). `docs/run-a-node.md`.
+- **block files** (`directory-block-source`, `bin/eita replay --blocks`): history you produce
+  with your own node or tools. `docs/block-input.md`.
+
+A source that follows a node over RPC, reads archives, or serves lazy state is plugged in the
+same way (`--source FILE` / `EITA_SOURCE`, a Lisp file that installs it, or an ASDF system
+that depends on `eita` and sets it).
 
 ## Adding a chain
 
