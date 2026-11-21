@@ -8,6 +8,7 @@
 ;;;;   eita/fixtures   the BlockchainTests runner
 ;;;;   eita/mpt-live   the incremental state-root validator (kept, not armed: chains/driver.lisp)
 ;;;;   eita/cli        bin/eita (asdf:make "eita/cli"), with the Engine API (`eita engine`)
+;;;;                   and a Swank server (EITA_SWANK_PORT)
 ;;;;   eita/test       (asdf:test-system "eita"): the Lisp test suites and oracles (tests/)
 ;;;;
 ;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the emitJIT daemon, the Engine API
@@ -101,9 +102,10 @@
 
 (defsystem "eita/cli"
   :description "bin/eita: replay, engine, fixtures, repl, check-root, recovery, version."
-  :depends-on ("eita" "eita/chains" "eita/fixtures")
+  :depends-on ("eita" "eita/chains" "eita/fixtures" "swank")
   :serial t
   :components ((:file "src/engine/engine")     ; the Engine API (rust/engine-api is its edge)
+               (:file "src/swank")             ; EITA_SWANK_PORT: a live REPL (127.0.0.1)
                (:file "src/cli"))
   :build-operation "program-op"
   :build-pathname "bin/eita"
