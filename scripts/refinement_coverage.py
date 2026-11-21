@@ -775,6 +775,7 @@ COMPONENTS = [
     ("persist", "Persistence (layered state, recovery)", "lean/Evm/Persist",
      "lean/Evm/Persist/*"),
     ("witness", "Read sets and state witnesses", "lean/Evm/Witness", "lean/Evm/Witness/*"),
+    ("factlog", "Fact log (format, history index)", "lean/Evm/FactLog", "lean/Evm/FactLog/*"),
     ("crypto", "Crypto oracles and precompile contracts", "lean/Evm/Crypto",
      "lean/Evm/Crypto/*"),
     ("trie", "Trie and RLP", "lean/Evm/Trie", "lean/Evm/Trie/* lean/Evm/Trie.lean lean/Evm/Rlp.lean"),
@@ -796,7 +797,7 @@ def _claims(rel, pats):
     return False
 
 
-PAGE_ORDER = ("spec refinement effect ir arm64 x86 emit parallel persist witness crypto chains trie "
+PAGE_ORDER = ("spec refinement effect ir arm64 x86 emit parallel persist witness factlog crypto chains trie "
               "slots protocols tooling").split()
 
 STATS_RULES = {   # printed under "Counting rules" (markdown)
