@@ -66,6 +66,7 @@
     ("op-l1-fee" "op-l1-fee.lisp")
     ("readset" "readset.lisp")
     ("engine" "engine.lisp")
+    ("hooks" "hooks.lisp")
     ("arc-pq" "arc-pq.lisp"
      :requires ,(lambda () (unless (eita.native:native-path "libeita_pq" :error nil)
                              "libeita_pq not built (make -C c)")))

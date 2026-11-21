@@ -227,7 +227,8 @@ bin/eita repl
 `docs/quickstart.md` walks through a session, including running a BlockchainTest's
 pre-state; `examples/quickstart.lisp` is the same as a script
 (`bin/eita repl --load examples/quickstart.lisp`). The API (`src/eita.lisp`, package `eita`)
-is a thin layer over the functions every replay runs.
+is a thin layer over the functions every replay runs. `docs/hooks.md` shows how to run your
+own folds and notifications on the verified blocks of a replay.
 
 ## Tests, and replaying a chain
 
