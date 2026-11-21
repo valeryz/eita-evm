@@ -1,4 +1,6 @@
 ;;;; tests/factlog-resume.lisp — a resume never drops fact-log rows (src/factlog/writer.lisp).
+;;;; A suite of (asdf:test-system "eita"); also loadable on its own in an executable that
+;;;; carries the engine (it exits 1 on a failure).
 ;;;;
 ;;;; Drives the real encoder (block-begin, row queue, commit, checkpoint, finalize) on
 ;;;; synthetic rows of the block and tx tables, shards of 10 blocks, log from block 5. Every
@@ -213,4 +215,7 @@
       *chain-head* nil *factlog-last-committed* nil)
 (clrhash *factlog-shards*) (clrhash *factlog-skip*)
 (sb-ext:run-program "rm" (list "-rf" (format nil "/tmp/eita-test-factlog-resume-~D/" (sb-posix:getpid))) :search t)
-(eita.test:finish :code (if (plusp *fails*) 1 0))
+(let ((code (if (plusp *fails*) 1 0)))     ; a suite of eita/test, or a script of an executable
+  (if (find-package :eita.test)
+      (uiop:symbol-call :eita.test :finish :code code)
+      (sb-ext:exit :code code :abort t)))
