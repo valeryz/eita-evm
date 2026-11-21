@@ -22,8 +22,8 @@ the same root (`rootBytes_eq`); and the root over keys with two or more distinct
 nibbles is the branch of the per-nibble subtries built at depth 1 (`build_split`) — the
 parallel path of the checker. These are stated, not proved: `patricialise` is a
 `partial def`, opaque to the kernel, so nothing about it can be unfolded until the trie
-spec is made total (the same prerequisite `Trie/Incremental.lean` records for
-`Canonical`). The `sorry`s below are that visible gap. -/
+spec is made total (the same prerequisite `Trie/Frontier.lean` records for its
+decomposition and emission lemmas). The `sorry`s below are that visible gap. -/
 
 namespace Evm.Trie.Stack
 open Evm Evm.Trie

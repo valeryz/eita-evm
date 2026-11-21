@@ -1,4 +1,5 @@
 import Evm.Persist.Recovery
+import Mathlib.Order.Defs.LinearOrder
 
 /-! # Evm/Persist/Layered — layered snapshots: a base and a stack of delta layers
 
@@ -31,7 +32,11 @@ what the Lisp relies on:
   file is sealed. `Recovery.resumePoint` and `gcSet` are reused over the points; GC deletes
   a file only when no kept point names it, and — whatever part of that set it deletes (the
   replay pins its live stack) — leaves the resume point where it was
-  (`gcSubset_preserves_resume`, `gcFiles_preserves_resume`).
+  (`gcSubset_preserves_resume`, `gcFiles_preserves_resume`), and keeps every component of the
+  resume point, its frontier included (`gc_keeps_resume_components`).
+* Part E — a key range (snapshot v2's `compose-range`): the newest-first merge of the
+  sources' ascending runs over a range, wipes and tombstones included, is the stack's lookup
+  on that range (`viewRange_slot`, `viewRange_acct`).
 
 What is assumed, not proved: that the Lisp writer implements `apply`/`compose`/`mat`
 (`LayerOK`, `CompactOK` are hypotheses, checked on the implementation by
@@ -432,10 +437,11 @@ end Replay
 
 /-! ## Part D — recovery over layered files
 
-The files are bases and layers (`snap-B/`, `layer-P-N/`), each sealed, torn or corrupt. A
-resume POINT at block `n` is a composition: the components a resume from `n` loads (its
-anchor line records them, so the bytes the root check read are the bytes resumed from;
-an unanchored layer resolves its chain down to a base). The Part 1 view is derived from
+The files are bases, layers and frontiers (`snap-B/`, `layer-P-N/`, `frontier-N/`), each
+sealed, torn or corrupt. A resume POINT at block `n` is a composition: the components a
+resume from `n` loads (its anchor line records them, so the bytes the root check read are
+the bytes resumed from; an unanchored layer resolves its chain down to a base; in snapshot
+v2 an anchored point also names its `frontier-n/`, which the resume maps). The Part 1 view is derived from
 the points: a point is a sealed dump iff all its components are sealed. GC deletes the
 non-corrupt files no kept point names. -/
 
@@ -443,8 +449,10 @@ section Files
 
 open Evm.Persist.Recovery
 
-/-- A component file: a base at a block, or a layer by (parent, block). -/
-inductive Comp | base (b : Nat) | layer (p b : Nat)
+/-- A component file: a base at a block, a layer by (parent, block), or the root worker's
+    frontier at a block (`frontier-N/`, snapshot v2: an anchor point names the frontier its
+    worker checkpointed there). -/
+inductive Comp | base (b : Nat) | layer (p b : Nat) | frontier (b : Nat)
   deriving DecidableEq, Repr
 
 abbrev FileEntry := Comp × DumpStatus
@@ -569,6 +577,339 @@ theorem resume_components_sealed {as : List Anchor} {fs : List FileEntry} {ps : 
   obtain ⟨p, hp, hpr, hps⟩ := mem_dumpsOf_sealed.1 hs
   exact ⟨hv, p, hp, hpr, pointStatus_sealed.1 hps⟩
 
+/-- Every component of the resume point — its base, its layers and (snapshot v2) its frontier —
+    is still sealed after deleting any part of the GC set: GC never takes what a resume maps. -/
+theorem gc_keeps_resume_components {as : List Anchor} {fs : List FileEntry} {ps : List Point}
+    {D : List Comp} (hD : ∀ c ∈ D, c ∈ gcFiles as fs ps) {r : Nat}
+    (h : resumePoint as (dumpsOf fs ps) = .block r) :
+    ∃ p ∈ ps, p.1 = r ∧ p.2 ≠ [] ∧ ∀ c ∈ p.2, (c, DumpStatus.sealed) ∈ deleteFiles D fs := by
+  obtain ⟨_, hs⟩ := resume_sound h
+  obtain ⟨p, hp, hpr, hps⟩ := mem_dumpsOf_sealed.1 hs
+  have hk : p.1 ∈ keep as (dumpsOf fs ps) := by
+    rw [hpr]; exact List.mem_append_left _ (resume_mem_keepVerified h)
+  exact ⟨p, hp, hpr, pointStatus_sealed.1 (kept_point_sealed hD hp hk hps)⟩
+
 end Files
+
+/-! ## Part E — a key range of the stack: `compose-range` (snapshot v2)
+
+Snapshot v2 (`docs/state-snapshot-format.md`) sorts records by hashed key, so a trie's
+leaves under one prefix are a contiguous key range in every source. `compose-range` reads
+that range from each source (the root worker's delta, the layers, the base, newest first) as
+an ascending run and merges them: on equal keys the newest source wins; a slot run stops at
+the first source whose account is wiped there; tombstones are dropped when the base is
+included. `viewRange_slot` and `viewRange_acct` (F3) prove the merge is the stack's lookup
+(`lookupSlot`, `lookupAcct`, hence `applyAll`, Part A) on the range: wipes and tombstones
+included. The caller applies S1 to the accounts (`mat`, Part B), which makes it `view`
+restricted to the range. -/
+
+section Range
+
+variable {K V : Type} [LinearOrder K]
+
+/-- A run: records strictly ascending by key (v2's S4, within one source). -/
+def Ascending (r : List (K × V)) : Prop := r.Pairwise fun a b => a.1 < b.1
+
+/-- The value a run holds for `k`. -/
+def get (k : K) : List (K × V) → Option V
+  | [] => none
+  | e :: r => if e.1 = k then some e.2 else get k r
+
+/-- Two runs merged, the first (newer) winning on equal keys. -/
+def merge2 : List (K × V) → List (K × V) → List (K × V)
+  | [], ys => ys
+  | x :: xs, [] => x :: xs
+  | x :: xs, y :: ys =>
+    if x.1 < y.1 then x :: merge2 xs (y :: ys)
+    else if y.1 < x.1 then y :: merge2 (x :: xs) ys
+    else x :: merge2 xs ys
+termination_by xs ys => xs.length + ys.length
+
+/-- `compose-range`: the sources' runs, newest first, each with whether its account is wiped
+    (the older sources are then not read). -/
+def composeRuns : List (List (K × V) × Bool) → List (K × V)
+  | [] => []
+  | (r, stop) :: rest => merge2 r (if stop then [] else composeRuns rest)
+
+theorem get_cons (k : K) (e : K × V) (r : List (K × V)) :
+    get k (e :: r) = if e.1 = k then some e.2 else get k r := rfl
+
+theorem get_eq_none {k : K} : ∀ {r : List (K × V)}, (∀ e ∈ r, e.1 ≠ k) → get k r = none
+  | [], _ => rfl
+  | e :: r, h => by
+    simp only [get, h e List.mem_cons_self, ite_false]
+    exact get_eq_none fun e' he' => h e' (List.mem_cons_of_mem _ he')
+
+theorem mem_merge2 : ∀ {xs ys : List (K × V)} {e : K × V}, e ∈ merge2 xs ys → e ∈ xs ∨ e ∈ ys
+  | [], ys, e, h => by simp [merge2] at h; exact Or.inr h
+  | x :: xs, [], e, h => by simp [merge2] at h; exact Or.inl (by simpa using h)
+  | x :: xs, y :: ys, e, h => by
+    unfold merge2 at h
+    split at h
+    · rcases List.mem_cons.1 h with rfl | h
+      · exact Or.inl List.mem_cons_self
+      · rcases mem_merge2 h with h | h
+        · exact Or.inl (List.mem_cons_of_mem _ h)
+        · exact Or.inr h
+    · split at h
+      · rcases List.mem_cons.1 h with rfl | h
+        · exact Or.inr List.mem_cons_self
+        · rcases mem_merge2 h with h | h
+          · exact Or.inl h
+          · exact Or.inr (List.mem_cons_of_mem _ h)
+      · rcases List.mem_cons.1 h with rfl | h
+        · exact Or.inl List.mem_cons_self
+        · rcases mem_merge2 h with h | h
+          · exact Or.inl (List.mem_cons_of_mem _ h)
+          · exact Or.inr (List.mem_cons_of_mem _ h)
+termination_by xs ys => xs.length + ys.length
+
+theorem ascending_merge2 : ∀ {xs ys : List (K × V)}, Ascending xs → Ascending ys →
+    Ascending (merge2 xs ys)
+  | [], ys, _, hy => by simpa [merge2] using hy
+  | x :: xs, [], hx, _ => by simpa [merge2] using hx
+  | x :: xs, y :: ys, hx, hy => by
+    have hx' : Ascending xs := (List.pairwise_cons.1 hx).2
+    have hy' : Ascending ys := (List.pairwise_cons.1 hy).2
+    have hxl : ∀ e ∈ xs, x.1 < e.1 := (List.pairwise_cons.1 hx).1
+    have hyl : ∀ e ∈ ys, y.1 < e.1 := (List.pairwise_cons.1 hy).1
+    unfold merge2
+    split
+    · rename_i hlt
+      refine List.pairwise_cons.2 ⟨fun e he => ?_, ascending_merge2 hx' hy⟩
+      rcases mem_merge2 he with he | he
+      · exact hxl e he
+      · rcases List.mem_cons.1 he with rfl | he
+        · exact hlt
+        · exact lt_trans hlt (hyl e he)
+    · split
+      · rename_i _ hlt
+        refine List.pairwise_cons.2 ⟨fun e he => ?_, ascending_merge2 hx hy'⟩
+        rcases mem_merge2 he with he | he
+        · rcases List.mem_cons.1 he with rfl | he
+          · exact hlt
+          · exact lt_trans hlt (hxl e he)
+        · exact hyl e he
+      · rename_i h1 h2
+        have heq : x.1 = y.1 := le_antisymm (not_lt.1 h2) (not_lt.1 h1)
+        refine List.pairwise_cons.2 ⟨fun e he => ?_, ascending_merge2 hx' hy'⟩
+        rcases mem_merge2 he with he | he
+        · exact hxl e he
+        · rw [heq]; exact hyl e he
+termination_by xs ys => xs.length + ys.length
+
+/-- The merge holds the newer run's value, else the older's. -/
+theorem get_merge2 (k : K) : ∀ {xs ys : List (K × V)}, Ascending xs → Ascending ys →
+    get k (merge2 xs ys) = (get k xs).or (get k ys)
+  | [], ys, _, _ => by simp [merge2, get]
+  | x :: xs, [], _, _ => by simp [merge2, get]
+  | x :: xs, y :: ys, hx, hy => by
+    have hx' : Ascending xs := (List.pairwise_cons.1 hx).2
+    have hy' : Ascending ys := (List.pairwise_cons.1 hy).2
+    have hxl : ∀ e ∈ xs, x.1 < e.1 := (List.pairwise_cons.1 hx).1
+    unfold merge2
+    split
+    · rw [get_cons k x, get_merge2 k hx' hy, get_cons k x xs]
+      by_cases h : x.1 = k <;> simp [h]
+    · split
+      · rename_i _ hlt
+        rw [get_cons k y, get_merge2 k hx hy', get_cons k y ys]
+        by_cases h : y.1 = k
+        · have hn : get k (x :: xs) = none := get_eq_none fun e he => by
+            rcases List.mem_cons.1 he with rfl | he
+            · exact fun h' => absurd (h ▸ h' ▸ hlt) (lt_irrefl _)
+            · exact fun h' => absurd (h ▸ h' ▸ lt_trans hlt (hxl e he)) (lt_irrefl _)
+          simp [h, hn]
+        · simp [h]
+      · rename_i h1 h2
+        have heq : x.1 = y.1 := le_antisymm (not_lt.1 h2) (not_lt.1 h1)
+        rw [get_cons k x, get_merge2 k hx' hy', get_cons k x xs, get_cons k y ys]
+        by_cases h : x.1 = k
+        · simp [h]
+        · have h' : ¬ y.1 = k := heq ▸ h
+          simp [h, h']
+termination_by xs ys => xs.length + ys.length
+
+theorem ascending_composeRuns : ∀ {srcs : List (List (K × V) × Bool)},
+    (∀ s ∈ srcs, Ascending s.1) → Ascending (composeRuns srcs)
+  | [], _ => List.Pairwise.nil
+  | (r, stop) :: rest, h => by
+    simp only [composeRuns]
+    apply ascending_merge2 (h _ List.mem_cons_self)
+    cases stop
+    · exact ascending_composeRuns fun s hs => h s (List.mem_cons_of_mem _ hs)
+    · exact List.Pairwise.nil
+
+/-- The run of `f` on the range `R`: ascending, holding exactly `f k` for every key of the
+    range (what a fence lookup of the range returns from one source). -/
+def RunOf (R : K → Bool) (f : K → Option V) (r : List (K × V)) : Prop :=
+  Ascending r ∧ ∀ k, get k r = if R k then f k else none
+
+/-- The sources, newest first: each a run of its lookup function on the range, with its
+    wipe flag. -/
+inductive Runs (R : K → Bool) :
+    List (List (K × V) × Bool) → List ((K → Option V) × Bool) → Prop
+  | nil : Runs R [] []
+  | cons {r f stop srcs fns} : RunOf R f r → Runs R srcs fns →
+      Runs R ((r, stop) :: srcs) ((f, stop) :: fns)
+
+/-- The stack's lookup over the sources' functions: the newest that holds the key, stopping at
+    a wipe. -/
+def lookupFns (k : K) : List ((K → Option V) × Bool) → Option V
+  | [] => none
+  | (f, stop) :: rest => match f k with
+    | some v => some v
+    | none => if stop then none else lookupFns k rest
+
+theorem runs_ascending {R : K → Bool} : ∀ {srcs : List (List (K × V) × Bool)} {fns},
+    Runs R srcs fns → ∀ s ∈ srcs, Ascending s.1
+  | _, _, .nil, s, h => by simp at h
+  | _, _, .cons hr hrs, s, h => by
+    rcases List.mem_cons.1 h with rfl | h
+    · exact hr.1
+    · exact runs_ascending hrs s h
+
+/-- `compose-range` is the stack's lookup, on the range. -/
+theorem get_composeRuns {R : K → Bool} (k : K) : ∀ {srcs : List (List (K × V) × Bool)} {fns},
+    Runs R srcs fns → get k (composeRuns srcs) = if R k then lookupFns k fns else none
+  | _, _, .nil => by simp [composeRuns, get, lookupFns]
+  | (r, stop) :: srcs, (f, _) :: fns, .cons hr hrs => by
+    simp only [composeRuns]
+    have hrest : Ascending (if stop then [] else composeRuns srcs) := by
+      cases stop
+      · exact ascending_composeRuns (runs_ascending hrs)
+      · exact List.Pairwise.nil
+    rw [get_merge2 k hr.1 hrest, hr.2 k]
+    have ih := get_composeRuns k hrs
+    by_cases hR : R k
+    · simp only [hR, ite_true, lookupFns] at ih ⊢
+      cases f k with
+      | some v => rfl
+      | none => cases stop <;> simp [ih, get]
+    · simp only [hR, ite_false, Bool.false_eq_true] at ih ⊢
+      cases stop <;> simp [ih, get]
+
+/-- In an ascending run, filtering keeps or drops `k`'s one record. -/
+theorem get_filter {k : K} {p : K × V → Bool} : ∀ {r : List (K × V)}, Ascending r →
+    get k (r.filter p) = (get k r).bind fun v => if p (k, v) then some v else none
+  | [], _ => rfl
+  | e :: r, h => by
+    have hr : Ascending r := (List.pairwise_cons.1 h).2
+    have hl : ∀ e' ∈ r, e.1 < e'.1 := (List.pairwise_cons.1 h).1
+    by_cases hk : e.1 = k
+    · have hn : get k (r.filter p) = none := get_eq_none fun e' he' => by
+        have := hl e' (List.mem_filter.1 he').1
+        exact fun h' => absurd (hk ▸ h' ▸ this) (lt_irrefl _)
+      have he : e = (k, e.2) := by rw [← hk]
+      by_cases hp : p e = true
+      · simp [hp, get, hk, ← he]
+      · have hp' : p (k, e.2) = false := by rw [← he]; simpa using hp
+        simp [hp, get, hk, hn, hp']
+    · by_cases hp : p e = true
+      · simp [hp, get, hk, get_filter hr]
+      · simp [hp, get, hk, get_filter hr]
+
+/-- In an ascending run, dropping the `none` values (deletions) and unwrapping the rest. -/
+theorem get_filterMap_some {W : Type} {k : K} : ∀ {r : List (K × Option W)}, Ascending r →
+    get k (r.filterMap fun e => e.2.map (e.1, ·)) = (get k r).bind id
+  | [], _ => rfl
+  | e :: r, h => by
+    have hr : Ascending r := (List.pairwise_cons.1 h).2
+    have hl : ∀ e' ∈ r, e.1 < e'.1 := (List.pairwise_cons.1 h).1
+    have ih := get_filterMap_some (k := k) hr
+    rcases e with ⟨ke, ve⟩
+    by_cases hk : ke = k
+    · subst hk
+      have hn : get ke (r.filterMap fun e => e.2.map (e.1, ·)) = none := get_eq_none fun e' he' => by
+        obtain ⟨e'', he'', hm⟩ := List.mem_filterMap.1 he'
+        cases h2 : e''.2 with
+        | none => simp [h2] at hm
+        | some w =>
+          simp only [h2, Option.map_some, Option.some.injEq] at hm
+          subst hm
+          exact ne_of_gt (hl e'' he'')
+      cases ve with
+      | none => simp only [List.filterMap_cons, Option.map_none]; rw [hn]; simp [get]
+      | some w => simp [get]
+    · cases ve with
+      | none => simp only [List.filterMap_cons, Option.map_none]; rw [ih]; simp [get, hk]
+      | some w => simp only [List.filterMap_cons, Option.map_some]; rw [get_cons, ih]; simp [get, hk]
+
+end Range
+
+section RangeView
+
+variable {A S F : Type}
+
+/-- The slot sources of address `a` for the stack `ds` (newest first) over `base`: each layer's
+    slots and wipe flag, then the base's nonzero slots. -/
+def slotFns (a : A) (base : State A S F) : List (Delta A S F) → List ((S → Option Nat) × Bool)
+  | [] => [(fun k => if base.slot a k = 0 then none else some (base.slot a k), false)]
+  | d :: ds => (d.slot a, d.wiped a) :: slotFns a base ds
+
+theorem lookupFns_slotFns (a : A) (base : State A S F) (k : S) :
+    ∀ ds : List (Delta A S F), (lookupFns k (slotFns a base ds)).getD 0 = lookupSlot ds base a k
+  | [] => by
+    simp only [slotFns, lookupFns, lookupSlot]
+    by_cases h : base.slot a k = 0 <;> simp [h]
+  | d :: ds => by
+    simp only [slotFns, lookupFns, lookupSlot]
+    cases d.slot a k with
+    | some v => rfl
+    | none =>
+      cases d.wiped a
+      · exact lookupFns_slotFns a base k ds
+      · rfl
+
+/-- **F3, slots.** `compose-range` over a contract's slot range — the sources' runs, tombstones
+    dropped — holds exactly the stack's nonzero slots in the range, ascending. -/
+theorem viewRange_slot [LinearOrder S] (ds : List (Delta A S F)) (base : State A S F) (a : A) (R : S → Bool)
+    (srcs : List (List (S × Nat) × Bool)) (hr : Runs R srcs (slotFns a base ds)) :
+    Ascending ((composeRuns srcs).filter fun e => e.2 != 0) ∧
+    ∀ k, get k ((composeRuns srcs).filter fun e => e.2 != 0) =
+      if R k ∧ (applyAll ds base).slot a k ≠ 0 then some ((applyAll ds base).slot a k) else none := by
+  have hasc := ascending_composeRuns (runs_ascending hr)
+  refine ⟨List.Pairwise.filter _ hasc, fun k => ?_⟩
+  rw [get_filter hasc, get_composeRuns k hr, ← lookupSlot_eq, ← lookupFns_slotFns a base k ds]
+  by_cases hR : R k
+  · simp only [hR, ite_true, true_and]
+    cases lookupFns k (slotFns a base ds) with
+    | none => simp
+    | some v => by_cases hv : v = 0 <;> simp [hv]
+  · simp [hR]
+
+/-- The account sources for the stack `ds` over `base`: each layer's account records (`some
+    none` a deletion), then the base's accounts. -/
+def acctFns (base : State A S F) : List (Delta A S F) → List ((A → Option (Option F)) × Bool)
+  | [] => [(fun a => (base.acct a).map some, false)]
+  | d :: ds => (d.acct, false) :: acctFns base ds
+
+theorem lookupFns_acctFns (base : State A S F) (a : A) :
+    ∀ ds : List (Delta A S F), (lookupFns a (acctFns base ds)).bind id = lookupAcct ds base a
+  | [] => by simp only [acctFns, lookupFns, lookupAcct]; cases base.acct a <;> rfl
+  | d :: ds => by
+    simp only [acctFns, lookupFns, lookupAcct]
+    cases d.acct a with
+    | some x => rfl
+    | none => exact lookupFns_acctFns base a ds
+
+/-- **F3, accounts.** `compose-range` over an account range — deletions dropped — holds exactly
+    the stack's accounts in the range, ascending (S1, `mat`, is the caller's). -/
+theorem viewRange_acct [LinearOrder A] (ds : List (Delta A S F)) (base : State A S F) (R : A → Bool)
+    (srcs : List (List (A × Option F) × Bool)) (hr : Runs R srcs (acctFns base ds)) :
+    Ascending ((composeRuns srcs).filterMap fun e => e.2.map (e.1, ·)) ∧
+    ∀ a, get a ((composeRuns srcs).filterMap fun e => e.2.map (e.1, ·)) =
+      if R a then (applyAll ds base).acct a else none := by
+  have hasc := ascending_composeRuns (runs_ascending hr)
+  refine ⟨?_, fun a => ?_⟩
+  · refine List.pairwise_filterMap.2 (List.Pairwise.imp (fun {x y} hxy => ?_) hasc)
+    intro b hb b' hb'
+    cases hx : x.2 <;> cases hy : y.2 <;> simp only [hx, hy, Option.map_none, Option.map_some,
+      reduceCtorEq, Option.some.injEq] at hb hb'
+    subst hb hb'; exact hxy
+  · rw [get_filterMap_some hasc, get_composeRuns a hr, ← lookupAcct_eq, ← lookupFns_acctFns base a ds]
+    by_cases hR : R a <;> simp [hR]
+
+end RangeView
 
 end Evm.Persist.Layered

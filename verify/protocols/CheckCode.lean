@@ -5,7 +5,9 @@ import EitaVeil.Code
     lake env lean --run CheckCode.lean      (from verify/protocols; scripts/verify-protocols.sh)
 
 1. Every `@code` citation in `EitaVeil/*.lean` (`EitaVeil.Code.check`): a defun, a marked step
-   (`; @veil defun/step`) or a historical line (the rows below, checked with `git show`).
+   (`; @veil defun/step`) or a historical line (the rows below, checked with `git show`); every
+   `@planned` citation of a design model: a row below naming a section of
+   `docs/state-snapshot-format.md` that exists, for code that does not exist yet.
 2. The orderings the safety proofs rest on, as structural checks over the forms:
    * `live-components` reads `*layers*` and `*base*` exactly once, inside
      `(with-mutex (*stack-lock*))` (LayerGcFixed: one atomic pin action);
@@ -53,6 +55,34 @@ def history : Array (String × String × Nat × String) := #[
   ("driver.lisp", "f1d29c6", 231, "(when (and *pending-root* (> (first *pending-root*) top))"),
   ("driver.lisp", "f1d29c6", 232, "(sb-ext:process-kill (third *pending-root*) 9)"),
   ("driver.lisp", "f1d29c6", 234, "(setf *pending-root* nil)")]
+
+/-- The code the design models (CompactionV2, RootWorker) describe before it is written:
+    (tag, the section of docs/state-snapshot-format.md that specifies it). -/
+def planned : Array (String × String) := #[
+  ("emit-write-set", "The root worker's input"),
+  ("root-worker-ingest", "One block"),
+  ("root-worker-block", "One block"),
+  ("root-verdict", "The root worker"),
+  ("root-worker-checkpoint!", "The frontier checkpoint"),
+  ("root-worker-checkpoint!/publish", "The frontier checkpoint"),
+  ("root-worker-checkpoint!/swap", "The frontier checkpoint"),
+  ("root-worker-drop-above!", "Reorgs: drop-above!"),
+  ("root-worker-view!", "The root worker's view"),
+  ("anchor-line!", "Anchors"),
+  ("settle!", "Layers under v2: the RAM window"),
+  ("settle!/quarter", "Layers under v2: the RAM window"),
+  ("start-compaction!/root", "Compaction to a verified anchor"),
+  ("live-components/worker", "Recovery and GC"),
+  ("close-retired!/worker", "The root worker's view"),
+  ("rollback-to!/floor", "Layers under v2: the RAM window")]
+
+/-- Every planned row names a section of the spec that exists. -/
+def plannedSpec : IO (Array String) := do
+  let doc ← IO.FS.readFile (root / "docs" / "state-snapshot-format.md")
+  let heads := (doc.splitOn "\n").filterMap fun l => if l.startsWith "### " then some (l.drop 4).toString else none
+  return planned.filterMap fun (tag, sec) =>
+    if heads.contains sec then none
+    else some s!"planned row {tag}: no section `### {sec}` in docs/state-snapshot-format.md"
 
 /-- The `setf` places of `f` (its odd arguments), as text. -/
 def places (s : Src) (f : Form) : List String :=
@@ -146,8 +176,8 @@ def orderings : IO (Array String) := do
 def main : IO UInt32 := do
   let models := ((← System.FilePath.readDir "EitaVeil").map (·.path)).filter (fun p =>
     p.extension == some "lean" && p.fileName != some "Code.lean") |>.qsort (·.toString < ·.toString)
-  let (errs, notes, n) ← check { root, files, models, history }
-  let errs := errs ++ (← orderings)
+  let (errs, notes, n) ← check { root, files, models, history, planned }
+  let errs := errs ++ (← orderings) ++ (← plannedSpec)
   for x in notes do IO.println s!"note: {x}"
   for x in errs do IO.println s!"STALE: {x}"
   IO.println s!"check-code: {n} citations in {models.size} model files, 9 orderings: {if errs.isEmpty then "OK" else s!"{errs.size} problem(s)"}"

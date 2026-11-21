@@ -166,8 +166,9 @@ decoder is therefore harmless. The structural heart is `walk` over `patricialise
 **Prerequisite (W0).** `Rlp.encode`, `Rlp.decodeAt`, `Trie.patricialise` and `Trie.nodeRef` are
 `partial def`s today, which makes them opaque to the kernel. They must be made total, and
 `decode (encode i) = some i` must be proved. This is the same prerequisite that
-`Trie/Incremental.lean` (`Canonical`) and `Trie/Stack.lean` (the `sorry`s of
-`build_eq_patricialise`) already record, so one stage pays for all three.
+`Trie/Stack.lean` (the `sorry`s of `build_eq_patricialise`) and `Trie/Frontier.lean`
+(`patricialise_assemble`, `build_emits_frontier`) already record, so one stage pays for all of
+them.
 
 ### 2.2 (b) Witness sufficiency
 
@@ -898,7 +899,7 @@ The read-set recorder's segment format (`docs/readset-format.md`) is a separate 
 
 | stage | what | effort | needs |
 |---|---|---|---|
-| **W0** | totalize `Rlp.encode/decodeAt`, `Trie.patricialise/nodeRef`; `decode ∘ encode = some`; `patricialise` characterization (items ↔ structure) | 2–3 wk | — (also unblocks `Trie/Stack` `sorry`s and `Incremental.Canonical`) |
+| **W0** | totalize `Rlp.encode/decodeAt`, `Trie.patricialise/nodeRef`; `decode ∘ encode = some`; `patricialise` characterization (items ↔ structure) | 2–3 wk | — (also unblocks the `Trie/Stack` and `Trie/Frontier` `sorry`s) |
 | **W1** | `Evm/Witness/{ReadKey,Pool,Lookup}.lean`; prove (a) and the account layer; `Prog` + the four generic theorems (done in the spike) | 1–2 wk | W0 |
 | **W2** | `txProg`: effect IR `ask` semantics (one induction over `Stmt`), frame state yields as `ask`, tx/call/create glue reads; `txProg_refines` for every fork; block bind (d) | 4–8 wk | existing `Effect*Proof`, total trampoline with fuel |
 | **W3** | C: `lookup`/RLP printed from Lean, glue + arena + node cache, `eita_wx_*` (session and one-shot), the wire protocol codec; CBMC harness; property tests vs Lean with scripted adversarial hosts; stateless BlockchainTests on host | 4–5 wk | W1; effect IR → C for the remaining terms (all-C core) |

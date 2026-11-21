@@ -16,7 +16,8 @@
 
     (:layered (anchors…) (files…) (points…) resume (gcfiles…))
 
-  files are `((:base b) . status)` / `((:layer p n) . status)`, points `(b comp…)`; resume
+  files are `((:base b) . status)` / `((:layer p n) . status)` / `((:frontier n) . status)`,
+  points `(b comp…)`; resume
   is `resumePoint` over `dumpsOf`, gcfiles is `gcFiles` (in file order).
 -/
 import Evm.Persist.Recovery
@@ -61,9 +62,9 @@ def showResume : Resume → String
 def sexpList (xs : List String) : String := "(" ++ " ".intercalate xs ++ ")"
 
 def genComp (s : Nat) : Comp × Nat :=
-  let (k, s) := draw s 2
+  let (k, s) := draw s 3
   let (b, s) := draw s 4
-  if k = 0 then (.base b, s) else
+  if k = 0 then (.base b, s) else if k = 1 then (.frontier b, s) else
     let (d, s) := draw s 2
     (.layer b (b + d + 1), s)
 
@@ -95,6 +96,7 @@ def genPoints : Nat → Nat → List Point × Nat
 def showComp : Comp → String
   | .base b => s!"(:base {b})"
   | .layer p n => s!"(:layer {p} {n})"
+  | .frontier n => s!"(:frontier {n})"
 
 def showFile (e : FileEntry) : String :=
   let st := match e.2 with | .sealed => ":sealed" | .torn => ":torn" | .corrupt => ":corrupt"

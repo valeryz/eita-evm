@@ -7,7 +7,11 @@ A model action names the code it abstracts with `@code` and a tag:
   `; @veil freeze!/push`, inside `(defun freeze! …)` (several lines may carry one tag; a
   `defstruct`'s slot is marked the same way, `tail/through`);
 * historical code an OLD model describes: `@code snapshot-world.lisp@0a9f2c0:315` — a row
-  of `Config.history` gives the fragment that line holds at that commit (`git show`).
+  of `Config.history` gives the fragment that line holds at that commit (`git show`);
+* code a design model describes before it is written: `@planned settle!` or
+  `@planned settle!/quarter` — a row of `Config.planned` names where the design specifies it,
+  and the check fails once the defun (or the marker) exists: the citation then becomes
+  `@code`, in the code's PR.
 
 `check` fails when a cited tag is missing, a marker has left its defun, a marker is cited by
 no model, or a historical line no longer holds its fragment. Markers survive edits that only
@@ -232,6 +236,8 @@ structure Config where
   models : Array System.FilePath
   /-- historical lines the OLD models cite: (file name, commit, line, fragment) -/
   history : Array (String × String × Nat × String) := #[]
+  /-- code the design models describe before it exists: (tag, where the design specifies it) -/
+  planned : Array (String × String) := #[]
 
 def baseName (p : String) : String := (p.splitOn "/").getLast!
 
@@ -266,6 +272,19 @@ def check (cfg : Config) : IO (Array String × Array String × Nat) := do
         let n := (srcs.filter fun s => (s.findDefun tag).isSome).size
         unless n == 1 do
           errs := errs.push s!"{mp}: cites {tag}: {n} (defun {tag} …) in the cited files, expected one"
+    for (_, tag) in tokensAfter text "@planned" do
+      nCites := nCites + 1
+      cited := cited.push s!"planned:{tag}"
+      unless cfg.planned.any (·.1 == tag) do
+        errs := errs.push s!"{mp}: cites @planned {tag}, which has no planned row in CheckCode.lean"
+      if tag.contains '/' then
+        if markers.any (·.tag == tag) then
+          errs := errs.push s!"{mp}: @planned {tag} now has its `; @veil {tag}` marker: cite it with @code"
+      else if srcs.any (fun s => (s.findDefun tag).isSome) then
+        errs := errs.push s!"{mp}: @planned {tag} now exists as (defun {tag} …): cite it with @code"
+  for (tag, _) in cfg.planned do
+    unless cited.contains s!"planned:{tag}" do
+      errs := errs.push s!"planned row {tag} is cited by no model"
   for m in markers do
     unless cited.contains m.tag do
       errs := errs.push s!"{m.src}:{m.line}: marker {m.tag} is cited by no model"

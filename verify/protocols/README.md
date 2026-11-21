@@ -16,6 +16,23 @@ caller).
 | `Compaction` | now (674e575): freeze!, the writer, minor/major compaction and their swaps, the background root check, GC, `close-retired!`, `collect-written!`, `rollback-to!`, the resumed base's background fence; forks within `reorg-window` of the highest block run | safe: inductive invariant (11 clauses), every VC a kernel-checked lean-smt proof; 996,705 states model-checked |
 | `CompactionDeepReorg` | now, forks at any depth: below a compacted base whose root check is due or running (`rollback-to!` kills the check and discards the base) | safe: the same inductive invariant, kernel-checked lean-smt proofs; 1,252,665 states model-checked; the old violation's 14-step prefix `sat` (the rollback discards the base); last full run before the move into core (2026-11-09): it now exceeds the 32 GB cap here, see the cost table |
 | `CompactionDeepReorgOld` | `rollback-to!` and `compaction-swap!` as at f1d29c6 (the rest as now), forks at any depth | violation in 17 steps (model checker; `sat trace` by cvc5): `compaction-swap!` installs a base of the abandoned branch (finding, fixed in 674e575) |
+| `CompactionV2` | **design, ahead of its code**: snapshot v2's stack under P2–P3 (`docs/state-snapshot-format.md` v2): the RAM reorg window, the settled RAM layer and its quarter-point disk layer, the writer, major compaction to a verified anchor with the root in its pass and an immediate swap, GC and `close-retired!` with the root worker's pins, rollback at any requested depth (refused below the floor) | safe: inductive invariant (7 clauses), every VC a kernel-checked lean-smt proof (1,020 theorems); 75,609 states model-checked; four mutants (the worker's pin ignored by `close-retired!` or by GC, the floor guard dropped, a window layer settled above the floor) each a violation |
+| `RootWorker` | **design, ahead of its code**: the per-block root worker: write-set ingest, a block's verdict keyed by (number, hash), `drop-above!` against `rollback-to!`, the undo window, the frontier checkpoint (freeze, publish, swap), the anchor line, GC of frontier directories | safe: inductive invariant (4 clauses), kernel-checked lean-smt proofs (602 theorems); 10,780 states model-checked; four mutants (no deletion of an abandoned frontier, a swap before N settles, queued write sets kept across a rollback, GC above the newest anchor) each a violation |
+
+`CompactionV2` and `RootWorker` model code that is specified but not yet written. Their
+steps that change cite `@planned` names; `CheckCode.lean` lists each with the section of
+`docs/state-snapshot-format.md` that specifies it, checks that the section exists, and fails
+once the defun (or marker) appears in the code, so the citation becomes `@code` in the PR
+that writes it. Until then `Compaction` and `CompactionDeepReorg` describe the running code;
+`CompactionV2` replaces both (it takes forks at any depth) when the stack code lands.
+
+**Findings of the design models (now part of the design).** `RootWorker` needed two rules:
+the worker swaps to its new frontier-N only once N is below the reorg floor (until then it
+reads frontier-A under its frozen overlay), and `drop-above! F` deletes a published,
+unanchored frontier above F. Without the second, a reorg below N leaves the abandoned
+branch's frontier-N and the new branch's checkpoint renames onto it (the layer writer's
+"rename" incident, again); without the first, that deletion would unmap the frontier the
+worker reads. GC also never deletes a frontier above the newest anchor (it may be in flight).
 
 The three LayerGc models share `EitaVeil/LayerGc.lean`, the three Compaction models
 `EitaVeil/CompactionParts.lean`: commands (Lean macros) each variant splices into its
@@ -99,11 +116,11 @@ Toolchain: core's (`lean-toolchain` links to `../../lean/lean-toolchain`). Veil 
 `lakefile.toml` and every dependency in `lake-manifest.json` by full commit SHA. Core's `lean/`
 package does not depend on this one.
 
-    scripts/verify-protocols.sh             # the code check, then all six models, one at a time
-    scripts/verify-protocols.sh --quick     # the code check and the four models under 10 GB
+    scripts/verify-protocols.sh             # the code check, then all eight models, one at a time
+    scripts/verify-protocols.sh --quick     # the code check and the six models under 10 GB
     scripts/verify-protocols.sh LayerGcFixed  # the code check and one model
 
-Cost on a 64 GB M-series Mac (2026-11-12, one model at a time, peak RSS of the process tree):
+Cost on a 64 GB M-series Mac (2026-11-12; CompactionV2 and RootWorker 2026-11-21, under nice beside other jobs; one model at a time, peak RSS of the process tree):
 
 | model | wall | peak RSS | in `--quick` |
 |---|---|---|---|
@@ -111,6 +128,8 @@ Cost on a 64 GB M-series Mac (2026-11-12, one model at a time, peak RSS of the p
 | LayerGcSwapped | 0.3 min | 2.9 GB | yes |
 | CompactionDeepReorgOld | 2.1 min | 5.7 GB | yes |
 | Compaction | 5.8 min | 9.1 GB | yes |
+| CompactionV2 | 3.6 min | 6.5 GB | yes |
+| RootWorker | 1.0 min | 3.1 GB | yes |
 | LayerGcOld | 3.7 min | 6.6 GB | no (its `ic3_unsafe` certificate is the slow part) |
 | CompactionDeepReorg | — | > 32 GB | no: stopped at the cap in its 1,252,665-state model check (earlier runs: 7.6 min, 21 GB) |
 
@@ -158,11 +177,11 @@ the model.
   every instantiation of the sorts), kernel-checked, axioms `propext, Classical.choice,
   Quot.sound` only. `#check_invariants` runs with `veil.smt.trust false`: each solver
   answer is reconstructed by lean-smt into a proof term (no trusted cvc5).
-- Compaction and CompactionDeepReorg have no `ic3_safe`: `#updr`'s search finds Compaction's
+- Compaction, CompactionDeepReorg, CompactionV2 and RootWorker have no `ic3_safe` (not attempted for the last two): `#updr`'s search finds Compaction's
   invariant inductive at frame 1 (30 solver calls, 243 s), but building the certificate's
   kernel term ran past 35 GB of memory in 15 min on a 64 GB Mac and was stopped. Their safety
   rests instead on `#check_invariants` under `veil.smt.trust false`: initiation and every
-  action's consecution of all 11 clauses, each a lean-smt proof term that `#gen_theorems` adds
+  action's consecution of all their clauses, each a lean-smt proof term that `#gen_theorems` adds
   as a theorem (kernel-checked; `report_axioms` prints their axioms). That is the same
   statement ic3_safe packages (inductive invariant ⇒ every reachable state is safe), minus the
   one closing lemma. Veil 22cbf1a's certificate also cannot re-pose an `if` whose condition

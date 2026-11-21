@@ -1,8 +1,9 @@
 ;;;; mpt.lisp — Common Lisp Merkle-Patricia Trie (Ethereum state root).
 ;;;;
 ;;;; Pure-CL mirror of lean/Evm/Trie.lean (patricialise / hexPrefix /
-;;;; nodeRef / root) and lean/Evm/Trie/Incremental.lean (persistent Node:
-;;;; empty / leaf / ext / branch). RLP follows lean/Evm/Rlp.lean.
+;;;; nodeRef / root), plus a mutable node trie (empty / leaf / ext / branch)
+;;;; for mpt-live.lisp; its Lean spec (Trie/Incremental.lean) was superseded by
+;;;; the frontier spec, lean/Evm/Trie/Frontier.lean. RLP follows lean/Evm/Rlp.lean.
 ;;;;
 ;;;; REPRESENTATION DIVERGENCE FROM THE LEAN REFERENCE (deliberate).
 ;;;; Lean carries a nibble path as `List UInt8`; here it is a

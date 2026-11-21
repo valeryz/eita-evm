@@ -349,14 +349,14 @@ reference run (69 s).
   hashes, and the fact log identical to the straight run's over all 500,000 blocks (footer
   content hashes of all seven tables, 1.1 billion rows).
 
-## 9. Next: incremental MPT over layers (step F)
+## 9. Next: snapshot v2 and the per-block root
 
-Designed for, not built. A layer can carry the trie's dirty-path node hashes: each layer
-persists the branch nodes its writes changed (keyed by path), the base persists the full
-node set once; a per-block root then hashes only the dirty paths of the hot set, reading
-sibling hashes newest layer first, exactly like account lookups. Compaction folds node sets
-like slot runs (newest wins). `mpt-live.lisp` would seed from the base's node file instead
-of a full in-heap world.
+Specified in [state-snapshot-format.md](state-snapshot-format.md) (v2): records sorted by
+hashed key, a frontier of subtrie references per anchor (`frontier-N/`), a root worker that
+checks every block's root in the replay's process, the RAM reorg window with quarter-anchor
+disk layers (minor compaction deleted), and compaction to a verified anchor with the root
+computed in its pass. Lean: `lean/Evm/Trie/Frontier.lean`, `Persist/Layered.lean` Part E;
+Veil: `RootWorker`, `CompactionV2`.
 
 ## 10. Open
 
