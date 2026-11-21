@@ -5,8 +5,10 @@ read-only, laid out so that one block's state root can be recomputed from the su
 writes touch.
 
 **Status.** This document specifies format version 2. The engine today reads and writes the
-legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); a converter turns a verified
-v1 state into v2 (§10, "The converter"), after which v1 is read only by the converter. Lean definitions and
+legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); version 2's writer, reader,
+fences and `compose-range` (§3, §6; `src/state/snapshot.lisp`) are not yet on its paths. A
+converter turns a verified v1 state into v2 (§10, "The converter"), after which v1 is read
+only by the converter. Lean definitions and
 proofs, and the Veil models of the protocols, exist for the whole of v2 (§11). The Veil models
 cite the code they describe with `@planned` where that code is not yet written
 (`verify/protocols/CheckCode.lean` maps each such name to the section below that specifies it).
@@ -126,15 +128,22 @@ records has a child node keyed by the bits after the bucket's common prefix. Buc
 
 Hashed account keys are uniform, so the account fence has no children (432M records: `r` =
 22, 16 MB). The storage fence keeps children where a contract is large (split by `hslot`
-bits). The writer builds the fence in its pass (the top level as records are emitted, a child
-after its bucket closes) and persists it:
+bits). The writer builds the fence in its pass and persists it: the top level as records are
+emitted (at the radix its caller's estimate of the record count gives, reduced at the end to
+the one the actual count gives), then a child for each bucket over 512 records from the
+records just written. After a low estimate it builds the whole fence from the records
+written. Either way the fence is the one the records determine, so the content hash does not
+depend on the estimate.
 
 ```
-<name>.fnc: the header (table 7 or 8), then the nodes, root first:
+<name>.fnc: the header (table 7 or 8, count = nodes), then the nodes, root first, each
+followed by its children's subtrees in bucket order:
   node:  bit u32 · r u32 · nkids u32 · a[2^r + 1] u32 · nkids × (bucket u32 · child-offset u64)
+  child-offset: the child's node, in bytes from the end of the header
 ```
 
-Opening a snapshot maps its fences; nothing is built at open.
+An empty table has a fence file with no nodes. Opening a snapshot reads its fences (a copy of
+the file into memory); nothing is built at open.
 
 ### MANIFEST.sexp
 
@@ -218,9 +227,9 @@ At open a layer gets two in-memory filters, built from `accounts.dat`:
 
 ## 6. Composition
 
-`compose-range (sources lo hi)` is the one merge primitive: a k-way merge over the key range
-`[lo, hi)` of the sources' ascending runs, newest first (the worker's delta, then the layers,
-then the base).
+`compose-range` is the one merge primitive: a k-way merge of the sources' ascending runs over
+a key range `[lo, hi)`, newest first (the worker's delta, then the layers, then the base).
+`snap-run` gives a source's run of the range through its fence.
 
 - On equal keys the newest source wins.
 - A storage run stops at the first source whose account record for that address is WIPED.

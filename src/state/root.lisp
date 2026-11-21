@@ -567,39 +567,73 @@
                        (loop for b across parts sum (bucket-count b))))
           (remove-buckets parts))))))
 
+;;; ------------------------------------------------------------ the frontier
+;;;
+;;; lean/Evm/Trie/Frontier.lean, one to one. A trie's frontier at depth D is the reference to
+;;; the subtrie under every D-nibble prefix (`subRef`; NIL where no key has the prefix). Under
+;;; DenseAbove D (every prefix shorter than D with keys under it is a branch with two or more
+;;; children) the root node is the dense branches over the frontier (`assemble` over `refAt`;
+;;; `patricialise_assemble`, stated in Lean, is checked by tests/frontier.lisp against
+;;; `eita.mpt:trie-root`). Prefixes are integers, frontier vectors are indexed by them.
+
+(defun frontier-subref (st)
+  "Lean `subRef`: the reference a parent branch holds for the subtrie of the keys ST was
+   fed (a stack trie whose base depth is the prefix's length), NIL when it was fed none."
+  (let ((item (st-finish st)))
+    (and item (eita.mpt:node-ref item))))
+
+(defun dense-above-p (d nonempty)
+  "Lean `DenseAbove D`, from the frontier's shape: NONEMPTY (16^D generalized booleans, by
+   prefix) has, at every level above D, no prefix with exactly one non-empty child."
+  (let ((level nonempty))
+    (loop for k from d downto 1
+          do (let ((up (make-array (expt 16 (1- k)) :initial-element nil)))
+               (dotimes (q (length up))
+                 (let ((n (loop for i below 16 count (aref level (+ (* 16 q) i)))))
+                   (when (= n 1) (return-from dense-above-p nil))
+                   (setf (aref up q) (plusp n))))
+               (setf level up)))
+    t))
+
+(defun assemble (d refs)
+  "Lean `assemble`: the root node over the frontier REFS (16^D references by prefix, NIL
+   for none, D >= 1): the branch over the references one level down, where the reference at
+   a prefix above the frontier is the branch over its 16 children, referenced, or NIL when
+   they are all absent (Lean `refAt`)."
+  (flet ((branch (v start)
+           (eita.mpt:rlp-list* (nconc (loop for i from start below (+ start 16) collect (or (aref v i) *empty-item*))
+                                      (list *empty-item*)))))
+    (let ((level refs))
+      (loop for k from d above 1
+            do (let ((up (make-array (expt 16 (1- k)) :initial-element nil)))
+                 (dotimes (q (length up))
+                   (when (loop for i below 16 thereis (aref level (+ (* 16 q) i)))
+                     (setf (aref up q) (eita.mpt:node-ref (branch level (* 16 q))))))
+                 (setf level up)))
+      (branch level 0))))
+
 ;;; ------------------------------------------------------------ split roots
 
 (defun split-root (ngroups nonempty feed nthreads)
   "The root item of a trie whose keys come in NGROUPS groups, by their top nibble (16) or
    top byte (256), in key order: (FEED st g w) pushes group G's keys into the stack trie
-   ST in order, (NONEMPTY g) says it has some. When every branch above the groups has 2+
-   non-empty children (the root; with 256 groups, each non-empty top nibble's node too),
-   the groups' subtries (base depth 1 or 2) are built in parallel and the branches above
-   them assembled; otherwise one stack trie (base 0) takes the groups in order."
-  (let* ((levels (if (= ngroups 16) 1 2)) (per (floor ngroups 16))
-         (under (loop for v below 16
-                      collect (loop for g from (* per v) below (* per (1+ v)) count (funcall nonempty g)))))
-    (flet ((branch (items start)
-             (eita.mpt:rlp-list*
-              (nconc (loop for i from start below (+ start 16)
-                           collect (let ((x (aref items i))) (if x (eita.mpt:node-ref x) *empty-item*)))
-                     (list *empty-item*)))))
-      (if (and (>= (count-if #'plusp under) 2) (or (= levels 1) (not (member 1 under))))
-          (let ((items (make-array ngroups :initial-element nil)))
-            (run-pool nthreads ngroups
-                      (lambda (g w)
-                        (when (funcall nonempty g)
-                          (let ((st (st-reset (worker-trie w) levels)))
-                            (funcall feed st g w)
-                            (setf (aref items g) (st-finish st))))))
-            (if (= levels 1)
-                (branch items 0)
-                (let ((mids (make-array 16 :initial-element nil)))
-                  (dotimes (v 16) (when (plusp (nth v under)) (setf (aref mids v) (branch items (* 16 v)))))
-                  (branch mids 0))))
-          (let ((w (make-worker)) (st (make-stack-trie 0)))
-            (dotimes (g ngroups) (when (funcall nonempty g) (funcall feed st g w)))
-            (st-finish st))))))
+   ST in order, (NONEMPTY g) says it has some. Under DenseAbove at the groups' depth (1 or
+   2) the groups' subtries are built in parallel, the frontier, and the root assembled over
+   it; otherwise one stack trie (base 0) takes the groups in order."
+  (let* ((d (if (= ngroups 16) 1 2))
+         (flags (let ((v (make-array ngroups))) (dotimes (g ngroups v) (setf (aref v g) (and (funcall nonempty g) t))))))
+    (if (and (find t flags) (dense-above-p d flags))
+        (let ((refs (make-array ngroups :initial-element nil)))
+          (run-pool nthreads ngroups
+                    (lambda (g w)
+                      (when (aref flags g)
+                        (let ((st (st-reset (worker-trie w) d)))
+                          (funcall feed st g w)
+                          (setf (aref refs g) (frontier-subref st))))))
+          (assemble d refs))
+        (let ((w (make-worker)) (st (make-stack-trie 0)))
+          (dotimes (g ngroups) (when (aref flags g) (funcall feed st g w)))
+          (st-finish st)))))
 
 ;;; ------------------------------------------------------------ the worker pool
 
@@ -686,9 +720,12 @@
   (let* ((asap (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-acct s)))
          (ssap (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-slot-map s)))
          (n (- a1 a0))
-         (touched (and layers
-                       (let ((l '()))
-                         (eita.state.snapshot:map-touched-addresses layers (lambda (a) (push a l)) :lo lo :hi hi)
+         (touched (and layers   ; the addresses the layers mention in [LO, HI), ascending
+                       (let ((l '()) (klo (and lo (eita.state.snapshot:int->octets lo 20)))
+                             (khi (and hi (eita.state.snapshot:int->octets hi 20))))
+                         (eita.state.snapshot:compose-range
+                          (mapcar (lambda (l) (eita.state.snapshot:snap-run l :accounts klo khi)) layers)
+                          (lambda (sap off) (push (eita.state.snapshot:sap-be sap off 20) l)))
                          (nreverse l))))
          (cap (* +rec+ (+ n (length touched)))))
     (declare (type fixnum a0 a1 s0 s1 n))

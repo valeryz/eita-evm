@@ -44,10 +44,11 @@ closes with them. At run time each unproved step has a check: the header root ev
 branch, 32-byte references, the compaction's in-pass root with its entry-by-entry frontier
 comparison, and the resume self-check.
 
-The Lisp root worker (specified, not yet written) is to mirror these definitions one to one
-(`frontier-subref` = `subRef`, the dense-level loop = `refAt`, the per-bucket rebuild =
-`buildFrontier`'s runs), as `src/state/root.lisp` mirrors `Trie.Stack`, checked by a
-`tests/frontier.lisp` against `eita.mpt:trie-root`. -/
+`src/state/root.lisp` mirrors F0 one to one (`frontier-subref` = `subRef`, `dense-above-p` =
+`DenseAbove`, `assemble` = `assemble` over `refAt`), as it mirrors `Trie.Stack`;
+`tests/frontier.lisp` checks them against `eita.mpt:trie-root`, over random tries and over a
+v2 snapshot's key ranges as blocks of writes arrive (the clean prefixes kept, F2). The root
+worker (specified, not yet written) adds the per-bucket rebuild, `buildFrontier`'s runs. -/
 
 namespace Evm.Trie.Frontier
 open Evm Evm.Trie Evm.Trie.Stack

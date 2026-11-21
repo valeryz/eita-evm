@@ -116,18 +116,20 @@
   (:use #:cl)
   (:export
            #:*foreign-layer* #:+empty-code-hash+ #:acct-fields #:advise-sequential #:component-of
-           #:component-path #:compose-address #:composition-string #:hardware-threads #:int->octets
-           #:layer-account #:layer-map-slots #:layer-path #:layer-slot #:layer-tmp-path
-           #:lookup-account #:make-merge #:make-obuf #:map-touched-addresses #:mapping-sap
-           #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap #:octets->int
-           #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be #:snap
-           #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
+           #:component-path #:compose-address #:compose-range #:composition-string #:hardware-threads
+           #:int->octets #:key-range #:layer-account #:layer-map-slots #:layer-path #:layer-slot
+           #:layer-tmp-path #:lookup-account #:make-merge #:make-obuf #:make-run #:make-writer
+           #:mapping-sap #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap
+           #:octets->int #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be
+           #:snap #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
            #:snap-dir #:snap-kind-p #:snap-layer-p #:snap-manifest
            #:snap-map-account-storage #:snap-map-accounts #:snap-map-codes #:snap-map-storage
            #:snap-n-accounts #:snap-n-codes #:snap-n-slots #:snap-open #:snap-p #:snap-parent
-           #:snap-path #:snap-publish #:snap-sealed-p #:snap-slot #:snap-slot-map
-           #:snap-tmp-path #:snap-verify #:view-account #:view-code #:view-has-storage-p
-           #:view-map-account-storage #:view-slot #:write-composed #:zero-bytes-p))
+           #:snap-path #:snap-publish #:snap-run #:snap-sealed-p #:snap-slot #:snap-slot-map
+           #:snap-tmp-path #:snap-verify #:snap-version #:view-account #:view-account-h #:view-code
+           #:view-has-storage-p #:view-map-account-storage #:view-map-storage-h #:view-slot
+           #:view-slot-h #:write-composed #:writer-account #:writer-finish #:writer-record
+           #:writer-slot #:zero-bytes-p))
 
 (defpackage #:eita.state.recovery
   (:documentation "The resume point and garbage collection over snapshots (lean/Evm/Persist/Recovery.lean).")
@@ -150,8 +152,8 @@
   (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`).")
   (:use #:cl #:cffi)
   (:export
-           #:main #:make-stack-trie #:snapshot-root #:st-finish #:st-push #:st-reset
-           #:st-root-bytes))
+           #:assemble #:dense-above-p #:frontier-subref #:main #:make-stack-trie #:snapshot-root
+           #:st-finish #:st-push #:st-reset #:st-root-bytes))
 
 (defpackage #:eita.input
   (:documentation "Block input: the JSON block decoder and the block-source seam (docs/block-input.md).")
