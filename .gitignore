@@ -22,7 +22,9 @@ c/libkeccak_batch.so
 c/libeita_pq.dylib
 c/libeita_pq.so
 rust/pq/target/
+rust/engine-api/target/
 scripts/__pycache__/
 scripts/generated/__pycache__/
 ocicl/
 bin/
+tests/__pycache__/

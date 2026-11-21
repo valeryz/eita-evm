@@ -18,9 +18,12 @@ MPT oracles (mainnet genesis root, incremental trie = rebuild), the streaming st
 against the trie, layered snapshots against the Lean model, the Arc PQ precompile on its real
 call, the recovery decisions and the call-gas and SSTORE-gas natives against the Lean vector
 generators (`lake build recoveryVectors callGasVectors sstoreGasVectors`), the JIT against the
-interpreter (`audit-jit`), and a BlockchainTests sample on both tiers (`EITA_TEST_FIXTURES`, a
-`ValidBlocks` directory, else `lean/external/ethereum-tests`). A suite whose prerequisite is
-missing is reported SKIP with the reason; `EITA_TEST_GATES=1` adds the three Lean gates above.
+interpreter (`audit-jit`), the Engine API's genesis blocks and fork windows (`engine`), and a
+BlockchainTests sample on both tiers (`EITA_TEST_FIXTURES`, a `ValidBlocks` directory, else
+`lean/external/ethereum-tests`). A suite whose prerequisite is missing is reported SKIP with
+the reason; `EITA_TEST_GATES=1` adds the three Lean gates above. The Engine API's own checks
+(the edge's `cargo test`, `tests/engine-checks.py` against a running node) are in
+`docs/run-a-node.md`.
 
 ```sh
 sbcl --load ~/.local/share/ocicl/ocicl-runtime.lisp --eval '(push (truename ".") asdf:*central-registry*)' \

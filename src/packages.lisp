@@ -234,6 +234,14 @@
    #:*observer* #:make-observer #:attach-subscriber!
    #:make-chain-spec #:install-chain-spec! #:register-chain-spec #:find-chain-spec))
 
+(defpackage #:eita.engine
+  (:documentation "`eita engine`: the Engine API's engine thread and the local socket the edge
+   (rust/engine-api) forwards a consensus client's calls over — a block source
+   (src/engine/engine.lisp). It uses only CL: every engine name it reaches is written with
+   its package.")
+  (:use #:cl)
+  (:export #:run #:engine-block-source))
+
 (defpackage #:eita.cli
   (:documentation "bin/eita: the command line (src/cli.lisp).")
   (:use #:cl)
