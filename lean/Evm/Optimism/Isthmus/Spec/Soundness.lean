@@ -80,8 +80,6 @@ theorem pragueApplyMessage_adapter_sound_for_delegation
     `processUserTx (auths := auths)`, and the pre-Isthmus driver
     (`Bedrock.applyAll`) refuses the variant with an explicit error.
     `applyAll` is `private partial`, so the refusal cannot be stated as a
-    theorem here. (Until 2026-11-02 a theorem `eip7702_auth_list_processed`
-    "pinned" this; its statement — `∃ tx, tx = .userWithAuths u auths` —
-    was true of any constructor and said nothing about the drivers.) -/
+    theorem here. -/
 
 end Evm.Optimism.Isthmus.Spec.Soundness

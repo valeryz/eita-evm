@@ -46,8 +46,7 @@ theorem p256_precompile_constants :
     op-geth's `ActivePrecompiles(rules)` pre-warm. The executable
     (`Bedrock.userTxPrecompileWarmSeed`) warms both at every fork, so this is
     FALSE before Fjord; the production Lisp replay gates 0x100 by fork
-    (`op-tx-prewarm`). Replaced 2026-11-02 the vacuous
-    `p256_is_warm_seeded_post_fjord : hasP256Verify f = true → True`. -/
+    (`op-tx-prewarm`). -/
 theorem precompile_warm_seed_per_fork (f : Evm.Optimism.OpFork) :
     (Evm.Address.ofNat 0x100 ∈ Evm.Optimism.Bedrock.userTxPrecompileWarmSeed ↔ hasP256Verify f) ∧
     (Evm.Address.ofNat 0x0a ∈ Evm.Optimism.Bedrock.userTxPrecompileWarmSeed ↔

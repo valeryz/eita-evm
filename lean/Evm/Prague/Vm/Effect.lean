@@ -26,8 +26,7 @@
        EXTCODEHASH). Plus Cancun's own TLOAD/TSTORE/MCOPY/BLOBHASH/
        BLOBBASEFEE and EIP-6780 SELFDESTRUCT.
 
-  Rebased on Cancun 2026-05-29 (was Byzantium-direct). Prague-
-  specific opcode additions (EIP-2935 BLOCKHASH-from-history,
+  Built on Cancun. Prague-specific opcode additions (EIP-2935 BLOCKHASH-from-history,
   EIP-7702 set-code) are handled here in `applyMessage` and the
   Prague Fork driver; the inner Cancun interpreter handles the rest.
 -/

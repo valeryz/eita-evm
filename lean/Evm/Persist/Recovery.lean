@@ -1,9 +1,9 @@
-/-! # Evm/Persist/Recovery — the restart decisions, proved (P1, persistence plan rev. 2 §2.5)
+/-! # Evm/Persist/Recovery — the restart decisions, proved
 
 `src/state/recovery.lisp` decides, after any crash, where the replay resumes and which
-state dumps may be deleted. Those two decisions are where the 2026-10-17/18 faults were
-(F2–F4: a resume behind the verified frontier, a GC that deleted the only usable dump, a
-genesis restart after blocks had been verified). They are small, so they are proved here
+state dumps may be deleted. Those two decisions carry the restart faults this module rules
+out (F2–F4: a resume behind the verified frontier, a GC that deletes the only usable dump, a
+genesis restart after blocks have been verified). They are small, so they are proved here
 rather than tested; the Lisp functions mirror the definitions below one to one.
 
 The input is a VIEW of the durable state, exactly what `recovery.lisp` reads:
@@ -301,7 +301,7 @@ theorem gc_bounded (as : List Anchor) (ds : List Dump) :
 
 /-! ## Part 2 — files, fsync and crashes; atomic publication
 
-The fs model is the trust surface the plan names: what survives a crash.
+The fs model is the trust surface: what survives a crash.
   * A file has bytes and a durable prefix length `synced` (set by fsync).
   * A name is bound to an inode in the LIVE namespace (what the process sees) and in the
     DURABLE one (what a crash keeps for sure); fsync of the directory copies live to durable.
@@ -317,7 +317,7 @@ The writer publishes a file under a name `pub p` by the protocol every artifact 
 the directory. `published_good`: in every state reachable by protocol steps and crashes
 in any interleaving, every binding of every published name, live or durable, is a fully
 synced file whose content the writer meant to publish. `rename_before_fsync_unsafe`
-shows the fsync is necessary (the bug fixed in `factlog-commit!` the day this was written).
+shows the fsync is necessary (`factlog-commit!` relies on it).
 -/
 
 abbrev Bytes := List Nat
@@ -529,7 +529,7 @@ theorem published_good {st : FS × Pc} (h : Reach Good st) {p i : Nat}
 end Publish
 
 /-- Without the fsync before the rename, a crash leaves the published name bound to a
-    torn file: here, the empty one `factlog-commit!` could leave before 2026-10-18. -/
+    torn file: here, the empty one a `factlog-commit!` without the fsync leaves. -/
 theorem rename_before_fsync_unsafe :
     let fs0 : FS := ⟨fun _ => none, fun _ => none, fun _ => ⟨[], 0⟩, 0⟩
     -- write tmp 0 with content [1] (not synced), rename it to pub 0, fsync the directory

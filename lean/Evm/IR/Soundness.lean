@@ -841,7 +841,7 @@ private theorem liftPure_ternary_shifted (i i2 : Evm) (g pcv : Nat)
   rw [hRun]
   simp [hHalt]
 
-/-! ### Per-op `step1` wrappers (Phase 2a family)
+/-! ### Per-op `step1` wrappers
 
     18 ops × ~12 lines, all closed by the generic cores above. The
     `f` arguments are the VERBATIM lambdas from `Spec.Step`'s
@@ -1368,7 +1368,7 @@ theorem step1_codecopy_shifted (i i2 : Evm) (g pcv : Nat)
   rw [hCopy]
   simp
 
-/-! ### Nullary-push shifted core (Phase 2c tranche A)
+/-! ### Nullary-push shifted core
 
     One core for the 15 `runNullaryPush`-shaped ops (ADDRESS …
     GASLIMIT, PC, MSIZE, GAS). The pushed value is abstracted twice:
@@ -2495,7 +2495,7 @@ private theorem step1_jumpi_continue (i i' : Evm) (pcv : Nat)
                          halted := false } := by
         unfold Evm.Frontier.Vm.Instructions.jumpi
         -- simp normalizes the `cond = 0` test to `cond = 0#256`, so
-        -- `hc` no longer fires syntactically; the dead true branch
+        -- `hc` does not fire syntactically; the dead true branch
         -- survives as an implication, discharged by `hc` directly.
         simp [bind, Except.bind, hch, hp2, hvj', pure, Except.pure]
         exact fun h => absurd h hc
@@ -4325,7 +4325,7 @@ theorem compileLoop_sound (code : Evm.Bytes) (pc : Nat) :
          simp [IR.execTerm] at hTerm)
 
 /-- Halt-shaped corollary of `compileLoop_sound`: when the IR result
-    frame is halted, the Effect run `.halt`s with it — the Phase 3
+    frame is halted, the Effect run `.halt`s with it — the halt
     statement, derived from the generalized transfer conclusion by
     peeling one step of the right-hand `runFrame`. -/
 theorem compileLoop_sound_halt (code : Evm.Bytes) (pc : Nat)
@@ -8176,8 +8176,7 @@ theorem compileLoop_sound_spec (code : Evm.Bytes) (pc : Nat) :
          simp [IR.execTerm] at hTerm)
 
 
-/-- Halt-shaped corollary of `compileLoop_sound_spec` (the Phase 3
-    statement): a halted IR result closes the run with `.done`.
+/-- Halt-shaped corollary of `compileLoop_sound_spec`: a halted IR result closes the run with `.done`.
     `IsFrameRun.done` accepts any cause, so `.stop` is chosen. -/
 theorem compileLoop_sound_spec_halt (code : Evm.Bytes) (pc : Nat)
     (ops : List Op) (gas : Nat) (term : Terminator) (endPc : Nat)
@@ -8228,7 +8227,7 @@ theorem compile_sound_vs_spec
   rw [hEq]
   exact hrun
 
-/-! ## (3) Program-level soundness (Phase 4)
+/-! ## (3) Program-level soundness
 
     Lift the chunk-level theorems to `IR.executeProgram`, the
     multi-chunk trampoline. The trampoline transfers control between
@@ -8471,7 +8470,7 @@ theorem executeProgram_sound_vs_spec (fuel : Nat) (code : Evm.Bytes)
         (by rw [hmsg, hcc]) (by simpa using hH) hrun
       exact ⟨cause, hrunF cause evm' hk⟩
 
-/-- Top-level Phase 4 theorem (effect side): compile bytecode with
+/-- Top-level program theorem (effect side): compile bytecode with
     `compileProgram`, run the trampoline, and `Effect.runFrameR`
     agrees on the final frame and output. -/
 theorem compileProgram_sound_vs_effect (fuel : Nat) (code : Evm.Bytes)
@@ -8483,7 +8482,7 @@ theorem compileProgram_sound_vs_effect (fuel : Nat) (code : Evm.Bytes)
   executeProgram_sound_vs_effect fuel code prog
     (compileProgram_wf .frontier code prog hcompile) evm evm' hcc hHalt hrun
 
-/-- Top-level Phase 4 theorem (spec side): compile bytecode with
+/-- Top-level program theorem (spec side): compile bytecode with
     `compileProgram`, run the trampoline, and the spec's frame-run
     relation accepts the transition. -/
 theorem compileProgram_sound_vs_spec (fuel : Nat) (code : Evm.Bytes)

@@ -143,8 +143,7 @@ def txBlobFee (blobBaseFee numBlobs : Nat) : Nat :=
     within what the block has left of `MAX_BLOB_GAS_PER_BLOCK` (432-439,
     `BlobGasLimitExceededError`); `blockBlobGasUsed` is the blob gas of the block's
     earlier txs. Cancun has no per-tx cap of its own — at most 6 blobs follows from the
-    block's. Restated 2026-11-09: this used to be `0 < n ≤ 6` per tx, which the
-    implementation did not check at Cancun and EELS does not state. -/
+    block's. -/
 def IsBlobCountValid (blockBlobGasUsed numBlobs : Nat) : Prop :=
   0 < numBlobs ∧ blockBlobGasUsed + txBlobGas numBlobs ≤ maxBlobGasPerBlock
 

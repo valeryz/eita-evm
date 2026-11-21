@@ -80,11 +80,10 @@
   goes below zero at the tx level because the earlier clear of the same
   slot in the same tx paid it. The refinement proves this from the
   tx-level invariant `Evm.Constantinople.Spec.RefundInv`, which the step
-  preserves. (Corrected 2026-11-09: the relation used to clamp the sum at
-  0; the implementation clamps each delta in turn. The two disagree when
-  the counter is below 15000 on the cancel branch, e.g. refund 0,
-  original ≠ 0, current = 0, new = original: clamp-in-turn 4200, clamp-
-  once 0, EELS −10800 — a state the invariant rules out.)
+  preserves. The implementation clamps each delta in turn; clamping
+  disagrees with EELS only when the counter is below 15000 on the cancel
+  branch (e.g. refund 0, original ≠ 0, current = 0, new = original:
+  clamp-in-turn 4200, EELS −10800) — a state the invariant rules out.
 -/
 
 import Evm.Frontier.Vm

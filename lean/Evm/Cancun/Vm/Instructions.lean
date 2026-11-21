@@ -69,7 +69,6 @@ def mcopy : Handler := fun evm => do
   -- extends to `max(dstOff+len, srcOff+len)` and bills the delta — and
   -- skips both ranges when `len = 0` (no charge, no growth). We piggy-back
   -- on `chargeMemory`, which both charges and extends; size 0 is its no-op.
-  -- (Until 2026-11-09 `len = 0` still grew memory to `max(dst, src)`.)
   let highEnd := if lenN = 0 then 0 else Nat.max (destOffN + lenN) (srcOffN + lenN)
   let (gasLeft, mem) ← chargeMemory gasLeft evm.memory 0 highEnd
   -- Per-word copy cost (3 · ⌈len/32⌉).

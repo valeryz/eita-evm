@@ -7,16 +7,13 @@
 
   ## Why this needs to be a spec
 
-  During the 2026-05-30 validation push, EVERY post-Byzantium fork's
-  trampoline and `processTransaction` was found to be calling
-  `Evm.Frontier.Vm.PrecompiledContracts.lookup` (Frontier's
-  4-precompile table) for the precompile-dispatch step. The
-  unqualified `PrecompiledContracts.lookup` resolved through `open
-  Evm.Frontier.Vm` to Frontier's table — so any CALL or
-  tx-with-`to`=0x05 ran the empty-account-code path instead of the
-  precompile. The bug was silent at the implementation level (no
-  type error, no obvious wrong output for most tests) — but
-  catastrophic for the modexp / bn256 corpora.
+  An unqualified `PrecompiledContracts.lookup` under `open
+  Evm.Frontier.Vm` resolves to Frontier's 4-precompile table; a
+  post-Byzantium trampoline or `processTransaction` that uses it runs
+  the empty-account-code path for a CALL or tx to 0x05 instead of the
+  precompile. That is silent at the implementation level (no type
+  error, no obvious wrong output for most tests) but wrong across the
+  modexp / bn256 corpora.
 
   Implementations are free to merge the table with the dispatch
   decision however they like, BUT the **table itself** is a fork-

@@ -42,15 +42,14 @@ def renderOp : Op → String
   | .mload    => "(:mload)"
   | .mstore   => "(:mstore)"
   -- Opcodes outside the no-jump slice render with their tag; the
-  -- Lisp side dispatches further. Phase 2 wires the full set.
+  -- Lisp side dispatches further.
   | other     => s!"(:op {repr other})"
 
 def renderTerm : Terminator → String
   | .stop      => ":stop"
   | .ret       => ":ret"
   | .endOfCode => ":end-of-code"
-  -- New terminators get rendered with a tag; full s-expr shape
-  -- (e.g. call kind, jump target) lands in Phase 4.
+  -- Other terminators render with a tag (no call kind or jump target).
   | other      => s!"(:term {repr other})"
 
 def renderChunk (c : Chunk) : String :=

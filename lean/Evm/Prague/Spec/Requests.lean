@@ -58,8 +58,8 @@ def consolidationRequestType  : UInt8 := 0x02
     is the block's (EELS `forks/prague/fork.py::process_general_purpose_requests`
     767-810): deposits (type 0x00), then the EIP-7002 withdrawal predeploy's
     output (0x01), then the EIP-7251 consolidation predeploy's output (0x02),
-    each included only when non-empty. Restated 2026-11-09: the predicate used
-    to be the implementation's `computeRequestsHash`, so its refinement was
+    each included only when non-empty. Stated independently of the
+    implementation's `computeRequestsHash`, so its refinement is not
     circular. -/
 
 /-- One request: the type byte, then the data (EELS `TYPE + data`). -/

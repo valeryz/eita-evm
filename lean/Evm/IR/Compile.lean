@@ -244,7 +244,7 @@ def compileLoop (fork : Evm.Fork) (code : Evm.Bytes) (pc : Nat) :
     | 0x55 => do
       let (ops, gas, term, e) ← compileLoop fork code (pc + 1)
       return (Op.sstore :: ops, staticGasFor fork Op.sstore + gas, term, e)
-    -- Yielding / frame-ending terminators (Stage C). endPc is the
+    -- Yielding / frame-ending terminators. endPc is the
     -- opcode's OWN pc: `doCall`/`doCallcode`/`doCreate` read `evm.pc`
     -- as the resume point (the resume functions set `pc + 1`), and
     -- `Vm.selfdestruct` halts with pc unchanged at the opcode — so
@@ -256,13 +256,12 @@ def compileLoop (fork : Evm.Fork) (code : Evm.Bytes) (pc : Nat) :
     | 0xf1 => .ok ([], 0, .call .call, pc)
     | 0xf2 => .ok ([], 0, .call .callcode, pc)
     | 0xff => .ok ([], 0, .selfdestruct, pc)
-    -- Post-Frontier opcodes (#222). Each arm is gated on its
+    -- Post-Frontier opcodes. Each arm is gated on its
     -- INTRODUCING fork: below that fork the byte is undefined, so it
     -- compiles to `.invalid` (runtime exceptional halt), exactly like
     -- an all-forks-undefined byte. `execTerm .invalid` errors, so the
     -- Frontier-instantiated soundness theorems stay true (the
-    -- gated-off cases are vacuous via the erroring terminator, no
-    -- longer via a compile error). #246.
+    -- gated-off cases are vacuous via the erroring terminator).
     | 0x1b =>
       if fork.atLeast .constantinople then do
         let (ops, gas, term, e) ← compileLoop fork code (pc + 1)
@@ -387,7 +386,7 @@ def compileLoop (fork : Evm.Fork) (code : Evm.Bytes) (pc : Nat) :
         -- deployed contracts are full of unreachable junk bytes, and
         -- whole-code CompileErrors would push them off the JIT path.
         -- Fork-GATED bytes (the `atLeast` arms above) compile to the
-        -- SAME `.invalid` when below their introducing fork (#246), so
+        -- SAME `.invalid` when below their introducing fork, so
         -- no byte position ever yields a CompileError.
         .ok ([], 0, .invalid, pc)
 termination_by code.size - pc
@@ -400,7 +399,7 @@ def compile (fork : Evm.Fork) (code : Evm.Bytes) : Except CompileError Chunk := 
   return { startPc := 0, endPc := endPc, staticGas := gas,
            ops := ops, term := term }
 
-/-! ## Multi-chunk programs (Phase 4)
+/-! ## Multi-chunk programs
 
     Design: OVERLAPPING chunks, no chunk-splitting. A chunk is
     compiled at every possible control-transfer landing site:

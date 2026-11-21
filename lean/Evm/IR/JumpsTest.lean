@@ -1,5 +1,5 @@
 /-
-  Evm.IR.JumpsTest — smoke tests for the Phase 4 multi-chunk
+  Evm.IR.JumpsTest — smoke tests for the multi-chunk
   pipeline (`compileProgram` + `executeProgram`).
 
   Each test compiles a bytecode with dynamic control flow, runs the

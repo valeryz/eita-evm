@@ -8,12 +8,10 @@
   runs it, processes the result (gas refund, output copy, success
   push), and resumes the parent.
 
-  Same principle as `Evm.IR.Dispatch` (Phase 2a): the IR terminator's
+  Same principle as `Evm.IR.Dispatch`: the IR terminator's
   semantics IS the corresponding Effect-layer function — no second
-  encoding of the math. The bugs that produced the 25% GST failure
-  rate in the previous push were ALL hand-encoded trampoline math
-  (cb_call / cb_create / cb_selfdestruct in src/evm/calls.lisp
-  drifting from spec). Binding instead of re-encoding makes that
+  encoding of the math. Hand-encoded trampoline math drifts from the
+  spec; binding instead of re-encoding makes that
   drift unrepresentable; the per-terminator soundness theorems are
   correspondingly definitional (`rfl`), and the SUBSTANTIVE proof
   obligations live where they belong:
@@ -31,7 +29,7 @@
   `hSub` hypothesis: sub-frame execution refines its own spec; with
   that assumed, the wrapper math here is verified.
 
-  Per-fork dispatch (#223): five fork modules define their own
+  Per-fork dispatch: five fork modules define their own
   `StepResult` inductive (Frontier, Homestead, TangerineWhistle,
   SpuriousDragon, Byzantium — each adding `CallKind` constructors);
   Constantinople onward reuse Byzantium's. `StepResultOf` maps each

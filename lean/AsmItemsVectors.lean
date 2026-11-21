@@ -6,8 +6,8 @@
 
   `scripts/verify-asm-items.sh` assembles the text column with clang and
   requires the words to match. That is the differential check between
-  `AsmCore.AInstr`'s two lowerings — the one thing that was missing while the
-  interpreter's text path and the JIT's byte path were written independently.
+  `AsmCore.AInstr`'s two lowerings, the interpreter's text path and the JIT's
+  byte path.
 -/
 
 import Evm.CL.AsmItems

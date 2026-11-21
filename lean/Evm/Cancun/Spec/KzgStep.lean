@@ -76,8 +76,7 @@ def outputSize : Nat := 64
     primitive `Evm.Crypto.sha256`. The pairing check `verify_kzg_proof`
     (`e(commitment − [y]₁, [1]₂) = e(proof, [s − z]₂)` over BLS12-381) is a trusted
     oracle, the parameter `verify commitment z y proof` of the relations below —
-    no uninterpreted axioms (restated 2026-11-09: the two checks used to be
-    `axiom … : Prop`s). -/
+    no uninterpreted axioms. -/
 
 /-- EELS `kzg_commitment_to_versioned_hash`. -/
 def kzgToVersionedHash (commitment : Evm.Bytes) : Evm.Bytes :=

@@ -76,10 +76,9 @@ def depositCost (output : Evm.Bytes) : Nat :=
     code state mutations from `subEvm.env` BUT keep the sender-nonce
     bump (mirror what EELS does). Forwarded gas is consumed.
 
-    The nonce-bump-persistence is the load-bearing detail that was
-    missing from this spec until 2026-05-30. It came from the
-    stCreate2/Create2OOGafterInitCode_* corpus: even on deposit
-    OOG, EELS keeps the sender's nonce one higher than at CREATE
+    The nonce-bump persistence is the load-bearing detail (the
+    stCreate2/Create2OOGafterInitCode_* corpus exercises it): even on
+    deposit OOG, EELS keeps the sender's nonce one higher than at CREATE
     entry. Implementations MUST mirror this — otherwise the same
     sender can re-issue CREATE2 at the same derived address and
     silently overwrite the failed-deploy attempt.

@@ -17,9 +17,7 @@
   `OpFork` has no pre-Regolith fork: every chain this tree replays (Base,
   OP Mainnet) has Regolith active from its Bedrock genesis (superchain-
   registry configs carry no `regolith_time`), so the Regolith
-  rule is the only one stated. (Until 2026-11-02 this file always added
-  the 68 bytes and had no overhead term — the pre-Regolith formula without
-  its overhead, wrong for every chain here; nothing called it.)
+  rule is the only one stated.
 
   Later forks change the formula entirely:
     Ecotone:    blob-aware (blob_base_fee + base_fee composite)

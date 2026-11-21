@@ -231,11 +231,8 @@ def handleYield (frame : Evm) (eff : YieldEffect)
         pc := frame.pc + 1 }
   | .selfdestruct beneficiary =>
     -- EIP-6780, unchanged since Cancun (EELS amsterdam/vm/instructions/system.py selfdestruct
-    -- = cancun's): the Cancun effect. Until 2026-10-26 this arm was the FRONTIER form —
-    -- every SELFDESTRUCT queued for deletion with a 24000 refund — so the spec's Osaka
-    -- SELFDESTRUCT (reached through Cancun's `doSelfdestruct` yield, `step1` 0xff) deleted
-    -- pre-existing contracts and refunded gas EIP-3529 removed. Found deriving
-    -- cb-selfdestruct from the spec (Evm.CL.EffectSelfdestruct); the CL was right.
+    -- = cancun's): the Cancun effect, not the Frontier form (which queues every
+    -- SELFDESTRUCT for deletion with a 24000 refund).
     Evm.Cancun.Vm.Effect.selfdestructEIP6780 frame beneficiary
 
 /-- Trampoline — yield discharge (`handleYield` above) same as
