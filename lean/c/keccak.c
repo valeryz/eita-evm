@@ -6,7 +6,7 @@
  * 512 bits, 24 rounds.
  *
  * The permutation keeps the 25 lanes in locals (rho and pi fused into one
- * pass, chi out of it): the loop-over-arrays form (tiny_sha3) was 12 % of the
+ * pass, chi out of it); the loop-over-arrays form (tiny_sha3) costs 12 % of an
  * x86-64 near-tip replay. Ethereum's 0x01 padding instead of SHA-3's 0x06.
  * Assumes a little-endian host.
  */

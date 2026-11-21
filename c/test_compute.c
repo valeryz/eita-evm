@@ -4,7 +4,7 @@
  *   DIV / MOD a b   unsigned a / b, a mod b; b = 0 gives 0
  *   SDIV / SMOD a b trunc(sa / sb), sign(sa) * (|sa| mod |sb|), mod 2^256; b = 0 gives 0
  *   ADDMOD / MULMOD (a + b) mod n, (a * b) mod n without the 2^256 wrap; n = 0 gives 0
- *   SAR s v         floor(sv / 2^min(s, 256)) mod 2^256 (#258: s a multiple of 64)
+ *   SAR s v         floor(sv / 2^min(s, 256)) mod 2^256 (including s a multiple of 64)
  * The first six share one word-wise division (udivrem, Knuth algorithm D). Inputs, from
  * the seed: (1) N random cases per helper, each operand a random width 1..256, an edge
  * constant, a limb pattern of 0 / 1 / 2^63 / 2^64-1 / random words (Knuth D's rare
@@ -12,7 +12,7 @@
  * normalization shift) in four shapes, and every SAR shift 0..257 of every edge constant;
  * (3) every pair of edge constants (0..3, 2^k-1, 2^k, 2^k+1, -2^k, MIN+1, full words).
  * Results go through exactly-32-byte heap buffers, so ASan flags a write outside them
- * (the bf4c773 MULMOD bug), and are recomputed with the result aliasing each operand.
+ * (such as a MULMOD writing past its shifted-modulus buffer), and are recomputed with the result aliasing each operand.
  * Then the buffer reads (CALLDATALOAD / CALLDATACOPY / CODECOPY, section 4) against EELS
  * buffer_read at the u64 wrap. make test_compute (ASan + UBSan; in `make test`). Args: [N, default 1000000] [seed] */
 #include <stdint.h>

@@ -1,6 +1,6 @@
 /*
- * uds.c — minimal Unix-domain-socket FFI for the in-process JIT emit server
- * (#235). Bound into the `emitJIT` exe via `@[extern]`; lets the Lean emitter
+ * uds.c — minimal Unix-domain-socket FFI for the in-process JIT emit server.
+ * Bound into the `emitJIT` exe via `@[extern]`; lets the Lean emitter
  * run as a persistent daemon that SBCL's replay talks to over a UDS, instead of
  * spawning a fresh process per contract. Byte framing only (no FD passing yet).
  *
