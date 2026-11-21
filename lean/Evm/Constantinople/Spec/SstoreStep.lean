@@ -45,8 +45,6 @@
   (no clamp). The refinement proves it from the tx-level invariant
   `Evm.Constantinople.Spec.RefundInv` (one 15000 credit per slot that is
   non-zero at tx start and zero now), which the step itself preserves.
-  (Corrected 2026-11-09: the relation used to clamp at 0, mirroring the
-  implementation rather than the EIP.)
 
   ## Oracle
   EELS has no EIP-1283: `forks/constantinople/vm/instructions/storage.py`

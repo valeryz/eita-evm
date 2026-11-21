@@ -10,7 +10,7 @@
       | grep -v '^extern rule OK' | grep -v '^extern inventory OK' \
       > ../scripts/generated/axiom-audit.txt)
 
-  Coverage (per review on PR #44): every effect-layer `*_refines`
+  Coverage: every effect-layer `*_refines`
   entry point, every emitted `*_eq_spec` / `*_is_spec` theorem, plus
   the IR-pipeline and BlockSTM headlines. A new axiom (or a
   native_decide, whose `._native.native_decide.ax_…` shows up here) must land in the
@@ -66,7 +66,7 @@ import Evm.CL.X86Items
 import Evm.CL.X86JIT
 import Evm.CL.X86Run
 import Evm.CL.ARM64.SstoreGasSem
--- the precompile wrappers over a crypto oracle (Phase F) and the oracle contracts
+-- the precompile wrappers over a crypto oracle and the oracle contracts
 import Evm.Istanbul.Spec.Refinement
 import Evm.Prague.Spec.Refinement
 import Evm.Osaka.Spec.Refinement
@@ -212,7 +212,7 @@ open Lean
 /-- (theorem, constant it may run, why). Keyed by theorem: a new proof reaching the same
     constant fails until it is reviewed and listed. -/
 def externAllowed : List (Name × Name × String) :=
-  -- The JIT emitters' corpus gates (2026-11-08, the rule's first run): each runs the
+  -- The JIT emitters' corpus gates: each runs the
   -- emitter over the fixture corpus as emitJIT itself runs it -- dagSlots through its
   -- pointer-memoized `dagSlotsImpl` (the reference is never executed: structural dedup is
   -- 2^k on DUP-shared trees), and the IR fold (dynCosts -> regionStep -> foldStep ->
@@ -320,7 +320,7 @@ def trusted : List (Name × String) :=
     (``Evm.Crypto.bn254Pairing, "alt_bn128 pairing, mcl via lean/c/bn254.cpp"),
     (``Evm.Cancun.Vm.PrecompiledContracts.pointEvaluationRaw,
       "EIP-4844 point evaluation, blst v0.3.17 via lean/c/point_evaluation.c"),
-    -- 2026-11-09 (Phase F): the P-256 and BLS12-381 oracle instances
+    -- the P-256 and BLS12-381 oracle instances
     (``Evm.Crypto.verifyRaw,
       "P-256 oracle (Evm.Crypto.isValidP256Signature): OpenSSL libcrypto ECDSA_do_verify via lean/c/p256verify.c"),
     (``Evm.Crypto.Bls12381.g1AddRaw, s!"BLS12-381 oracle (native.g1Add): {blst}"),

@@ -1,5 +1,5 @@
 /*
- * keccak_batch.c — batched Keccak-256 (#237 MPT).
+ * keccak_batch.c — batched Keccak-256 for the state trie.
  *
  * One FFI crossing hashes N inputs, killing the per-hash CFFI overhead that
  * dominated the trie profile (~640 ns/hash, almost all marshaling). Inputs are
@@ -19,10 +19,9 @@ void eita_keccak256_sha3(const uint8_t *in, size_t len, uint8_t out[32]);
 
 /* Hash count inputs: input i = data[offs[i] .. offs[i]+lens[i]); out i = outs+32*i. */
 /* Explicitly exported: the library is built with -fvisibility=hidden so that its
- * private copy of eita_keccak256_sha3 CANNOT collide with libeita's. Both libraries
- * used to export that symbol, so which keccak the replay bound to depended on dlopen
- * order — perturbing it made the replay hash with the wrong copy and silently compute
- * a wrong base fee. */
+ * private copy of eita_keccak256_sha3 CANNOT collide with libeita's. If both libraries
+ * exported that symbol, which keccak the replay binds to would depend on dlopen order,
+ * and a wrong binding silently computes wrong hashes. */
 __attribute__((visibility("default")))
 void eita_keccak256_batch(const uint8_t *data, const uint64_t *offs,
                           const uint64_t *lens, uint8_t *outs, uint64_t count) {

@@ -38,7 +38,7 @@
  * mcl's active curve is process-global, and mcl is PINNED to BN254
  * (MCL_BN_SNARK1 == alt_bn128) for the life of the process: the EIP-2537
  * BLS12-381 precompiles are built on blst instead, because re-initialising
- * mcl to switch families cost 2.8 ms per round trip and was charged no gas.
+ * mcl to switch families costs 2.8 ms per round trip and is charged no gas.
  * eita_mcl_curve() is the only caller of mclBn_init and refuses any other
  * curve, so nothing can invalidate the Montgomery form these values are
  * stored in. See mcl_curve.h.

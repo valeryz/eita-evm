@@ -18,7 +18,7 @@
  * is done by the caller (run-precompile), not here.
  *
  * Two backends, by modulus size: GMP's mpz_powm up to 64 bytes, OpenSSL's
- * BN_mod_exp above. On x300 (Zen 3) mpz_powm is 2.0x faster at 32 bytes and
+ * BN_mod_exp above. On a Zen 3 desktop mpz_powm is 2.0x faster at 32 bytes and
  * 1.1x at 64; BN_mod_exp is faster from 128 bytes (GMP 0.85x at 128, 0.73x at
  * 256 and 512). Mainnet 25,000,001..25,030,000: 877,642 of 877,694 calls are
  * 32/32/32 (base/exp/mod sizes). GMP is LGPL: linked dynamically (libgmp10).

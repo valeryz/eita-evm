@@ -20,16 +20,16 @@ THE LAYERING (the load-bearing insight):
     result, lifted off WETH) and the system-account commutative pass (coinbase / OP fee
     vaults — the empirically-measured `FULL = 1.00×` collapse) justify SKIPPING false-conflict
     aborts. They can be tuned freely without ever endangering correctness.
-  • ROLLBACK on abort is `Evm.CL.JournalSpec.undo_runWrites` (shipped #236): reverting a
+  • ROLLBACK on abort is `Evm.CL.JournalSpec.undo_runWrites`: reverting a
     re-executed tx's writes restores the pre-tx storage exactly.
   • LIVENESS (the optimistic loop terminates) is a SEPARATE obligation — per the
     safety≠liveness discipline, removing sequential ordering needs its own termination proof.
 
 Storage is modelled as `Key → Val` over `Nat` (as in JournalSpec): the refinement argument
 is structural and bit-width-independent. The real instance plugs in EELS `State` + the
-#262 R/W footprint as the runtime witness of `Tx.reads` / `Tx.writeKeys`.
+replay's recorded read/write footprint as the runtime witness of `Tx.reads` / `Tx.writeKeys`.
 
-COMPANION MODULES (2026-10-25):
+COMPANION MODULES:
   • `Evm.Parallel.Reads`     — reads DISCOVERED and logged (not declared), validation over
     the read log, commutative DELTAS for the coinbase fee credit, fact/receipt determinism,
     version-validation soundness. The declared-footprint model here is kept as the
@@ -51,7 +51,7 @@ def store (s : Storage) (k : Key) (v : Val) : Storage := fun x => if x = k then 
   simp [store]
 
 /-- A transaction: its declared READ footprint and its EFFECT (the writes it produces as a
-    function of the storage it reads). The runtime witness of both is the #262 R/W set. -/
+    function of the storage it reads). The runtime witness of both is the recorded read/write set. -/
 structure Tx where
   reads  : List Key
   effect : Storage → List (Key × Val)
@@ -158,9 +158,8 @@ theorem unvalidated_schedule_diverges :
 
 /-! ## The operational obligations (the spec the executor is derived from)
 
-Until 2026-10-25 the two theorems `schedule_terminates` and `abort_restores_prestate` below
-were `True := trivial` — invisible to `#print axioms`, worse than a `sorry`. They are now
-real statements with proofs (Scheduler.lean, JournalSpec.lean). -/
+`schedule_terminates` and `abort_restores_prestate` below are proved from Scheduler.lean and
+JournalSpec.lean. -/
 
 /-! ### The operational layer: multi-version memory and its fixpoint
 
@@ -212,7 +211,7 @@ theorem settled_refines_seq :
     its read-validation can fail, `Reads.vread_congr_below`) has at most `2^n - 1` steps,
     and no infinite run exists. The executor inherits this by re-executing ONLY on a failed
     validation. The bound is finiteness, not performance; the real count is the conflict
-    rate (#257). -/
+    rate. -/
 theorem schedule_terminates (txs : List Tx) :
     (∀ (st : Scheduler.Sched) (k : Nat), Scheduler.Reach txs.length st k → k + 1 ≤ 2 ^ txs.length) ∧
     ¬ ∃ run : Nat → Scheduler.Sched,
@@ -313,7 +312,7 @@ theorem runWrites_fst (ws : List (Key × Val)) : ∀ (s : Storage),
       exact this
 
 /-- **ROLLBACK.** Reverting an incarnation's journal restores the storage it started from
-    exactly — `Evm.CL.JournalSpec.undo_runWrites` (#236), instantiated at this module's
+    exactly — `Evm.CL.JournalSpec.undo_runWrites`, instantiated at this module's
     `applyWrites`. This is the obligation of the in-place abort path (execute against the
     world, undo on abort — `revert-journal-to` from the tx's base cursor). An executor that
     buffers a tx's writes in its multi-version slot instead needs no undo for the ABORT:

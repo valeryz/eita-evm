@@ -340,9 +340,9 @@ def execOp (evm : Evm) : Op → Except Exception Evm
       return { evm with
         gasLeft := gasLeft, memory := mem, stack := s,
         env := { evm.env with logs := evm.env.logs ++ [entry] } }
-  -- Post-Frontier ops (#222). Each arm inlines its INTRODUCING-fork
+  -- Post-Frontier ops. Each arm inlines its INTRODUCING-fork
   -- handler minus the static charge (covered by the chunk pre-charge;
-  -- pc is virtual inside a chunk). Per-fork repricings are #223.
+  -- pc is virtual inside a chunk).
   -- SHL/SHR/SAR mirror `Constantinople.Vm.Instructions.shl/shr/sar`
   -- (EIP-145): stack top is `shift`, next is `value`.
   | .shl => do
@@ -690,7 +690,7 @@ def execute (chunk : Chunk) (evm : Evm) : Except Exception Evm := do
   -- Dispatch terminator.
   execTerm evm chunk.endPc chunk.term
 
-/-! ## Yielding terminators (Stage C)
+/-! ## Yielding terminators
 
     CALL / CALLCODE / CREATE spawn sub-frames: their result is a
     `StepResult.yield` carrying the sub-frame request, not a final
@@ -798,7 +798,7 @@ def executeStep (fork : Evm.Fork) (chunk : Chunk) (evm : Evm) :
     | .error e  => Trampoline.StepResultOf.error fork evm e
     | .ok evm'  => execTermStep fork evm' chunk.endPc chunk.term
 
-/-! ## Program execution (Phase 4)
+/-! ## Program execution
 
     The multi-chunk trampoline: look up the chunk at the frame's pc,
     run it via `execute`, and either stop (halted frame) or loop on

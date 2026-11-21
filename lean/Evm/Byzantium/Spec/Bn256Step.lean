@@ -13,9 +13,8 @@
   ## What this file pins down
 
   EVM spec lawyers tend to focus on the curve arithmetic, but the
-  *failure semantics* are equally load-bearing — and were the source
-  of multiple bugs found via the `stZeroKnowledge` / `stZeroKnowledge2`
-  corpus during 2026-05-30:
+  *failure semantics* are equally load-bearing (the `stZeroKnowledge` /
+  `stZeroKnowledge2` corpora exercise them):
 
     1. **Invalid input ⇒ OutOfGasError** (not "success with zeros").
        EELS raises `OutOfGasError` when a G1 / G2 point is off-curve

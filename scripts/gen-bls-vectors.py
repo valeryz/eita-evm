@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """gen-bls-vectors.py — build an EIP-2537 conformance oracle from the chain itself.
 
-The BLS12-381 precompiles (0x0b..0x11) are not in our implementation yet, and the
-local `ethereum/tests` checkout predates Prague, so there are no vectors to build
-against. The chain IS a reference implementation: `eth_call` to a precompile
-address returns exactly what the canonical client computes, and a failing input
-comes back as an error. So we ask it.
+The local `ethereum/tests` checkout predates Prague, so it has no vectors for the
+BLS12-381 precompiles (0x0b..0x11). The chain IS a reference implementation:
+`eth_call` to a precompile address returns exactly what the canonical client
+computes, and a failing input comes back as an error. So we ask it.
 
 Seed points are real: they come from `lean/c/testdata/bls12381-vectors.json`,
 captured from the execution of Arc block 21 142 242 tx 34 (two MAP_FP_TO_G1

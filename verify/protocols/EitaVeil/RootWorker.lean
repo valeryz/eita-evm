@@ -25,7 +25,7 @@ What is checked:
   anchor line names a canonical, verified block's frontier (`anchor_good`); no rename onto an
   existing frontier directory.
 
-Two rules the model needed, now part of the design: (1) the worker swaps to frontier-N only
+Two rules of the design the model requires: (1) the worker swaps to frontier-N only
 once N is below the reorg floor (settled; until then it keeps reading frontier-A under its
 frozen overlay), and (2) `drop-above! F` deletes a published, unanchored frontier above F (and
 aborts a checkpoint above F). Without (2) a reorg below N leaves the abandoned branch's

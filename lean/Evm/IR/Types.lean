@@ -6,12 +6,12 @@
   This is a DATA STRUCTURE for compilation, not a separate semantic
   layer. Each `IR.Op` and `IR.Terminator` variant corresponds to one
   or a small group of EVM opcodes; its *semantics* is defined by the
-  matching `Fork.Instructions.X` Effect handler (Phase 2 will prove
-  the equivalence).
+  matching `Fork.Instructions.X` Effect handler (`Evm.IR.Soundness`
+  proves the equivalence).
 
   Both tiers consume:
     - the IR.Op / IR.Terminator enums (this file)
-    - the per-fork metadata table (this file, populated in Phase 2)
+    - the per-fork metadata table (this file)
     - the per-fork Effect handlers (Evm/<Fork>/Vm/Instructions/*.lean,
       untouched)
 
@@ -82,9 +82,8 @@ inductive MemoryAccess where
 
 /-! ## World-state access shapes
 
-    Declares what host callback an op invokes, if any. After Phase 3
-    (lift transient state into EvmState), most of these stay as host
-    callbacks because storage is host-owned. -/
+    Declares what host callback an op invokes, if any. Most of these
+    are host callbacks because storage is host-owned. -/
 
 inductive WorldAccess where
   | none_
@@ -371,7 +370,7 @@ def Op.metadata (fork : Evm.Fork) (op : Op) : Option OpMetadata :=
   -- 0x1e: CLZ (EIP-7939)
   | .clz      => if fork.atLeast .osaka then mkOp 5 .none_ 1 1 else none
 
-/-- Static gas, per fork — the `Op.metadata` staticCost (the Phase-1
+/-- Static gas, per fork — the `Op.metadata` staticCost (the metadata
     table is the single source of truth for the per-fork repricings:
     EIP-150, EIP-1884, EIP-2929 warm costs). `0` for an op with no
     metadata row is unreachable from `compileLoop`: every arm is
@@ -465,8 +464,8 @@ structure Chunk where
 
 structure Program where
   entry      : Nat
-  /-- For the single-chunk slice (no JUMP/JUMPI), this maps `entry`
-      to the one chunk. Multi-chunk lands in Phase 4. -/
+  /-- The chunks by entry pc; for straight-line code (no JUMP/JUMPI) this
+      maps `entry` to the one chunk. -/
   chunks     : List (Nat × Chunk)
   /-- Set of valid JUMPDEST locations in the original bytecode,
       represented as a sorted list for now (a HashSet costs more

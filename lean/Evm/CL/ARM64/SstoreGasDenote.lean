@@ -2,7 +2,7 @@
   Evm.CL.ARM64.SstoreGasDenote — what the five `_eita_sstore_gas_*` routines
   compute, and the proof that each is its fork's `sstoreGas`.
 
-  Stage 1 of #238 (docs/x86-64-backend.md), third piece. `ARM64.SstoreGas`
+  `ARM64.SstoreGas`
   probes its CONSTANTS out of the spec, so a schedule change re-emits without a
   hand edit — but the branch tree and, above all, the REFUND CLAMP DISCIPLINE
   around them are hand-written asm. There are four different disciplines across
@@ -17,7 +17,7 @@
   Getting a clamp wrong does not fail loudly: it silently changes the refund,
   hence the gas the tx actually paid, hence the state root — and only at a slot
   whose history hits that branch. These are exactly the lines a port to a second
-  ISA mistranslates, so each discipline is now a theorem rather than a comment.
+  ISA mistranslates, so each discipline is a theorem rather than a comment.
 
   ## What this module covers, and what it does not
 

@@ -1,6 +1,6 @@
 import Mathlib.Logic.Function.Basic
 
-/-! # CL/Journal — proved refinement spec for per-frame revert journaling (#236)
+/-! # CL/Journal — proved refinement spec for per-frame revert journaling
 
 The SBCL replay (`src/evm/`) implements REVERT by appending an
 entry to a per-frame *journal* on every world mutation and replaying it
@@ -9,7 +9,7 @@ semantics (`Cancun.Vm.Effect.applyMessage`) instead snapshots the pre-frame
 world and *discards* the frame's mutations on `reverted=true`. This file proves
 the two strategies coincide.
 
-## Why a function-world model (and why it pins the bug we hit)
+## Why a function-world model
 
 The world's journaled projection — storage `(addr,slot)→value`, balance
 `addr→u256`, nonce `addr→u64`, presence `addr→bool` — is modelled as ONE total
@@ -19,11 +19,11 @@ the spec — a slot/account holding the default value (0 storage, 0 balance, 0
 nonce) is *identical* to one that is absent, because both are just `Key → Value`
 returning the default.
 
-That is precisely the bug #241 found: the executable hashtable distinguished a
-present-0 entry from an absent key, so reverting a 0-write left a stray entry.
-The fix (`world-storage-set` / the type-9/type-2 revert remhash on 0, emitted
-from `HostEmit.lean`) makes the hashtable a CANONICAL representation of this
-function — no default-valued entries. So this model is both what we prove the
+An executable hashtable that distinguishes a present-0 entry from an absent key
+leaves a stray entry when a 0-write is reverted. `world-storage-set` / the
+type-9/type-2 revert remhash on 0 (emitted from `HostEmit.lean`) make the
+hashtable a CANONICAL representation of this function — no default-valued
+entries. So this model is both what we prove the
 revert against AND the spec the executable representation must refine.
 
 The per-op inverse theorem (`revert_restores_snapshot`) is proved here. The
@@ -48,7 +48,7 @@ inductive Entry (Addr Slot Value : Type) where
 set_option linter.dupNamespace false in
 abbrev Journal (Addr Slot Value : Type) := List (Entry Addr Slot Value)
 
-/-! ## The general function-world model (#236) -/
+/-! ## The general function-world model -/
 
 namespace World
 
@@ -92,8 +92,7 @@ def revert : Journal Key Value → World Key Value → World Key Value
 
 /-! ## Two update lemmas (proved, not assumed)
 
-These are exactly the facts the old `StorageOps`-based proof lacked because it
-had no state extensionality. With a function world, `funext` gives them. -/
+These need state extensionality; with a function world, `funext` gives them. -/
 
 /-- Overwriting the same key keeps only the later value. -/
 theorem write_write_same (w : World Key Value) (k : Key) (v₁ v₂ : Value) :
@@ -120,7 +119,7 @@ inductive RecordsWrites : World Key Value → Journal Key Value → World Key Va
 
 /-- **Soundness of journal-based revert.** If `j` records the writes taking `w0`
     to `w1`, replaying `j` backwards against `w1` returns `w0`. This is the
-    contract `revert-journal-to` discharges — formerly `sorry`, now proved. -/
+    contract `revert-journal-to` discharges. -/
 theorem revert_restores_snapshot
     (w0 w1 : World Key Value) (j : Journal Key Value)
     (h : RecordsWrites w0 j w1) :

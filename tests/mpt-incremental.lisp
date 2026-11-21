@@ -1,5 +1,5 @@
 ;;;; test-mpt-incremental.lisp — proof-by-oracle for the INCREMENTAL
-;;;; mutable account trie in src/state/mpt.lisp (#20).
+;;;; mutable account trie in src/state/mpt.lisp.
 ;;;;
 ;;;; Oracles:
 ;;;;   1. Genesis match: insert all genesis accounts one-by-one into an
@@ -239,7 +239,7 @@
 ;;; --------------------------------------------------------------------
 ;;; Oracle 5: PER-SLOT storage maintenance == from-scratch storage-root
 ;;;
-;;; This is the invariant the incremental validator now rests on: a contract's
+;;; This is the invariant the incremental validator rests on: a contract's
 ;;; storage trie kept up to date one slot at a time must equal
 ;;; `storage-root` over the resulting slot map. It matters because the
 ;;; alternative — rebuilding on every touch — costs 93 s and 7.6 GB for Arc's

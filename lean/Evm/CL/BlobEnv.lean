@@ -1,23 +1,18 @@
 /-
-  Evm.CL.BlobEnv — BLOBHASH (0x49, EIP-4844) and BLOBBASEFEE (0x4a, EIP-7516): the two
-  handlers that pushed 0.
+  Evm.CL.BlobEnv — BLOBHASH (0x49, EIP-4844) and BLOBBASEFEE (0x4a, EIP-7516): the
+  frame's blob environment.
 
-  Until 2026-10-25 both native handlers were stubs: `blobhashBody` replaced the index
-  with 0 and BLOBBASEFEE was `pushZeroBody`, because the frame state carried neither the
-  tx's versioned hashes nor the block's blob base fee. Mainnet rollup inboxes read
-  BLOBHASH in every batch-posting tx from Cancun (19,426,587) on, so a replay past Cancun
-  diverged on the first blob batch: the inbox saw "no blob" and reverted where the chain
-  accepted. There was nothing to prove false — the stub denoted exactly what it did.
-
-  Now EvmState carries the tx's hash table (#552, count #560; installed by the host per
+  EvmState carries the tx's hash table (#552, count #560; installed by the host per
   tx, empty for a non-blob tx) and the block's blob base fee (#568; the emitted
   `spec-blob-base-fee`, computed once per block). `AsmCore.blobhashLookup` denotes EELS
   `blob_hash` — `hashes[index]` when `index < len(hashes)`, else 0 — with the range test
-  over all four limbs of the index, and BLOBBASEFEE is `envU256Body 568`. The theorems
-  below pin: the in-range, out-of-range and wide-index cases; the handler's value against
-  the spec's `blobHashAt` under the host's table contract; BLOBBASEFEE against the fee
-  the host wrote; and the old stub as a counterexample, so it cannot come back as
-  "equivalent".
+  over all four limbs of the index, and BLOBBASEFEE is `envU256Body 568`. Mainnet rollup
+  inboxes read BLOBHASH in every batch-posting tx from Cancun (19,426,587) on, so a
+  handler that pushes 0 diverges on the first blob batch: the inbox sees "no blob" and
+  reverts where the chain accepts. The theorems below pin: the in-range, out-of-range
+  and wide-index cases; the handler's value against the spec's `blobHashAt` under the
+  host's table contract; BLOBBASEFEE against the fee the host wrote; and a push-0 stub
+  as a counterexample, so it cannot pass as "equivalent".
 -/
 
 import Evm.CL.AsmCore
@@ -64,8 +59,8 @@ theorem blobhash_out_of_range_zero (m : Mach) (cost : Nat)
     fun ⟨_, _, _, h⟩ => absurd h (Nat.not_lt.2 hb)
   simp [Prog.denote, blobhashBody, Op.denote, Nat.not_lt.2 hsp, Nat.not_lt.2 hg, hw']
 
-/-- **An index that does not fit u64 pushes 0, never the entry at its low limb** — the
-    #260 / JUMP width class: `2^64 + 0` is not index 0. -/
+/-- **An index that does not fit u64 pushes 0, never the entry at its low limb**:
+    `2^64 + 0` is not index 0. -/
 theorem blobhash_wide_index_zero (m : Mach) (cost : Nat)
     (hsp : 1 ≤ m.sp) (hg : cost ≤ m.gas) (hw : ¬ narrow m.tos) :
     let m' := (blobhashBody cost).denote m
@@ -137,9 +132,9 @@ theorem blobbasefee_is_spec (m : Mach) (cost : Nat) (f : Evm.Fork) (excess : Nat
   refine ⟨?_, this.2.1, this.2.2⟩
   rw [this.1, e0, e1, e2, e3]
 
-/-! ## The old handlers, as counterexamples -/
+/-! ## Push-0 stubs, as counterexamples -/
 
-/-- The stub exactly as it was: pop the index, push 0. -/
+/-- The stub: pop the index, push 0. -/
 def blobhashStub (cost : Nat) : Prog := [.underflow 1, .loadZeroTos, .storeTos, .exitGas cost]
 
 /-- A machine with one blob hash installed and index 0 on the stack, the rest inert. -/
@@ -155,15 +150,15 @@ def machWithOneHash (h : AsmCore.U256) : Mach :=
     isStatic := false, oog := false, trap := false, ret := false, halted := false }
 
 /-- **The stub is wrong on the first blob tx**: with one hash installed, BLOBHASH 0 must
-    push it; the stub pushed 0 — which is why every rollup inbox reverted. -/
+    push it; the stub pushes 0, so every rollup inbox reverts. -/
 theorem stub_is_wrong :
     let h : AsmCore.U256 := ⟨1, 2, 3, 4⟩
     ((blobhashStub 3).denote (machWithOneHash h)).tos = AsmCore.U256.ofScalar 0 ∧
     ((blobhashBody 3).denote (machWithOneHash h)).tos = h := by
   constructor <;> decide
 
-/-- The old BLOBBASEFEE (`pushZeroBody`, deleted) pushed 0 whatever the host held at #568;
-    the fee is at least the 1-wei floor, so the two never agreed on any block. -/
+/-- A BLOBBASEFEE that pushes 0 ignores what the host holds at #568; the fee
+    is at least the 1-wei floor, so the two never agree on any block. -/
 theorem fee_floor_is_positive (f : Evm.Fork) (excess : Nat) :
     0 < Evm.Prague.Spec.calculateBlobGasPriceAt f excess ∨
     Evm.Prague.Spec.calculateBlobGasPriceAt f 0 = 1 := by

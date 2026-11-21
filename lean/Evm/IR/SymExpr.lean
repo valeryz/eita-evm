@@ -1,6 +1,6 @@
 /-
   Evm.IR.SymExpr — symbolic stack for the JIT's chunk-local
-  partial evaluation (#221 stage 1, issue #11).
+  partial evaluation.
 
   `Expr` is a pure value language over the chunk's ENTRY stack:
   leaves are compile-time constants and `stackAt d` (the entry
@@ -10,7 +10,7 @@
   whose value depends on anything but the entry stack (EXP's
   dynamic gas included) are *not representable*, and `symStep`
   returns `none` so the emitter falls back to the materialized
-  stack. Stage 3 reintroduces memory promotion on top of this.
+  stack. Memory promotion is layered on top of this.
 
   Semantics come in two layers, kept honest by construction:
 
@@ -676,8 +676,7 @@ theorem swap_sound {n : Nat} {evm evm' : Evm} {ss ss' : SymStack}
 
 /-! ## The bridge: `symStep` refines `execOp` on the stack -/
 
-/-- Master soundness theorem (the `eval_sound` bridge of issue #11
-    stage 1). If the symbolic step covers `op` and the concrete
+/-- Master soundness theorem (the `eval_sound` bridge). If the symbolic step covers `op` and the concrete
     stack is the denotation of the symbolic one, then a SUCCESSFUL
     concrete step changes nothing but the stack, and the new stack
     is the denotation of the new symbolic stack. Covered ops are

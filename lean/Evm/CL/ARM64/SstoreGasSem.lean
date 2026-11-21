@@ -3,16 +3,14 @@
   `AsmSem` store exactly the `SstoreGasDenote` plans.
 
   The precondition is `refund + 65536 < 2^63` (on the 64-bit counter the
-  caller passes in x1), not the `refund < 2^63` the routines' header used to
-  state: EIP-1283's single clamp reads the SIGN BIT
+  caller passes in x1), not `refund < 2^63`: EIP-1283's single clamp reads the SIGN BIT
   of `refund + delta` (`cmp #0 ; csel lt`), so the counter needs headroom for
-  the largest positive delta (19 800). The symbolic execution found the gap;
-  the counter is bounded by gas spent, so it is unreachable, but the stated
-  precondition is now the one that is true.
+  the largest positive delta (19 800). The counter is bounded by gas spent, so
+  the gap is unreachable, but the stated precondition is the one that is true.
 
-  This is the joint `SstoreGasDenote`'s header said was missing: the limb-fold
-  prologue (`PredFold`) and the branch tree (the plan functions) were each
-  proven against the spec, but nothing related the `AInstr` program to either.
+  This is the joint between the program and its plans: the limb-fold prologue
+  (`PredFold`) and the branch tree (the plan functions) are each proven against
+  the spec, and this module relates the `AInstr` program to both.
   Here the program is executed symbolically — every `ldp`, `orr`, `cset`,
   `cbz`, `csel`, the clamps — and what it stores at `out` is the plan. With
   `*_eq_spec` that is program → plan → `sstoreGas`.

@@ -61,9 +61,7 @@ def IsCodeSizeAllowed (output : Evm.Bytes) : Prop :=
     child's gas, and the parent pushes 0. Stated like Homestead's
     `IsCreateDepositRevert`, against the frame BEFORE the bump (`parent`, the
     creator `sender` with nonce `senderAccNonce` then). An unaffordable deposit
-    gives the same post-state, so the relation needs no gas premise.
-    (Restated 2026-11-09: the post-state used to keep `parent.env` unchanged,
-    dropping the nonce bump EELS keeps.) -/
+    gives the same post-state, so the relation needs no gas premise. -/
 def IsCreateCodeSizeRevertStep (parent subEvm : Evm) (sender : Evm.Address)
                                 (senderAccNonce : Nat)
                                 (gasLeft : Nat) (mem : Memory)

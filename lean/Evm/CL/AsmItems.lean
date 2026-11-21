@@ -1,23 +1,19 @@
 /-
   Evm.CL.AsmItems — the second lowering of `AInstr`: machine code.
 
-  Until now the two ARM64 output paths went through two different instruction
-  vocabularies:
+  Without this module the two ARM64 output paths go through two different
+  instruction vocabularies:
 
     AsmCore.AInstr  ──emitARM64──▶ text  ──clang, BUILD time──▶ c/handlers.S
     AsmEncode.Item  ──assemble───▶ bytes ──────RUN time───────▶ the code arena
 
-  `AsmCore` carries all of stage 1's denotations, and never mentions `Item`;
-  `JIT.lean` builds `Item` lists directly and never mentions `AsmCore`. So every
-  gadget that appears in both paths was written twice, and the two copies could
-  disagree — which is not hypothetical: `ARM64.ChunkGas` records that `retake`
-  was written with a bare `sub`, no borrow check, on the `Item` side only. That
-  was the second JIT gas bug, and it existed because there were two hand-written
-  copies rather than one.
-
-  `ChunkGas` fixed that case the right way — one denoted constructor (`GInstr`)
-  with two lowerings (`.emit` and `.items`) — but only for the gas gadgets. This
-  module generalises it to the whole instruction vocabulary:
+  `AsmCore` carries the denotations and never mentions `Item`; `JIT.lean`
+  builds `Item` lists directly and never mentions `AsmCore`. A gadget that
+  appears in both paths, written twice, can disagree: e.g. a `retake` with a
+  bare `sub` and no borrow check on the `Item` side only. `ChunkGas` gives the
+  gas gadgets one denoted constructor (`GInstr`) with two lowerings (`.emit`
+  and `.items`); this module generalises that to the whole instruction
+  vocabulary:
 
       AInstr ──emitARM64──▶ String      (unchanged, byte-for-byte)
              ──items─────▶ List Item ──▶ bytes
@@ -299,22 +295,19 @@ def gadgetBytes : Nat :=
 
 /-- 257 instructions at 4 bytes each, and labels free. The text path's own count
     (`Evm.CL.Lowering.arm64Insns = 257`, `insn_counts`) agrees, which is the size half
-    of the two paths matching. (Pinned at 242 until 2026-10-25 while the gadget set had
-    grown to 257: `lake build` does not reach this module, so only the
-    `verify-asm-items.sh` gate saw it, and it failed silently.) -/
+    of the two paths matching. (`lake build` does not reach this module; the
+    `verify-asm-items.sh` gate checks it.) -/
 theorem gadget_bytes_match_instruction_count : gadgetBytes = 257 * 4 := by
   native_decide
 
 /-! ## GNU numeric local labels, and the whole-gadget gate
 
 `verify-asm-items.sh` pairs instructions one to one and SKIPS branch items, so
-it never exercised a branch's target. The x86-64 side found what that hides
-(`X86Asm`, stage 4a): the gadgets branch to `7f` — "the next `7:`" — and a
-literal-name lookup finds no label called `7f`, so `AsmEncode.assemble` emits
-the branch with a zero field and a relocation to a symbol `7f` that nothing
-will ever define. The in-process ARM64 JIT path was never bitten only because
-`JIT.lean` names its labels explicitly (`Lj_…`); the gadgets' byte lowering was
-wrong for every numeric branch and no gate said so.
+it never exercises a branch's target. The gadgets branch to `7f` — "the next
+`7:`" (as in `X86Asm`) — and a literal-name lookup finds no label called `7f`,
+so a plain `AsmEncode.assemble` would emit the branch with a zero field and a
+relocation to a symbol `7f` that nothing defines. (`JIT.lean` names its labels
+explicitly, `Lj_…`, so it is not affected.)
 
 `resolveLocals` renames each numeric definition uniquely (`7@k`) and each
 `7f`/`7b` reference to the definition it means, exactly as `X86Asm` does, and

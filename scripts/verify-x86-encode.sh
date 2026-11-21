@@ -10,8 +10,7 @@
 # This is the gate that knows the things assembly text cannot show: that an
 # r12 base forces a SIB byte, that an r13 base forces a displacement, that the
 # SIB scale is 1/2/4/8 only, and that a negative displacement is two's
-# complement (which the first version of the encoder got wrong — Int.toNat is
-# 0 on negatives, so -48 encoded as 0x00).
+# complement (Int.toNat is 0 on negatives, which would encode -48 as 0x00).
 set -euo pipefail
 # Portable across macOS (Rosetta oracle) and Linux x86-64 (native): the
 # assembler, the object's text-section name and the runner differ.

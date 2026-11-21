@@ -189,12 +189,11 @@
   (ib (make-array 0 :element-type '(unsigned-byte 32)) :type (simple-array (unsigned-byte 32) (*)))
   (counts (make-array 65537 :element-type 'fixnum) :type (simple-array fixnum (*))))
 
-;;; ALLOCATE FIRST, THEN STORE. SBCL 2.5.2 (production) marks an object's GC card once
+;;; ALLOCATE FIRST, THEN STORE. SBCL 2.5.2 marks an object's GC card once
 ;;; for several slot stores in one function, even when an allocation — a possible GC —
 ;;; falls between them: a GC there unmarks the card, the later stores leave the old
 ;;; struct pointing at young arrays the next GC cannot see, and those are freed under it
-;;; ("no transport function", "heap_scavenge failure"; disassembly and verify_gens in
-;;; the commit). Every multi-slot refill of a long-lived struct here builds its values
+;;; ("no transport function", "heap_scavenge failure"). Every multi-slot refill of a long-lived struct here builds its values
 ;;; first, so its stores have no allocation between them. 2.5.8 re-marks per store.
 (defun sorter-ensure (s n)
   (when (< (length (sorter-ka s)) n)
@@ -847,7 +846,7 @@
          (lock (sb-thread:make-mutex))
          (t0 (get-internal-real-time)))
     ;; The nursery defaults to 5% of the heap reservation (800 MB of garbage between
-    ;; collections at the 16 GB production setting); the footprint must not follow it.
+    ;; collections at a 16 GB heap); the footprint must not follow it.
     ;; The large transients (a bucket, a big contract's sort buffers) live across a few
     ;; collections: promoted after one they would pile up in an older generation until it
     ;; is collected, so they stay in the nursery longer and die there.

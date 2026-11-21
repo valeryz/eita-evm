@@ -37,10 +37,9 @@ def extend (m : Memory) (n : Nat) : Memory :=
     No-op (no extension) when `value.size = 0` — important for
     CALL-family return-data merging when retLen = 0, where an
     `extend m offset` would wrongly grow the parent's buffer past
-    its EELS-spec'd msize. (Caught by block 0x800000 tx 7: a CALL
-    with retOff=128 retLen=0 wrongly extended the parent to 128
-    bytes, which then made a later MSTORE charge 3 less gas than
-    op-geth because its msize was 4 words instead of 3.) -/
+    its EELS-spec'd msize. (Block 0x800000 tx 7: a CALL with
+    retOff=128 retLen=0 must not extend the parent to 128 bytes, or a
+    later MSTORE is charged 3 gas less than op-geth.) -/
 def write (m : Memory) (offset : Nat) (value : Evm.Bytes) : Memory :=
   if value.size = 0 then m
   else Id.run do

@@ -2,8 +2,7 @@
 ;;;;
 ;;;; Pure-CL mirror of lean/Evm/Trie.lean (patricialise / hexPrefix /
 ;;;; nodeRef / root), plus a mutable node trie (empty / leaf / ext / branch)
-;;;; for mpt-live.lisp; its Lean spec (Trie/Incremental.lean) was superseded by
-;;;; the frontier spec, lean/Evm/Trie/Frontier.lean. RLP follows lean/Evm/Rlp.lean.
+;;;; for mpt-live.lisp, specified by lean/Evm/Trie/Frontier.lean. RLP follows lean/Evm/Rlp.lean.
 ;;;;
 ;;;; REPRESENTATION DIVERGENCE FROM THE LEAN REFERENCE (deliberate).
 ;;;; Lean carries a nibble path as `List UInt8`; here it is a
@@ -26,7 +25,7 @@
 ;;;; (state/root.lisp computes roots without building it). Paths are treated as
 ;;;; IMMUTABLE — subpaths may share structure with their parent vector.
 ;;;;
-;;;; This is the basis for the incremental MPT (#20): nodes are persistent
+;;;; This is the basis for the incremental MPT: nodes are persistent
 ;;;; structs with a cached-hash slot, and keccak is behind a *keccak*
 ;;;; indirection so a SHA3-accelerated backend can be swapped in later.
 ;;;;
@@ -73,7 +72,7 @@
 (defun %keccak (bytes) (funcall *keccak* bytes))
 
 ;;; --------------------------------------------------------------------
-;;; Batched keccak (#237) — one FFI crossing hashes N inputs, optionally
+;;; Batched keccak — one FFI crossing hashes N inputs, optionally
 ;;; across worker threads. Used by the LEVEL-WAVEFRONT root recompute:
 ;;; all dirty nodes at the same trie depth are independent, so their
 ;;; >=32B encodings hash in a single call. Bit-identical to the per-node
@@ -179,8 +178,8 @@
 
 (defun rlp-write (item out pos)
   "Write ITEM's encoding into OUT from POS (OUT NIL: only measure); return where it ends. Nothing
-   is allocated: the prefix was one to three small vectors per item per pass, a fifth of the
-   replay's allocation in the receipts root."
+   is allocated (a fresh prefix per item per pass would be a fifth of the replay's
+   allocation, in the receipts root)."
   (declare (type (or null (simple-array (unsigned-byte 8) (*))) out) (type fixnum pos))
   (let* ((bytes (eq (car item) :bytes))
          (len (if bytes (length (cdr item)) (loop for x in (cdr item) sum (rlp-write x nil 0)))))
@@ -192,7 +191,7 @@
 
 (defun rlp-encode (item)
   "Encode an RLP ITEM to a u8 vector, written into one buffer (not copied once per level
-   of nesting: that was a fifth of the replay, in the receipts root). Mirrors Rlp.encode."
+   of nesting, which would cost a fifth of the replay, in the receipts root). Mirrors Rlp.encode."
   (let ((out (make-array (rlp-write item nil 0) :element-type '(unsigned-byte 8))))
     (rlp-write item out 0)
     out))
@@ -306,7 +305,7 @@
 
 (defun common-prefix-len (items depth)
   "Longest common prefix length of every item key beyond DEPTH.
-   Replaces the old list `reduce` over fresh prefix lists: no allocation."
+   No allocation (no fresh prefix lists)."
   (let* ((k0 (car (first items)))
          (lim (- (length k0) depth)))
     (declare (type nibbles k0))
@@ -461,7 +460,7 @@
     (trie-root (nreverse items))))
 
 ;;; ====================================================================
-;;; INCREMENTAL mutable Merkle-Patricia trie (#20).
+;;; INCREMENTAL mutable Merkle-Patricia trie.
 ;;;
 ;;; A mutable, in-place trie keyed by byte-vector keys (32-byte account
 ;;; keys = keccak(addr)). Each mutable node carries a CACHED RLP-Item
@@ -951,7 +950,7 @@
   (mt-member (mtrie-top trie) (bytes->nibbles key-bytes) 0))
 
 ;;; --------------------------------------------------------------------
-;;; LEVEL-WAVEFRONT batched root recompute (#237).
+;;; LEVEL-WAVEFRONT batched root recompute.
 ;;;
 ;;; The only dependency between node refs is parent->child (a node's RLP
 ;;; embeds each child's ref). Nodes at the SAME depth are therefore

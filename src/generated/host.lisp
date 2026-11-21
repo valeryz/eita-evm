@@ -666,8 +666,8 @@
     (12 (untouch! addr))))
 
 ;; BLOCKHASH validity window (EELS block_hash): n < cur AND cur <= n+256
-;; (oldest valid block = cur-256, inclusive). No subtraction => the #265
-;; off-by-one is unrepresentable.
+;; (oldest valid block = cur-256, inclusive). No subtraction => an off-by-one
+;; at the window's edge is unrepresentable.
 (defun spec-blockhash-valid (n cur)
   (and (< n cur) (<= cur (+ n 256))))
 

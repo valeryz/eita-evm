@@ -253,7 +253,7 @@
    an RLP-level defect (\"RLP_...\")? The runner, like the driver, reads the decoded block
    (rlp_decoded; JSON-RPC), never its RLP bytes. Such a block is counted `unchecked`, not run.
    (Every other class is checked; the header rules on proposer-chosen inputs — EELS
-   validate_header, check_gas_limit, validate_ommers — since 2026-11-01, block-system.lisp
+   validate_header, check_gas_limit, validate_ommers — in block-system.lisp
    header-violation and validate-ommers!. The proof-of-work seal is not checked; no fixture
    here expects it.)"
   (loop for start = 0 then (1+ bar)

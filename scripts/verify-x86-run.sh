@@ -5,8 +5,8 @@
 # emits small programs (X86RunVectors) with arguments and the value it says
 # each must return; c/x86_run.c maps the bytes and calls them; Rosetta 2 runs
 # the x86-64 harness on Apple Silicon. Encoder, relaxation, addressing modes
-# and flag semantics all meet the hardware here, locally, before the Linux
-# box ever sees them.
+# and flag semantics all meet the hardware here, locally, before an x86-64
+# Linux machine runs them.
 set -euo pipefail
 # Portable across macOS (Rosetta oracle) and Linux x86-64 (native): the
 # assembler, the object's text-section name and the runner differ.

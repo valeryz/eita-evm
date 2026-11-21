@@ -1,4 +1,4 @@
-;;;; audit-jit.lisp — differential audit of the per-chunk JIT tier (Phase 6a).
+;;;; audit-jit.lisp — differential audit of the per-chunk JIT tier.
 ;;;;
 ;;;; For each corpus program: emit the per-chunk image with `emitJIT bin` (ARM64 or
 ;;;; x86-64, the host's), load it into the code arena with the engine's own in-process
@@ -193,7 +193,7 @@
      ;; 1025 PUSH1s: the interp faults on the push that crosses 1024;
      ;; the folder must fault via the flush peak-depth check
      ,(format nil "~v@{~A~:*~}00" 1025 "6001") 1000000)
-    ;; --- Stage 6d: symbolic regions (dynamic values, issue #11 st. 2) ---
+    ;; --- Symbolic regions (dynamic values) ---
     ("sym-arith"
      ;; a=CDL(0); b=CDL(32); DUP2 DUP2 ADD SWAP2 MUL SUB; STOP —
      ;; symbolic dup/swap (incl. manufactured pops), inline add/sub,
@@ -241,7 +241,7 @@
      ;; overflow guard
      ,(format nil "600035~v@{~A~:*~}00" 1024 "80") 1000000
      :calldata "0000000000000000000000000000000000000000000000000000000000000001")
-    ;; --- Stage 6e: constant-offset memory promotion (issue #11 st. 3) ---
+    ;; --- Constant-offset memory promotion ---
     ("mem-promote-roundtrip"
      ;; v=CDL(0); MSTORE@0 (absorbed, symbolic value); MLOAD@0 is the
      ;; barrier: the dirty word must hit memory before the mload

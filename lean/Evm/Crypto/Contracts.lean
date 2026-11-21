@@ -17,8 +17,8 @@
   the moduli (needed for `ZMod p` to be a field) and irreducibility of `X² + 1` over Fp are
   instance arguments, also assumed rather than proved here.
 
-  Found by the property tests (2026-11-09) and reflected here: blst's scalar
-  multiplication is `n • P` only on the order-r subgroup (`G1MulContract`).
+  blst's scalar multiplication is `n • P` only on the order-r subgroup
+  (`G1MulContract`); the property tests measure the difference off the subgroup.
 
   Gaps, stated: the pairing is an abstract bilinear non-degenerate map (Mathlib has no
   pairings), not the optimal ate pairing of BLS12-381; the map-to-curve contracts say
@@ -82,8 +82,7 @@ def G1AddContract (o : Oracle) : Prop :=
 /-- G1 scalar multiplication is `n • P` on the order-r subgroup (scalars < 2²⁵⁶), which is
     where the wrapper uses it (MSM points are subgroup-checked first). NOT on the whole
     curve: blst's `blst_p1_mult` takes the GLV path for scalars < r, which is only valid in
-    the subgroup — `cryptoTests` measures the difference on random non-subgroup points
-    (found 2026-11-09 by this file's first property run). -/
+    the subgroup — `cryptoTests` measures the difference on random non-subgroup points. -/
 def G1MulContract (o : Oracle) : Prop :=
   ∀ a P n, n < 2 ^ 256 → Rep1 a P → r • P = 0 → Rep1 (o.g1Mul a n) (n • P)
 

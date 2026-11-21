@@ -23,9 +23,8 @@ operation it stands for:
 | `word-!` | `sub` (the borrow chain) | `sub_ofBV`: `x − y` mod 2^256, no borrow `y ≤ x` |
 | `word-set!`, `word-limbs` | `ofBV` / `toBV` | `toBV_ofBV` |
 
-From core def68c3 (branch perf-opaque). On this branch the operations the native storage path
-needs are EMITTED to C from a deep embedding of these definitions (`Evm.CL.LimbC`), not
-transcribed. -/
+The operations the native storage path needs are EMITTED to C from a deep embedding of these
+definitions (`Evm.CL.LimbC`), not transcribed. -/
 
 namespace Evm.CL.WordOps
 

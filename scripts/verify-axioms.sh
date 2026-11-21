@@ -9,8 +9,7 @@
 # the library each one trusts). Run in CI / pre-commit.
 #
 # Every fallible command prints its captured log on failure — a red gate
-# must show a diagnosis (the silent-exit class fixed in
-# verify-host-emit.sh; PR #44 review item 1).
+# must show a diagnosis.
 set -euo pipefail
 cd "$(dirname "$0")/../lean"
 

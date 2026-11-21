@@ -161,7 +161,7 @@ import Evm.CL.StorageCache
 import Evm.CL.MacroSpec
 import Evm.CL.Extract
 
--- Block-STM spec (#255): never imported before, so `lake build Evm` never compiled it.
+-- Block-STM spec.
 import Evm.Parallel.BlockSTM
 import Evm.Parallel.Reads
 import Evm.Parallel.Scheduler

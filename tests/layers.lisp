@@ -195,7 +195,7 @@
 (defun gc-spares-frozen-layer ()
   "A frozen RAM layer whose layer-P-N/ the writer has published but not yet swapped into the
    stack: no resume point names it, and the replay's GC (prune-dumps!: run-gc pinned by
-   live-components) must leave it (2026-11-08: it deleted it under the writer)."
+   live-components) must leave it (deleting it under the writer breaks the writer's rename)."
   (let ((dir (format nil "~Agc/" *dir*)))
     (ensure-directories-exist (merge-pathnames "layer-117-118/" dir))
     (let ((eita.state::*layers* (list (eita.state::make-ram-layer :block 118 :parent 117)))
@@ -356,7 +356,7 @@
                      (check (list tag :root-check-stopped) eita.state::*pending-root* nil)
                      (when proc (check (list tag :checker-dead) (sb-ext:process-alive-p proc) nil))
                      (check (list tag :snap-120-deleted) (probe-file (snap-path dir 120)) nil)
-                     ;; the old check passing later (old code: it installed snap-120 here)
+                     ;; the old check passing later must not install snap-120
                      (let ((s eita.state::*compacting-base*))
                        (when s (eita.state::compaction-swap! 120)))
                      (check (list tag :base-still-100) (snap-block eita.state::*base*) 100)

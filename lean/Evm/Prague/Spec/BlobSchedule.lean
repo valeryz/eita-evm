@@ -14,8 +14,7 @@
   fork-typed price `calculateBlobGasPriceAt`, which is what the emitted host formula
   (`Evm.CL.GasEmit.blobBaseFee`, proved equal in `Evm.CL.GasEmitCancun`) must compute:
   the host prices every type-3 tx and every BLOBBASEFEE with it, so a Prague block
-  priced with Cancun's fraction (as the hand-written host formula did until 2026-10-25)
-  burns the wrong blob fee from the first Prague blob tx on.
+  priced with Cancun's fraction burns the wrong blob fee from the first Prague blob tx on.
 
   Inheritance: Osaka keeps these constants (`forks/osaka/vm/gas.py`). The BPO forks
   (EIP-7892, after Osaka) change the target, the max and the fraction per schedule; they

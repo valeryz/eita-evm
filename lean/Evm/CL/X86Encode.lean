@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86Encode — x86-64 machine code.
 
-  Stage 3 of #238. `Evm.CL.Lowering` emits x86-64 TEXT, which the system
+  `Evm.CL.Lowering` emits x86-64 TEXT, which the system
   assembler accepts (`scripts/verify-x86-emit.sh`). The JIT has no assembler at
   run time, so it needs bytes, exactly as the ARM64 side has
   `AsmEncode.Insn.encode`.
@@ -17,10 +17,9 @@
    * **`rbp`/`r13` as a base cannot use `mod = 00`.** That encoding means
      "no base, disp32 follows", so `[r13]` must be written as `[r13 + 0]` with
      an explicit zero displacement byte. `r13` is our sp.
-   * **The SIB scale is two bits** — 1, 2, 4, 8 and nothing else. This is the
-     rule that refuted the first version of the NOS addressing mode (scale 32),
-     and `scale_32_is_not_encodable` records it as a theorem rather than a
-     comment.
+   * **The SIB scale is two bits** — 1, 2, 4, 8 and nothing else, so a NOS
+     addressing mode with scale 32 is not encodable;
+     `scale_32_is_not_encodable` records it as a theorem rather than a comment.
 
   Each of those would produce code that assembles-looking-correct in text and
   wrong bytes in the arena, which is why the gate
@@ -251,11 +250,11 @@ def encode : XInsn → List UInt8
   | .movRI dst imm =>
       -- Two forms, by range. `C7 /0 imm32` SIGN-extends, so it is only right
       -- for [-2^31, 2^31); anything else is `REX.W B8+r imm64` (movabs), which
-      -- is also what the assembler picks for a 64-bit destination. The first
-      -- version used C7 unconditionally, and a 0xFFFFFFFF sentinel came back
-      -- from the hardware as -1: caught by the EXECUTION gate, not by any byte
-      -- gate, because the bytes were a valid instruction — just not the one
-      -- meant. (A 32-bit `mov r32, imm32` would zero-extend in 5 bytes, but
+      -- is also what the assembler picks for a 64-bit destination. With C7
+      -- unconditionally, a 0xFFFFFFFF sentinel comes back from the hardware as
+      -- -1: only the EXECUTION gate sees it, not a byte gate, because the
+      -- bytes are a valid instruction — just not the one meant. (A 32-bit
+      -- `mov r32, imm32` would zero-extend in 5 bytes, but
       -- clang does not choose it for `mov r64, …`, and an exact gate is worth
       -- more than one byte.)
       if -2147483648 ≤ imm && imm < 2147483648 then

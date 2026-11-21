@@ -92,7 +92,7 @@
                (:file "api")))
 
 (defsystem "eita/mpt-live"
-  :description "The incremental state-root validator (#237). Loading it redefines the journal's
+  :description "The incremental state-root validator. Loading it redefines the journal's
    dirty-set hooks; it is not armed until it reads snapshots (src/chains/driver.lisp)."
   :depends-on ("eita" (:require "sb-concurrency"))
   :pathname "src/state/"

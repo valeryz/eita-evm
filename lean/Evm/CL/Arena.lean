@@ -1,14 +1,13 @@
-/-! # CL/Arena — provably-safe call-frame arena allocation (#250 / #248)
+/-! # CL/Arena — provably-safe call-frame arena allocation
 
 The replay's per-sub-call structs (`sub_state` 544 B, `sub_arena` 72 B, calldata,
 the callbacks vtable) are `foreign-alloc`'d and freed on every CALL/CREATE. In the
 2016-DoS region that allocation prologue — CFFI `parse-type` + `malloc` +
-`:initial-element` zeroing — is ~70 % of execution (sb-sprof, #248), not the EVM.
+`:initial-element` zeroing — is ~70 % of execution (sb-sprof), not the EVM.
 
-The fix is to bump-allocate those structs from a flat per-depth **arena** instead.
-The hazard that has bitten this twice before
-(`feedback_arena_output_ptr_lifetime`, `feedback_arena_depth_off_by_one`) is the
-**escape bug**: a child frame's `output` / the caller's `returnData` is a *slice*
+So those structs are bump-allocated from a flat per-depth **arena** instead.
+The hazard is the **escape bug** (and, separately, sizing the arena one depth
+short): a child frame's `output` / the caller's `returnData` is a *slice*
 into the arena; if the caller reads it *after* the region is reused by a later
 sub-call, it reads clobbered bytes — a silent, gas-invisible state corruption.
 

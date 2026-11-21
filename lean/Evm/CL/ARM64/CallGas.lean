@@ -41,7 +41,7 @@ namespace Evm.CL.ARM64.CallGas
 
 open Evm.Berlin.Vm.Effect (callGasPlan)
 
-/-! ## The routines as instructions (stage 4t) -/
+/-! ## The routines as instructions -/
 
 section Instrs
 open Evm.CL.AsmCore Evm.CL.Frame

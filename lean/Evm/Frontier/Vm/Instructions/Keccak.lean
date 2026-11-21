@@ -4,9 +4,8 @@
   EELS reference: ethereum/frontier/vm/instructions/keccak.py.
 
   Gas: `30 + 6 · ⌈len/32⌉` plus the standard memory-expansion cost.
-  Hashes are produced by `Evm.Crypto.keccak256`, which is currently a
-  zero stub — anything that depends on the hash being correct is
-  unverified until that is implemented for real.
+  Hashes are produced by `Evm.Crypto.keccak256` (the C Keccak through
+  `@[extern]`, an oracle).
 -/
 
 import Evm.BaseTypes

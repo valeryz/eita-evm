@@ -78,7 +78,8 @@
    GC could no longer copy what survives (the use past the heap less live and half a nursery).
    Absolute thresholds (3x live, half the heap) sat at the use a dense range's live set
    reaches by itself (Arc 21.16M with read sets, ~1.3 GB live: 62 / 33 / 32 forced full GCs
-   a window at 4 / 8 / 16 GB, now 21 / 18 / 18; the late window at 0.5 GB: 51, now 14)."
+   a window at 4 / 8 / 16 GB, against 21 / 18 / 18 with this rule; the late window at
+   0.5 GB: 51 against 14)."
   (let* ((use (sb-kernel:dynamic-usage))
          (old (loop for g from 1 below sb-vm:+pseudo-static-generation+ sum (sb-ext:generation-bytes-allocated g)))
          (live (setf *gc-live* (min *gc-live* use))))
@@ -406,18 +407,15 @@
               *rpc-calls* *offline-misses*))))
 
 ;;; The trie (state/mpt.lisp, Lean-mirrored) backs the receipts-root gate (receipts.lisp) and,
-;;; with EITA_MPT_CHECK, the incremental state-root validator (state/mpt-live.lisp, #237): one
+;;; with EITA_MPT_CHECK, the incremental state-root validator (state/mpt-live.lisp): one
 ;;; persistent account trie on a worker thread fed per-block dirty sets. The worker is a
 ;;; live aux thread, so a run that also forks would hit SBCL's "cannot fork with multiple
 ;;; threads running" — the driver does not fork.
 ;;; The incremental validator (state/mpt-live.lisp, system eita/mpt-live) is kept but cannot
-;;; be armed: its anchors were text dumps — written by the deleted dump-state-root, resumed by
-;;; the deleted load-state-dump, re-seeded from a world that held every account — and a
-;;; snapshot-backed world evicts cold accounts, so the worker can neither be seeded from
-;;; it nor resumed into. Step F (the project's complexity ledger) gives mpt-live the
-;;; snapshot: seed the worker from snap-N/, take the anchor verdict (n expected computed
-;;; ok content-hash) from it in place of `eita check-root`. Until then this is the stub:
-;;; EITA_MPT_CHECK is refused, not silently ignored.
+;;; be armed: a snapshot-backed world evicts cold accounts, so the worker can be neither
+;;; seeded from it nor resumed into. Arming it needs the worker seeded from snap-N/ and the
+;;; anchor verdict (n expected computed ok content-hash) taken from it in place of
+;;; `eita check-root`. Until then EITA_MPT_CHECK is refused, not silently ignored.
 (at-startup refuse-mpt-check
   (when (sb-ext:posix-getenv "EITA_MPT_CHECK")
     (error "EITA_MPT_CHECK: the incremental validator cannot be armed until it reads snapshots (step F); run with snapshot root checks instead")))

@@ -7,14 +7,13 @@
   Istanbul appends `0x09 BLAKE2F` (EIP-152) to Byzantium's eight
   precompiles. All previously-present addresses remain.
 
-  ## The shipped-buggy registry pattern
+  ## The registry pattern this guards against
 
-  Until 2026-05-30 our `Evm.Istanbul.Vm.PrecompiledContracts.registry`
-  was defined as
+  A registry defined as
       `Evm.Frontier.Vm.PrecompiledContracts.registry ++ [(0x09, blake2f)]`
-  — accidentally dropping Byzantium's 0x05..0x08. Implementations
-  that consult `Istanbul.lookup` (e.g. Berlin / London / Paris /
-  Shanghai now do) silently lost MODEXP and bn256 at those forks.
+  drops Byzantium's 0x05..0x08, and every fork that consults
+  `Istanbul.lookup` (Berlin / London / Paris / Shanghai) silently loses
+  MODEXP and bn256.
 
   The spec invariant below catches this kind of regression: the
   Istanbul table MUST contain everything Byzantium had, plus 0x09.
@@ -45,7 +44,7 @@ theorem extends_byzantium :
 /-- **The executable registry is the spec table**, address for address and in
     order. `extends_byzantium` alone is about the spec list, which is
     Byzantium's by construction; this is the statement that catches the
-    shipped regression above — a `registry` built on Frontier's four rows only
+    regression above — a `registry` built on Frontier's four rows only
     has five addresses and fails here. -/
 theorem registry_is_spec_table :
     Evm.Istanbul.Vm.PrecompiledContracts.registry.map Prod.fst = precompileAddresses := by

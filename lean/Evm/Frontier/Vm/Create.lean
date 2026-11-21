@@ -28,13 +28,13 @@
   (`Evm.CL.EffectCreate`) is proved against `start`/`resume`
   (`Evm.CL.EffectCreateProof.create_refines`).
 
-  EIP-7610 is not applied (EELS master: execution-specs #3417, merged 2026-08-25, commit
-  2ce2191562, EIP-7610 declined per EIP-7773): the collision rule is EIP-684's nonce and
+  EIP-7610 is not applied (EELS master: execution-specs #3417, commit 2ce2191562,
+  EIP-7610 declined per EIP-7773): the collision rule is EIP-684's nonce and
   code only (`account_deployable`, `forks/*/state_tracker.py`), and a creation over an
   account that holds storage wipes it before the init code runs (`process_create_message`'s
   `destroy_storage`, `forks/*/vm/interpreter.py` — Frontier line 159, Cancun line 167;
-  #3508, merged 2026-09-23, commit faf6637766, made the Cancun+ trackers honour it: their
-  reads no longer fall back to the pre-state). The slots' original values are then 0, as
+  execution-specs #3508, commit faf6637766, makes the Cancun+ trackers honour it: their
+  reads do not fall back to the pre-state). The slots' original values are then 0, as
   EELS's `get_storage_original` answers for a created account (the child's
   `originalState`; the Berlin+ cache records the wiped zeros at first touch). No mainnet
   creation can reach such an address (EIP-8253 bumps the 28 pre-Spurious ones).

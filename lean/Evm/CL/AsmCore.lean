@@ -1,9 +1,9 @@
 /-! # CL/AsmCore — a typed, denotational ARM64 micro-DSL
 
 `Evm.CL.ARM64` emits handlers as raw `String`s, so a *wrong* instruction is
-invisible to any checker — the two worst bugs this cycle were exactly that:
-MSIZE loading `[x20,#24]` (`mp`) instead of `#48` (`memory_size`), and a bare
-`sub x22` gas charge instead of the OOG-checked `subs;b.lo`.
+invisible to any checker — for example MSIZE loading `[x20,#24]` (`mp`) instead
+of `#48` (`memory_size`), or a bare `sub x22` gas charge instead of the
+OOG-checked `subs;b.lo`.
 
 This module represents handlers as a small `Op` IR with **two interpretations of
 one term** — `emit` (the asm) and `denote` (semantics over an abstract
@@ -15,12 +15,12 @@ handlers drop into `ARM64.lean` with `handlers.S` unchanged.
 The machine mirrors the handler ABI: the top two EVM stack cells are cached in
 registers (`tos` = x6-x9, `nos` = x10-x13, four 64-bit limbs each = a `U256`),
 `gas` = x22, `sp` = x23 (depth), `pcReg` = x21, EvmState fields by NAME, the
-stack memory, and trap flags. Covers the value-pusher family (MSIZE/PC/GAS) and
-the bitwise binary family (AND/OR/XOR); the next stage adds add/sub/compare. -/
+stack memory, and trap flags. -/
 
 namespace Evm.CL.AsmCore
 
-/-- Named EvmState fields; the byte offset (the MSIZE bug) lives in `offset`. -/
+/-- Named EvmState fields; the byte offset lives in `offset`, so a handler names the
+    field it reads and cannot load the wrong one (MSIZE reads `memSize`, not `mp`). -/
 inductive Field where
   | pc | gasLeft | sp | mp | memSize | memCap
   deriving DecidableEq, Repr
@@ -199,7 +199,7 @@ structure Mach where
   -- EvmState #552: the tx's EIP-4844 versioned blob hashes (EELS
   -- `tx_env.blob_versioned_hashes`), one u256 per index, installed by the host per
   -- tx; their count is the u64 field #560 (`stateMem 560`). BLOBHASH reads the table
-  -- through this, never a constant — the first handler pushed 0 for every index.
+  -- through this, never a constant.
   blobHash : Nat → U256 := fun _ => U256.ofScalar 0
   -- EvmState byte #130: the frame is inside a STATICCALL. Modelled so EIP-214
   -- write protection is a theorem (`StaticGuard`) rather than "no static flag".
@@ -209,14 +209,13 @@ structure Mach where
   ret      : Bool
   halted   : Bool          -- EvmState.halted byte set (STOP/RETURN)
 
-/-! ## Structured memory-expansion instruction layer (#260 follow-up, S1)
+/-! ## Structured memory-expansion instruction layer
 
-The CALL/CREATE/COPY memory-expansion prologue used to be a hand-written
-multi-instruction assembly STRING that read the (offset,length) operands with a
-single `ldr` (limb0 only), silently wrapping a huge u256 length to a tiny range
-(block 4466928 relay `0x39dc3f7a`: argsLen `0x..._0000000000000000` → low limb 0
-→ we ran a 0-length CALL & succeeded where mainnet OOGs). This layer replaces
-that string with a STRUCTURED instruction list: each `AInstr` is one machine
+The CALL/CREATE/COPY memory-expansion prologue reads the (offset, length)
+operands over all four limbs: a prologue that reads only limb0 wraps a huge u256
+length to a tiny range (block 4466928, relay `0x39dc3f7a`: argsLen
+`0x..._0000000000000000` has low limb 0, so the CALL would run with length 0 and
+succeed where mainnet OOGs). The prologue is a STRUCTURED instruction list: each `AInstr` is one machine
 instruction with a single-purpose `emitARM64` printer (an `emitX86` would be a
 second printer over the same IR), and the gas/OOG meaning lives in the pure
 `memRangeEnd` semantics — proved against EELS `memoryExpansionCost` in
@@ -231,7 +230,7 @@ inductive Reg where
   | x21 | x26                        -- pc and code base (PUSH's byte fetch)
   | x27                              -- continuation (ARM64 only; x86-64 uses ret)
   | x5                               -- the sixth C-ABI argument (LOG's len)
-  -- the frame's callee-saved pairs and the saved stack pointer (stage 4r)
+  -- the frame's callee-saved pairs and the saved stack pointer
   | x19 | x25 | x28 | x29 | x30
   deriving DecidableEq, Repr
 
@@ -298,7 +297,7 @@ inductive AInstr where
   | addLsr  (dst a b : Reg) (sh : Nat)     -- add  dst, a, b, lsr #sh
   | addLsl  (dst a b : Reg) (sh : Nat)     -- add  dst, a, b, lsl #sh
   | strOff  (src base : Reg) (off : Nat)   -- str  src, [base, #off]
-  -- the handler-body vocabulary (MLOAD/MSTORE and friends), #238 stage 4
+  -- the handler-body vocabulary (MLOAD/MSTORE and friends)
   | cmpImm  (a : Reg) (imm : Nat)          -- cmp  a, #imm
   | bSym    (c : BCond) (sym : String)     -- b.<c> sym      (external symbol)
   | addsImm (dst a : Reg) (imm : Nat)      -- adds dst, a, #imm   (sets carry)
@@ -306,7 +305,7 @@ inductive AInstr where
   | movReg  (dst a : Reg)                  -- mov  dst, a
   | stpOff  (r1 r2 base : Reg) (off : Nat) -- stp  r1, r2, [base, #off]  ([base] when 0)
   | brCont                                 -- br   x27   (continue; `ret` on x86-64)
-  -- the arithmetic family (stage 4j): carry chains, the other bit ops, NOT
+  -- the arithmetic family: carry chains, the other bit ops, NOT
   | adcs    (dst a b : Reg)                -- adcs dst, a, b
   | adc     (dst a b : Reg)                -- adc  dst, a, b
   | sbcs    (dst a b : Reg)                -- sbcs dst, a, b
@@ -315,15 +314,15 @@ inductive AInstr where
   | eor3    (dst a b : Reg)                -- eor  dst, a, b
   | subsImm (dst a : Reg) (imm : Nat)      -- subs dst, a, #imm
   | mvn     (dst a : Reg)                  -- mvn  dst, a
-  -- the comparison family (stage 4k): flag-only chains and cset
+  -- the comparison family: flag-only chains and cset
   | subsZr  (a b : Reg)                    -- subs xzr, a, b   (compare)
   | sbcsZr  (a b : Reg)                    -- sbcs xzr, a, b   (compare with borrow)
   | cset    (dst : Reg) (c : SetCond)      -- cset dst, c
-  -- the byte fetch (stage 4l)
+  -- the byte fetch
   | ldrbReg (dst base idx : Reg)           -- ldrb wdst, [base, idx]
   | bcLbl   (c : BCond) (lbl : String)     -- b.<c> lbl   (local label)
   | movImmW (dst : Reg) (imm : Nat)        -- mov  wdst, #imm
-  -- the C-ABI call sequence (stage 4m): scratch frame, args, call, result
+  -- the C-ABI call sequence: scratch frame, args, call, result
   | spSub   (n : Nat)                      -- sub  sp, sp, #n
   | spAdd   (n : Nat)                      -- add  sp, sp, #n
   | stpFpLr                                -- stp  x29, x30, [sp, #-16]!
@@ -332,7 +331,7 @@ inductive AInstr where
   | ldrSp   (dst : Reg) (off : Nat)        -- ldr  dst, [sp, #off]
   | blSym   (sym : String)                 -- bl   sym   (C helper)
   | blr     (r : Reg)                      -- blr  r     (host callback through a slot)
-  -- control flow, flags and bytes (stage 4o)
+  -- control flow, flags and bytes
   | bSymU   (sym : String)                 -- b    sym   (unconditional, external)
   | ldrbOff (dst base : Reg) (off : Nat)   -- ldrb wdst, [base, #off]
   | strbOff (src base : Reg) (off : Nat)   -- strb wsrc, [base, #off]
@@ -344,10 +343,10 @@ inductive AInstr where
   | cselNe  (dst a b : Reg)                -- csel dst, a, b, ne
   | cbnzSymW (r : Reg) (sym : String)      -- cbnz wr, sym   (32-bit test of a zero-extended byte)
   | movzImm (dst : Reg) (imm : Nat)        -- movz dst, #imm (imm < 2^16)
-  -- the journal append (stage 4p)
+  -- the journal append
   | madd    (dst a b c : Reg)              -- madd dst, a, b, c   (dst = a*b + c)
   | strZr   (base : Reg) (off : Nat)       -- str  xzr, [base, #off]
-  -- the call/create/log frames (stage 4q): sp-relative scratch traffic
+  -- the call/create/log frames: sp-relative scratch traffic
   | strWSp  (src : Reg) (off : Nat)        -- str  wsrc, [sp, #off]
   | strWzrSp (off : Nat)                   -- str  wzr, [sp, #off]
   | stpZrSp (off : Nat)                    -- stp  xzr, xzr, [sp, #off]
@@ -357,7 +356,7 @@ inductive AInstr where
   | cbzWLbl (r : Reg) (lbl : String)       -- cbz  wr, lbl
   | andImmHex (dst a : Reg) (imm : Nat)    -- and  dst, a, #0x..
   | csinvEqZr (dst a : Reg)                -- csinv dst, a, xzr, eq   (dst = eq ? a : ~0)
-  -- the frame, the dispatcher and the fault stubs (stage 4r)
+  -- the frame, the dispatcher and the fault stubs
   | global  (sym : String)                 -- .global sym
   | p2align2                               -- .p2align 2
   | symLabel (sym : String)                -- sym:
@@ -370,7 +369,7 @@ inductive AInstr where
   | ldrLsl3 (dst base idx : Reg)           -- ldr  dst, [base, idx, lsl #3]  (table dispatch)
   | loadSymValue (dst : Reg) (sym : String)    -- adrp dst, sym@PAGE; ldr dst, [dst, sym@PAGEOFF]
   | loadSymGotValue (dst : Reg) (sym : String) -- adrp dst, sym@GOTPAGE; ldr dst, [dst, sym@GOTPAGEOFF]
-  -- the JIT chunk algebra (stage 4s)
+  -- the JIT chunk algebra
   | movkImm (dst : Reg) (imm hw : Nat)      -- movk dst, #imm, lsl #(16·hw)
   | addSpReg (r : Reg)                     -- add  r, sp, r
   | spAddReg (r : Reg)                     -- add  sp, sp, r
@@ -388,7 +387,7 @@ inductive AInstr where
   | bcTramp (c : BCond) (sym : String)     -- conditional far exit through the trampoline (`jcc Lx_<sym>`;
                                            -- `b.<c> sym` on ARM64)
   | blFar   (sym : String)                 -- bl   sym   (far)
-  -- the gas routines, the program loop, the data tables (stage 4t)
+  -- the gas routines, the program loop, the data tables
   | csel    (dst a b : Reg) (c : BCond)    -- csel dst, a, b, c
   | cselZrA (dst b : Reg) (c : BCond)      -- csel dst, xzr, b, c
   | cselZrB (dst a : Reg) (c : BCond)      -- csel dst, a, xzr, c
@@ -582,7 +581,7 @@ def memRangeInstrs (lenP offP : Nat) (dst : Reg) (lblZero lblDone : String) : Li
     OOG if newEnd > memCap[x20,#56]). Shared by MLOAD/MSTORE/MSTORE8 (the
     `memExpand` op), RETURN/REVERT, and the CALL/CREATE memexp. The quadratic is
     `cost(w) = 3w + w²/512`; the delta charged is `cost(nw) − cost(ow)` =
-    `Gas.memoryExpansionCost ow nw` — proved in MemExpandSpec. (#238 S2) -/
+    `Gas.memoryExpansionCost ow nw` — proved in MemExpandSpec. -/
 def memExpandInstrs : List AInstr :=
   [ .ldrOff .x14 .x20 56, .cmpReg .x0 .x14, .bhiOog,
     .addImm .x14 .x0 31, .lsrImm .x14 .x14 5, .ldrOff .x15 .x20 48, .lsrImm .x15 .x15 5,
@@ -594,7 +593,7 @@ def memExpandInstrs : List AInstr :=
     .label "7" ]
 
 /-- KECCAK256 gas: high-limb OOG on len (x10-13) and off (x6-9), 30 + 6·⌈len/32⌉ +
-    memexp, charge. Structured (#238 S2); byte-identical to the former string. -/
+    memexp, charge. -/
 def keccakGasInstrs (cost : Nat) : List AInstr :=
   [ .orr3 .x14 .x11 .x12, .orr3 .x14 .x14 .x13, .cbnzOog .x14,
     .addImm .x17 .x10 31, .cmpReg .x17 .x10, .bloOog,
@@ -617,7 +616,7 @@ def copyGasInstrs (cost : Nat) : List AInstr :=
     .adds .x0 .x6 .x14, .bcsOog ] ++ memExpandInstrs ++
   [ .label "6", .subsReg .x22 .x22 .x17, .bloOog ]
 
-/-- MCOPY gas (#270): unlike CALLDATACOPY/CODECOPY/RETURNDATACOPY, MCOPY's source
+/-- MCOPY gas: unlike CALLDATACOPY/CODECOPY/RETURNDATACOPY, MCOPY's source
     is MEMORY, so memory must expand to cover BOTH ranges — EELS charges
     `memexp(max(dst+len, src+len))`, not `memexp(dst+len)`. Reuses the proven
     `memRangeInstrs` (off+len with OOG + len=0→0) for each range and the same
@@ -654,9 +653,8 @@ def returndataBoundsInstrs : List AInstr :=
     checks have passed with the destination in x6: byte `dest` of the frame's
     valid-JUMPDEST map (EvmState #136, `Mach.jumpDest`) must be 1. The map, not the
     code byte, is the spec's `valid_jump_destinations`: a 0x5b inside a PUSH immediate
-    is data, and reading `code[dest]` accepted it (mainnet 5,800,596 tx 117 — a
-    creation whose init code jumps to offset 1 of `PUSH9 0x5b…`; geth halts, the
-    byte test ran on). -/
+    is data, and a test of `code[dest]` would accept it (mainnet 5,800,596 tx 117 — a
+    creation whose init code jumps to offset 1 of `PUSH9 0x5b…`, where geth halts). -/
 def jumpDestInstrs : List AInstr :=
   [ .ldrOff .x14 .x20 136, .ldrbReg .x14 .x14 .x6, .cmpImmWHex .x14 0x1,
     .bSym .ne "_eita_invalid_jump" ]
@@ -664,7 +662,7 @@ def jumpDestInstrs : List AInstr :=
 /-- EIP-4844 BLOBHASH lookup (EELS cancun/vm/instructions/environment.py `blob_hash`:
     `if index < len(tx_env.blob_versioned_hashes): push hashes[index] else push 0`). The
     index is the u256 in x6-x9 and the range test covers ALL FOUR limbs: a nonzero high
-    limb is out of range, never truncated to its low limb (the #260 / JUMP width class).
+    limb is out of range, never truncated to its low limb.
     The count is EvmState #560 and the table EvmState #552 — one hash per 32 bytes, four
     little-endian limbs, written by the host per tx — so the hit is two `ldp`s at
     `table + 32·index`. Both exits leave the hash (or 0) in x6-x9; the index is gone. -/
@@ -688,14 +686,14 @@ def staticValueGuardInstrs : List AInstr :=
     .cbnzSym .x15 "_eita_static_violation", .label "93" ]
 
 /-- EXTCODECOPY memexp gas: memexp(dst+len) over the full u256 (len or dst high limbs
-    ⇒ OOG, via memRangeInstrs; was low limbs only), charge. -/
+    ⇒ OOG, via memRangeInstrs), charge. -/
 def extcodecopyGasInstrs : List AInstr :=
   memRangeInstrs 4 2 .x0 ".Lxcd0" ".Lxcd1" ++
   [ .movImm .x17 0, .cbzLbl .x0 "90f" ] ++ memExpandInstrs ++
   [ .subsReg .x22 .x22 .x17, .bloOog, .label "90" ]
 
 /-- EXP gas: ebytes = ⌈log256(exponent)⌉ from the exponent limbs' MSB via clz
-    (x10-13 = exponent), gas = cost + byteCost·ebytes, charge. Structured (#238 S2). -/
+    (x10-13 = exponent), gas = cost + byteCost·ebytes, charge. -/
 def expGasInstrs (cost byteCost : Nat) : List AInstr :=
   [ .movImm .x14 0, .cbzLbl .x13 ".Lexp_l2", .clzReg .x15 .x13,
     .movImm .x14 256, .subReg .x14 .x14 .x15, .bLbl ".Lexp_charge",
@@ -713,11 +711,10 @@ def expGasInstrs (cost byteCost : Nat) : List AInstr :=
 /-- CLZ (EIP-7939) of the 256-bit TOS into x6 (l3 = most significant limb in x9):
     clz(l3) if l3 ≠ 0, else 64 + clz(l2) if l2 ≠ 0, else 128 + clz(l1), else 192 + clz(l0)
     (clz(0) = 64 on AArch64, so the all-zero word yields 256); x7-x9 zeroed. Branch-free,
-    on the SCRATCH registers x0/x14/x15/x17 — on both backends. It used to compute in
-    x10-x13 ("free in a unary op"), but on ARM64 those are the register-cached NOS, which
-    a unary op must keep: the next AND read the clobbered x10 (mainnet 26,042,126 tx 135,
-    `clz(x) & ~1` in a sqrt gave 0x40 for 0xe0; x86-64 keeps NOS in memory and was right).
-    `ARM64.Interp.handler_stack_cache_coherent` now checks every body for it. -/
+    on the SCRATCH registers x0/x14/x15/x17 — on both backends. x10-x13 are not free in a
+    unary op: on ARM64 they are the register-cached NOS, which a unary op must keep
+    (clobbering x10 makes `clz(x) & ~1` in a sqrt give 0x40 for 0xe0, mainnet 26,042,126
+    tx 135). `ARM64.Interp.handler_stack_cache_coherent` checks every body for this. -/
 def clzReduceInstrs : List AInstr :=
   [ .clzReg .x0 .x9, .clzReg .x14 .x8, .clzReg .x15 .x7, .clzReg .x17 .x6,
     .addImm .x14 .x14 64, .addImm .x15 .x15 128, .addImm .x17 .x17 192,
@@ -807,7 +804,7 @@ inductive Op where
   | setReverted                    -- strb w14,[x20,#129]  (after setHalted sets w14=1)
   -- COPY family (CALLDATACOPY/CODECOPY/RETURNDATACOPY/MCOPY)
   | copyGasCharge (cost : Nat)     -- len/dst bound checks + base+3·words + memexp + charge (6:)
-  | mcopyGasCharge (cost : Nat)    -- #270: base+3·words + memexp(max(dst,src)+len) + charge (6:)
+  | mcopyGasCharge (cost : Nat)    -- base+3·words + memexp(max(dst,src)+len) + charge (6:)
   | returndataBounds               -- EIP-211: src+len ≤ returndata_size over u256, else halt
   | staticValueGuard               -- EIP-214: CALL with value ≠ 0 in a static frame ⇒ violation
   | copyCbPop3 (helper : String)   -- bl helper(state,&dst,&src,&len) ; pop 3 + reload (7:,8:)
@@ -861,11 +858,10 @@ inductive Op where
 def argReg : Fin 4 → Reg
   | 0 => .x0 | 1 => .x1 | 2 => .x2 | 3 => .x3
 
-/-- Single-region memexp for CREATE/CREATE2 (#266): charge memory expansion over
+/-- Single-region memexp for CREATE/CREATE2: charge memory expansion over
     the init-code range [offset, offset+length). EELS create/create2 charge
-    `calculate_gas_extend_memory` over the init range ON TOP of GAS_CREATE — the
-    native createCore omitted it entirely, undercharging every CREATE whose init
-    code grows memory. `offP`/`lenP` are the stack-depth positions of offset and
+    `calculate_gas_extend_memory` over the init range ON TOP of GAS_CREATE; without
+    it every CREATE whose init code grows memory is undercharged. `offP`/`lenP` are the stack-depth positions of offset and
     length; the charged gas is written back to the state (`str x22, [x20, #8]`). -/
 def createMemExpandInstrs (offP lenP : Nat) (name : String) : List AInstr :=
   memRangeInstrs lenP offP .x0 s!".Lcrin0_{name}" s!".Lcrin1_{name}" ++
@@ -874,8 +870,8 @@ def createMemExpandInstrs (offP lenP : Nat) (name : String) : List AInstr :=
 
 /-- The CALL-family memexp prologue: in-range end → x0, out-range end → x14 (both
     over the full u256, `memRangeInstrs`), max into x0, then the quadratic gadget and
-    the charge. Before #260 the prologue read the operands as u64 (limb0), and a huge
-    argsLen whose low limb is 0 wrapped to a 0-length CALL (block 4466928 relay). -/
+    the charge. Reading the operands as u64 (limb0) would wrap a huge argsLen whose
+    low limb is 0 to a 0-length CALL (block 4466928 relay). -/
 def callMemExpandInstrs (inOffP inLenP outOffP outLenP : Nat) (name : String) : List AInstr :=
   memRangeInstrs inLenP inOffP .x0 s!".Lcfin0_{name}" s!".Lcfin1_{name}" ++
   memRangeInstrs outLenP outOffP .x14 s!".Lcfout0_{name}" s!".Lcfout1_{name}" ++
@@ -930,7 +926,7 @@ def Op.toAInstrs : Op → List AInstr
       [ .subImm .x14 .x23 1, .addLsl5 .x14 .x24 .x14,
         .stpOff .x6 .x7 .x14 0, .stpOff .x8 .x9 .x14 16 ]
   | .brCont           => [.brCont]
-  -- the C-ABI call family (stage 4m). ARM64 AAPCS: a 32-byte scratch below a
+  -- the C-ABI call family. ARM64 AAPCS: a 32-byte scratch below a
   -- saved fp/lr, result pointer in x0, stack-word pointers in x1-x3.
   | .binHelper h      =>
       [ .spSub 32, .stpFpLr, .addSp .x0 16,
@@ -952,7 +948,7 @@ def Op.toAInstrs : Op → List AInstr
   | .loadScratchTos   => [.addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16]
   | .loadScratchU64Tos => [.ldrSp .x6 16, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
   | .chargeGasX0      => [.subsReg .x22 .x22 .x0, .bloOog]
-  -- environment loads (stage 4n)
+  -- environment loads
   | .loadFieldTos f   => [.ldrOff .x6 .x20 f.offset, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
   | .loadU64Off off   => [.ldrOff .x6 .x20 off, .movImm .x7 0, .movImm .x8 0, .movImm .x9 0]
   | .loadU256Off off  =>
@@ -973,7 +969,7 @@ def Op.toAInstrs : Op → List AInstr
   | .loadTxStateCtx r => [.ldrOff .x14 .x20 504, .ldrOff (argReg r) .x14 64]
   | .cbDirect name    => [.blSym name]
   | .cbSlot slot      => [.ldrOff .x14 .x20 496, .ldrOff .x14 .x14 slot, .blr .x14]
-  -- the gas gadgets, already AInstr (stage 4o)
+  -- the gas gadgets, already AInstr
   | .copyGasCharge c  => (copyGasInstrs c)
   | .returndataBounds => returndataBoundsInstrs
   | .staticValueGuard => staticValueGuardInstrs
@@ -1035,7 +1031,7 @@ def Op.toAInstrs : Op → List AInstr
         .addSp .x3 16, .blSym "_eita_helper_keccak256",
         .addSp .x14 16, .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16,
         .ldpFpLr, .spAdd 32, .subImm .x23 .x23 1 ]
-  -- the write-side callbacks (stage 4p): sync the caches to the stack, call
+  -- the write-side callbacks: sync the caches to the stack, call
   -- the host with pointers, charge the returned gas
   | .selfdestructCb   =>
       [ .stpFpLr,
@@ -1089,7 +1085,7 @@ def Op.toAInstrs : Op → List AInstr
         .ldpOff .x6 .x7 .x14 0, .ldpOff .x8 .x9 .x14 16, .label "91",
         .cmpImm .x23 2, .bcLbl .lt "92f", .subImm .x14 .x23 2, .addLsl5 .x14 .x24 .x14,
         .ldpOff .x10 .x11 .x14 0, .ldpOff .x12 .x13 .x14 16, .label "92" ]
-  -- the frame bodies (stage 4q): LOG, CREATE, CREATE2, the CALL family
+  -- the frame bodies: LOG, CREATE, CREATE2, the CALL family
   | .logEmit n cost   =>
       (syncTosNos ++
        [ .orr3 .x14 .x11 .x12, .orr3 .x14 .x14 .x13, .cbnzOog .x14,
@@ -1177,7 +1173,7 @@ def Op.toAInstrs : Op → List AInstr
        reloadNosIf2 s!"L_callret_{name}" s!"L_callret_{name}" ++
        [ .ldrOff .x22 .x20 8, .subsReg .x22 .x22 .x0, .bloOog, .ldpFpLr, .spAdd 192, .brCont ])
   | .clzReduce        => clzReduceInstrs
-  -- the stack family (stage 4l). On x86-64 `tosToNos` vanishes (spScale drops
+  -- the stack family. On x86-64 `tosToNos` vanishes (spScale drops
   -- NOS writes: the old TOS is already in memory by the invariant that every
   -- TOS-producing handler ends with storeTos) and `nosToTos` becomes four
   -- loads from stack[sp-2], which is exactly the per-instruction lowering of
@@ -1289,7 +1285,7 @@ def Op.denote : Op → Mach → Mach
         if nw ≤ ow then m
         else { m with acc := m.acc + ((3*nw + nw*nw/512) - (3*ow + ow*ow/512)), memSize := nw * 32 }
   | .chargeAcc, m        => if m.gas < m.acc then { m with oog := true } else { m with gas := m.gas - m.acc }
-  | .mloadTail, m        => { m with tos := m.evmMem m.tos.l0 }     -- mp(#24) is dead post-MSIZE-fix
+  | .mloadTail, m        => { m with tos := m.evmMem m.tos.l0 }     -- mp(#24) is not read
   | .mstoreTail, m       =>
       { m with evmMem := upd m.evmMem m.tos.l0 m.nos, sp := m.sp - 2, tos := m.mem (m.sp - 3) }
   | .mstore8Tail, m      =>
@@ -1317,7 +1313,7 @@ def Op.denote : Op → Mach → Mach
   | .staticValueGuard, m =>
       -- static flag, then the four limbs of stack[sp-3] (CALL's value) OR'd: cbnz ⇒ violation
       if m.isStatic ∧ m.mem (m.sp - 3) ≠ U256.ofScalar 0 then { m with trap := true } else m
-  | .mcopyGasCharge _, m => m   -- coarse: gas computed/charged (host effect); #270 memexp(max(dst,src)+len)
+  | .mcopyGasCharge _, m => m   -- coarse: gas computed/charged (host effect); memexp(max(dst,src)+len)
   | .copyCbPop3 _, m     => { m with sp := m.sp - 3 }
   | .keccakGasCharge _, m => m   -- coarse: gas computed/charged (host effect); byte-identical emit is the guarantee
   | .keccakCbPop1, m     => { m with sp := m.sp - 1, tos := m.cbResult }
@@ -1412,7 +1408,7 @@ theorem msize_correct (m : Mach) (cost : Nat) (hsp : m.sp < 1024) (hg : cost ≤
   simp [Prog.denote, msizeBody, Op.denote, msizeSpec, upd,
         Nat.not_le.2 hsp, Nat.not_lt.2 hg]
 
-/-- The exact bug we shipped: load `mp` (#24) instead of `memSize` (#48). -/
+/-- A wrong MSIZE: load `mp` (#24) instead of `memSize` (#48). -/
 def msizeBugBody (cost : Nat) : Prog :=
   [.ovfGuard, .tosToNos, .loadFieldTos .mp, .spInc, .storeTos, .exitGas cost]
 
@@ -1520,7 +1516,7 @@ def copyBody (helper : String) (cost : Nat) : Prog :=
 def returndatacopyBody (cost : Nat) : Prog :=
   [.underflow 3, .returndataBounds, .copyGasCharge cost, .copyCbPop3 "_eita_helper_returndatacopy", .brCont]
 
-/-- MCOPY (#270): same shape as copyBody but the memexp covers BOTH the source
+/-- MCOPY: same shape as copyBody but the memexp covers BOTH the source
     and destination memory ranges (EELS `memexp(max(dst+len, src+len))`). -/
 def mcopyBody (helper : String) (cost : Nat) : Prog :=
   [.underflow 3, .mcopyGasCharge cost, .copyCbPop3 helper, .brCont]
@@ -1549,9 +1545,9 @@ def expBody (cost byteCost : Nat) : Prog :=
 Pop the index, push `blob_versioned_hashes[index]` or 0 when out of range (EELS
 cancun/vm/instructions/environment.py `blob_hash`, `GAS_BLOBHASH = 3`): net pop 1
 push 1, so TOS is replaced in place and sp is unchanged. The lookup is
-`blobhashLookup` (`blobHashInstrs`); the theorems are in `Evm.CL.BlobEnv`. Until
-2026-10-25 this body pushed 0 for every index (no blob state in the frame), which
-mainnet rollup inboxes read as "no blob" from Cancun on. -/
+`blobhashLookup` (`blobHashInstrs`); the theorems are in `Evm.CL.BlobEnv`. A body
+that pushes 0 for every index makes mainnet rollup inboxes read "no blob" from
+Cancun on. -/
 def blobhashBody (cost : Nat) : Prog :=
   [.underflow 1, .blobhashLookup, .storeTos, .exitGas cost]
 
@@ -1651,12 +1647,12 @@ def createBody : Prog :=
 def create2Body : Prog :=
   [.staticGuard, .underflow 4, .create2Core]
 
-/-! ## #266 structural close — CREATE/CREATE2 init-range memexp
+/-! ## CREATE/CREATE2 init-range memexp
 
-`createCore`/`create2Core` omitted the init-range memory-expansion gas (EELS
-`calculate_gas_extend_memory` over `[offset, offset+length)`), undercharging
-every CREATE that grew memory (a consensus-state bug — it shifts the sender
-refund and coinbase fee, moving the state root). The fix routes through
+`createCore`/`create2Core` charge the init-range memory-expansion gas (EELS
+`calculate_gas_extend_memory` over `[offset, offset+length)`); without it every
+CREATE that grows memory is undercharged, which shifts the sender refund and
+coinbase fee and so the state root. The charge goes through
 `createMemExpandInstrs`, which reuses the SAME `.memExpand` gadget the (verified)
 copy/keccak ops use. Two checked guarantees pin it:
 
@@ -1664,9 +1660,9 @@ copy/keccak ops use. Two checked guarantees pin it:
 2. A build-time regression guard: the charge is PRESENT in the emit, so the
    omission is unrepresentable — deleting `createMemExpandInstrs` fails the build.
 
-(Full denotation modelling of the create/call memexp as structured Ops — so the
-fork-equivalence proof itself catches the omission, not just a presence guard —
-is the remaining #238-stage-2 decomposition. This is the scoped close.) -/
+(The create/call memexp is not yet modelled as structured Ops in the denotation,
+so the fork-equivalence proof does not catch an omission by itself; the presence
+guard does.) -/
 
 /-- EELS memory cost: `memCost w = 3·w + ⌊w²/512⌋`. -/
 def memCost (w : Nat) : Nat := 3 * w + w * w / 512
@@ -1682,7 +1678,7 @@ theorem memExpand_charges_eels (m : Mach)
 
 -- Regression guard: createCore/create2Core MUST emit the init-range memexp.
 -- The `.Lcrin0_*` label is produced ONLY by createMemExpandInstrs; removing the
--- #266 fix deletes it and fails this build-time check.
+-- init-range memexp deletes it and fails this build-time check.
 example : 1 < (createBody.emit.splitOn ".Lcrin0_create").length := by native_decide
 example : 1 < (create2Body.emit.splitOn ".Lcrin0_create2").length := by native_decide
 

@@ -1,7 +1,7 @@
 import Evm.Parallel.BlockSTM
 import Evm.Parallel.MVMemory
 
-/-! # Evm/Parallel/Reads — reads as a first-class notion; commutative deltas (#255)
+/-! # Evm/Parallel/Reads — reads as a first-class notion; commutative deltas
 
 `BlockSTM.lean` models a tx as `reads : List Key` + `effect : Storage → writes`: the read
 footprint is DECLARED and validation compares the view to the prefix on those keys. Real
@@ -20,9 +20,9 @@ Two well-formedness conditions replace `BlockSTM.Tx.WellFormed`:
 Both are properties of ANY deterministic executor that logs its reads; the runtime
 witness is `rw-read!` extended with the value read (today it records the key only).
 
-DELTAS (owner, 2026-10-25). Fee credits to the coinbase are the classic hot key: every tx
+DELTAS. Fee credits to the coinbase are the classic hot key: every tx
 WRITES it, so a write/write or read-after-write rule serialises the whole block
-(#257: FULL = 1.00x on every chain). The credit is a commutative "add δ" that reads
+(measured: a 1.00x parallel speedup on every chain). The credit is a commutative "add δ" that reads
 nothing, so it is modelled as a DELTA effect: validation ignores it (nothing was read),
 the commit folds it in index order, and `applyDeltas_comm` / `applyDeltas_ext` prove the
 fold order among deltas is irrelevant (an aggregator may accumulate them in any order).

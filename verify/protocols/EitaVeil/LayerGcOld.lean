@@ -5,7 +5,7 @@ public import EitaVeil.LayerGc
 /-! # State GC vs the layer writer — OLD live-components (core 0a9f2c0)
 
 `live-components` pinned only the stack's snaps (one read of `*layers*`): GC deletes a frozen
-layer's directory under its writer. The incident (Arc stress, 2026-11-08): "rename: No such
+layer's directory under its writer. The incident (an Arc stress run): "rename: No such
 file", the replay died. The shared state, writer and GC are in `EitaVeil/LayerGc.lean`.
 -/
 

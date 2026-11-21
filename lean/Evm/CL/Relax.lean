@@ -1,8 +1,7 @@
 /-
   Evm.CL.Relax — branch relaxation for a variable-length target.
 
-  Stage 2 of #238 (docs/x86-64-backend.md), and the one piece of the plan with
-  no prior art in this repo. `AsmEncode` assumes fixed-width instructions:
+  (docs/x86-64-backend.md.) `AsmEncode` assumes fixed-width instructions:
   `Item.width` is 4 (with 16/20 for the synthesized symbol gadgets), label
   offsets are the prefix sums of those widths, and branches are resolved in one
   pass. That works because every ARM64 branch is 4 bytes whatever its distance.
@@ -17,9 +16,7 @@
   (optimistic), and whenever one does not reach, widen it. Widening only ever
   pushes labels further apart, so a branch that has been widened never becomes
   short again — the process is monotone, and that is what makes it terminate
-  rather than oscillate. Oscillation is the failure mode of the naive
-  alternative (re-deciding every branch each round), and it is why this file
-  exists before any x86 encoding does.
+  rather than oscillate (re-deciding every branch each round can oscillate).
 
   What is proved below:
 
@@ -308,7 +305,7 @@ theorem cascade_needs_two_rounds :
 
 If a target's short and long encodings are the same size — which is ARM64, where
 every branch is 4 bytes — then no widening can change any offset, so the first
-round is already a fixed point and `layout` returns all-short. Today's
+round is already a fixed point and `layout` returns all-short. The ARM64
 single-pass assembler is therefore this algorithm specialised, not a different
 one. -/
 

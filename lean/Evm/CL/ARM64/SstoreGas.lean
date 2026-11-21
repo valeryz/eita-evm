@@ -1,7 +1,7 @@
 /-
   Evm.CL.ARM64.SstoreGas — emit the per-fork SSTORE gas/refund plans and
   the per-fork access-cost data table, both evaluated out of the Lean
-  spec (Stage C-2 of the native-tier fork lane).
+  spec.
 
   ## SSTORE plan functions
 
@@ -16,7 +16,7 @@
     _eita_sstore_gas_london    London+ (ord ≥ 11)
 
   Every constant below is *probed out of the corresponding spec-side
-  `sstoreGas` function* (Stage B pattern) — a schedule change in the
+  `sstoreGas` function* — a schedule change in the
   spec re-emits here without hand edits. Each plan's REFUND CLAMP
   DISCIPLINE is reproduced exactly:
 
@@ -51,8 +51,8 @@
   not exist on a fork (EXTCODEHASH pre-Constantinople) gets {0, 0};
   the dispatch table faults on the opcode before any cb runs.
 
-  The differential gate `tests/audit-call-gas.lisp` (extended in
-  Stage C-6) compares these symbols against Lean-oracle vectors.
+  The differential gate `tests/audit-call-gas.lisp` compares these
+  symbols against Lean-oracle vectors.
 -/
 
 import Evm.CL.ARM64
@@ -104,7 +104,7 @@ def coldCost (f : Evm.Fork) (op : Evm.IR.Op) : Nat :=
     | _      => Evm.Berlin.Vm.Gas.coldAccountAccess
   else warmCost f op
 
-/-! ## The routines as instructions (stage 4t)
+/-! ## The routines as instructions
 
 The programs are the only source: `code` is their printing, and
 `SstoreGasSem` proves what they compute. -/
@@ -204,7 +204,7 @@ def accessTableA : List AInstr :=
   tableForks.flatMap (fun (f, nm) =>
     .commentLine nm :: accessKinds.map (fun (knm, op) => .quadPair (coldCost f op) (warmCost f op) knm))
 
-/-- All Stage C-2 emission as instructions: five plan symbols + the access table. -/
+/-- All of this module's emission as instructions: five plan symbols + the access table. -/
 def instrs : List AInstr :=
   [.textSection] ++ legacyA ++ eip1283A ++ eip2200A ++
   eip2929A "berlin" SstoreGasDenote.berlinConsts ++

@@ -27,10 +27,10 @@
   program's `(pc, fn)` manifest (`_eita_jit_entries`, JIT.lean): a length
   `n`, then `n` u64 words indexed by pc — `fn` where a chunk starts, 0
   where none does (`RunProgramDenote.build`). The lookup is one bounds
-  check and one load. (It was a linear scan of the pairs: ~400 entries for
-  a median near-tip contract, ~1,800 for an 18.8 KB one, paid at EVERY
-  chunk transition — it made the JIT tier 2x slower than the interpreter
-  on mainnet 24,538,111.) The chunk runner is passed in because
+  check and one load. (A linear scan of the pairs — ~400 entries for a
+  median near-tip contract, ~1,800 for an 18.8 KB one, paid at EVERY chunk
+  transition — makes the JIT tier 2x slower than the interpreter on mainnet
+  24,538,111.) The chunk runner is passed in because
   `_eita_run_chunk` is a per-program symbol (RTLD_LOCAL) while this loop
   lives once in libeita.
 -/
@@ -39,7 +39,7 @@ import Evm.CL.Frame
 
 namespace Evm.CL.ARM64.RunProgram
 
-/-! ## As instructions (stage 4t) -/
+/-! ## As instructions -/
 
 open Evm.CL.AsmCore Evm.CL.Frame in
 def instrs : List AInstr :=

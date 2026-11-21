@@ -1,7 +1,7 @@
 /-
   SstoreGasVectors.lean — `lake exe sstoreGasVectors` prints Lean-oracle
   test vectors for the emitted per-fork SSTORE gas plans and the
-  `_eita_access_costs` data table (Stage C-6 differential audit).
+  `_eita_access_costs` data table (a differential audit).
 
   SSTORE lines (one per vector, space-separated):
 
@@ -32,7 +32,7 @@
 
     access ord kind cold cost
 
-  computed by the SAME `warmCost`/`coldCost` functions Stage C-2 emits
+  computed by the SAME `warmCost`/`coldCost` functions the emitter builds
   the table from — the audit checks the .dylib's data layout and
   byte-indexing, not an independent oracle. Consumed by
   `tests/audit-sstore-gas.lisp`.

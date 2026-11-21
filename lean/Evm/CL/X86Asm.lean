@@ -2,11 +2,11 @@
   Evm.CL.X86Asm — the x86-64 assembler: `XItem` lists to bytes, with branch
   relaxation.
 
-  Stage 4 of #238. ARM64's `AsmEncode.assemble` is a single pass, because every
+  ARM64's `AsmEncode.assemble` is a single pass, because every
   instruction is four bytes and every branch has one form. x86-64 branches come
   in two widths — `7x rel8` (2 bytes) and `0F 8x rel32` (6) — so an offset
   depends on widths that depend on offsets. `Evm.CL.Relax` settled the
-  algorithm abstractly (stage 2a: start all-short, widen what does not reach,
+  algorithm abstractly (start all-short, widen what does not reach,
   never narrow, fuel = branch count); this is its first instantiation.
 
       XItem ──toLItem──▶ LItem ──Relax.layout──▶ Choice
@@ -164,9 +164,9 @@ def emitWith (its : List XItem) (ch : Choice) : ByteArray × List XReloc := Id.r
 The gadgets use the assembler's numeric local labels: `7:` defines label 7 (any
 number of times), `7f` refers to the NEXT definition after the reference and
 `7b` to the PREVIOUS one. A lookup by literal name finds no mark called `7f`,
-and `Relax.labelOffset` then answers 0 — so every such branch pointed back to
-the start of the function. The whole-gadget gate caught it on its first run
-(0/6, every displacement backward where clang's was forward).
+and `Relax.labelOffset` then answers 0 — so every such branch would point back
+to the start of the function (every displacement backward where clang's is
+forward; the whole-gadget gate catches it).
 
 `resolveLocals` renames each numeric definition to a unique name (`7@k` for
 the k-th definition of 7) and each `7f`/`7b` reference to the definition it
@@ -246,8 +246,8 @@ theorem numeric_locals_resolve :
     (resolveLocals [.L "7", .Jmp "7b", .Jmp "7f", .L "7"]).map tag
       = ["L:7@0", "jmp:7@0", "jmp:7@1", "L:7@1"] := by native_decide
 
-/-- Before resolution the gadgets' branches had no defined target — which is
-    the bug — and after it every one does. -/
+/-- Before resolution the gadgets' branches have no defined target, and after
+    it every one does. -/
 theorem gadget_targets_undefined_before_resolution :
     Evm.CL.Pressure.gadgetSet.any (fun p => !allTargetsDefined (progItems p)) = true := by
   native_decide

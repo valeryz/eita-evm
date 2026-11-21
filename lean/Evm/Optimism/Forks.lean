@@ -37,9 +37,8 @@
   selector or header format: Ecotone 11,792,527, Holocene 24,828,128 (9-byte
   extraData), Isthmus 30,008,527, Jovian 38,950,927 (extraData v1), Azul
   46,600,927). Beryl, Cobalt, Denim: base/base `crates/common/chains/src/config.rs`
-  `MAINNET` (lines 474-477, @df96e82). Until 2026-11-14 Holocene was recorded as 1740484801
-  (2025-02-25); Base's extraData carries the Holocene parameters from
-  block 24,828,128 (2025-01-09).
+  `MAINNET` (lines 474-477, @df96e82). Holocene's timestamp follows Base's extraData, which
+  carries the Holocene parameters from block 24,828,128 (2025-01-09).
   Optimism Mainnet (chain id 10) uses slightly different timestamps;
   callers needing OP Mainnet should use a different table.
 -/

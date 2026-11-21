@@ -73,11 +73,7 @@ def gasSelfdestructNewAccount : Nat := 25000
     happens at the end of the tx (here `selfDestructSet`, swept by the tx epilogue).
     `move_ether`'s `modify_state` destroys an account it leaves empty; a zero-value
     transfer to an absent beneficiary therefore leaves the world as it was, and the
-    beneficiary is touched (`touched`, EIP-161's end-of-tx sweep). The frame halts.
-
-    Restated 2026-11-09: this relation charged only the 5000 base (no cold surcharge,
-    no new-account cost, no warming), deleted the account immediately instead of
-    queueing it, and moved zero value into absent beneficiaries. -/
+    beneficiary is touched (`touched`, EIP-161's end-of-tx sweep). The frame halts. -/
 
 /-- The Cancun SELFDESTRUCT step relation. -/
 def IsSelfdestructStep (evm evm' : Evm) : Prop :=

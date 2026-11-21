@@ -107,7 +107,7 @@ inductive BExp where
   deriving Repr, Inhabited
 
 /-- Gas terms (`Ty.gas`): constants, conditionals and the GasEmit formulas, each printed as
-    a call to its emitted `spec-*` defun (so the number has one owner). -/
+    a call to its emitted `spec-*` defun (so the number has one definition). -/
 inductive GExp where
   | lit (n : Nat)
   | ofBool (p : BExp)           -- 1 / 0

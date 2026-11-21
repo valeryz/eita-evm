@@ -2,7 +2,7 @@
   Evm.CL.ARM64.CallGasDenote — what `_eita_call_gas` computes, and the proof
   that it is `callGasPlan`.
 
-  Stage 1 of #238 (docs/x86-64-backend.md), second piece. `ARM64.CallGas`
+  `ARM64.CallGas`
   evaluates its CONSTANTS out of the Lean plan, which is why a schedule change
   re-emits without a hand edit — but the arithmetic AROUND those constants is
   hand-written asm with no denotation:
@@ -13,28 +13,28 @@
       forward = lsr x12,x11,#6 ; sub ; cmp x3,x12 ; csel x12,x3,x12,lo
       stipend = tst x1,#2 ; csel
 
-  Two things in there are only justified by comment today, and both are the kind
-  of thing a hand-port to a second ISA gets wrong silently:
+  Two things in there are the kind of thing a hand-port to a second ISA gets
+  wrong silently:
 
   1. **The affine decomposition.** The emitter does not emit four base costs; it
      emits one base plus DELTAS measured at one flag combination
      (`valueFee = chargeConst false true false - baseWarm`) and adds them
      conditionally. That is only equal to the spec for every OTHER flag
      combination if the plan really is affine in the flags. The header says
-     "charge is affine in delegatedCost by defn"; nothing said the same about
+     "charge is affine in delegatedCost by defn"; the same must hold for
      `chargesValue` and `chargesNewAccount`, which is where the deltas come from.
 
   2. **The saturating subtraction.** The spec writes `avail - charge` in ℕ,
      which truncates at zero. The asm implements that with `subs` + `csel …,
      xzr, …, lo` on a u64, where an unchecked `sub` would wrap to ~2^64 and the
-     63/64 cap would then forward an astronomical pool. Same shape as the
-     chunk-gas bug in `ChunkGas`, in a different gadget.
+     63/64 cap would then forward an astronomical pool (the same shape as the
+     borrow check in `ChunkGas`'s retake).
 
   `plan_eq_spec` below discharges both, for all three fork variants the emitter
   produces, by building the plan out of the asm's OWN step functions — and
   `CallGasSem` runs the emitted `AInstr` programs under `AsmSem` and shows they
-  store exactly these plans, so the step functions are no longer a reading of
-  the asm but a theorem about it.
+  store exactly these plans, so the step functions are not a reading of the
+  asm but a theorem about it.
 -/
 
 import Evm.Frontier.Vm.Effect

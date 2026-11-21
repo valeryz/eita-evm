@@ -385,8 +385,7 @@ theorem mapFp2ToG2_failure_sound (o : Evm.Crypto.Bls12381.Oracle)
     `block_env.block_hashes`, the 256 most recent), so Prague has no
     BLOCKHASH relation of its own: the obligation is Frontier's
     `IsBlockhashStep`. The history contract is fed by the block-start system
-    call (`Evm.Prague.Fork`, `Evm.Frontier.Vm.System`). A draft relation that
-    re-pointed BLOCKHASH at the contract's storage was deleted 2026-11-09. -/
+    call (`Evm.Prague.Fork`, `Evm.Frontier.Vm.System`). -/
 
 /-! ## EIP-7623 calldata cost (tx-level) -/
 

@@ -223,8 +223,8 @@
   "The pages of a mapping of LEN bytes that [START, END) names: (values start end). START
    is aligned down; END down, except that an END at or past LEN covers the last (partial)
    page and STOPS THERE: a page past it belongs to another mapping, and MADV_DONTNEED
-   zeroes anonymous memory (the Lisp heap: CI 2026-11-14, `len + page` aligned down was
-   one page past a page-aligned file)."
+   zeroes anonymous memory (for a page-aligned file, `len + page` aligned down is one page
+   past it, and that page can be the Lisp heap)."
   (let ((mask (1- (sb-posix:getpagesize))))   ; run time: 4 KB on Linux, 16 KB on Apple Silicon
     (values (logandc2 (max 0 start) mask)
             (if (>= end len) (logandc2 (+ len mask) mask) (logandc2 end mask)))))
@@ -322,8 +322,8 @@
    when done, lookups binary-searching until then: a resume runs at once instead of first
    reading every key (Ethereum's base: 190 GB, a quarter of an hour). :SCAN builds them
    releasing the pages behind the pass, for a reader that does not keep the files
-   resident (the root check: on x300 an Ethereum check held 42 GB of the base's pages
-   after its fences, and pushed the Arc replay's heap into swap). A snapshot from
+   resident (the root check: on a Zen 3 desktop an Ethereum check otherwise holds 42 GB of the
+   base's pages after its fences and pushes a concurrent replay's heap into swap). A snapshot from
    before the fences also holds accounts.idx and storage.idx: listed in its manifest (so
    verified and hashed as before), never read. A version 2 snapshot's fences are read
    from its .fnc files (its writer built them): FENCE does not apply."
@@ -771,7 +771,7 @@
   ;; records at +HEADER+ + i*88, so the buffer reads like a mapped storage.dat. Outside
   ;; the Lisp heap: one account's slots can be gigabytes (20M+ slots), and a doubling
   ;; in-heap vector needs that much CONTIGUOUS free heap, which a fragmented heap lacks
-  ;; (production 2026-10-27: 3 GB requested with 36 GB free). Freed by `obuf-free`.
+  ;; (a 3 GB request can fail with 36 GB free). Freed by `obuf-free`.
   (sap (sb-sys:int-sap 0) :type sb-sys:system-area-pointer)
   (cap 0 :type fixnum)
   (count 0 :type fixnum))

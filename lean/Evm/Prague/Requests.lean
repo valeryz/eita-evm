@@ -101,9 +101,7 @@ private def concatBytes : List Evm.Bytes → Evm.Bytes
     `forks/prague/requests.py::compute_requests_hash` 289-308 (`for request in
     requests: m.update(sha256(request).digest())`). The list is one request per
     non-empty type in type order (`applyBlock`'s `ofOutput`s; EELS
-    `process_general_purpose_requests`), so there is no grouping step here.
-    (2026-11-09: a by-type regrouping `groupByType` that EELS does not have was
-    deleted.) -/
+    `process_general_purpose_requests`), so there is no grouping step here. -/
 def computeRequestsHash (rs : List Evm.Prague.Request) : Evm.Hash32 :=
   Evm.U256.ofBytesBE (Evm.Crypto.sha256 (concatBytes (rs.map fun r =>
     Evm.Crypto.sha256 (ByteArray.mk (Array.mk [r.type]) ++ r.payload))))

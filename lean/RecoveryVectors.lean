@@ -1,6 +1,6 @@
 /-
   RecoveryVectors.lean — `lake exe recoveryVectors` prints Lean-oracle vectors for the
-  restart decisions proved in `Evm.Persist.Recovery` (P1 refinement check).
+  restart decisions proved in `Evm.Persist.Recovery` (a refinement check).
 
   One s-expression per line:
 

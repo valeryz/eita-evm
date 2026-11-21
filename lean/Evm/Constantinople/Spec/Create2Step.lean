@@ -44,11 +44,11 @@
     * Address collision — described separately as `IsCreate2Entry
       Collision`. **Important:** the collision predicate is
       `nonce > 0 ∨ code.size > 0 ∨ ∃ slot. state[(addr, slot)] ≠ 0`
-      — pre-existing STORAGE also flags the slot as in-use, matching
-      EELS. This was found via the stSStoreTest/InitCollision +
-      stCreate2/create2collisionStorage corpus (2026-05-30) where an
-      account with zeros for nonce/code but non-empty storage must
-      block CREATE2 from overwriting it.
+      — pre-existing STORAGE also flags the address as in-use,
+      matching EELS Constantinople. The stSStoreTest/InitCollision and
+      stCreate2/create2collisionStorage corpora exercise it: an
+      account with zeros for nonce/code but non-empty storage
+      blocks CREATE2 from overwriting it.
 -/
 
 import Evm.Frontier.Vm
@@ -149,11 +149,10 @@ def IsCreate2FailFastBalance (evm evm' : Evm) : Prop :=
     op-geth fidelity: there EIP-684 (nonce/code) plus the EIP-7610
     CHAIN-SPECIFIC allowlist (28 mainnet entries, none on Base;
     `eip7610RejectedAccounts` in go-ethereum `core/vm/eip7610.go`)
-    governs, and a blanket storage clause rejected legitimate
+    governs, and a blanket storage clause would reject legitimate
     redeploys on addresses with dangling storage from a
-    pre-EIP-6780 selfdestruct (caught by Base 0x2c99000 tx 50 —
-    see `Shanghai.Vm.Effect.isCreateCollision` and commit
-    history). -/
+    pre-EIP-6780 selfdestruct (Base block 0x2c99000 tx 50 —
+    see `Shanghai.Vm.Effect.isCreateCollision`). -/
 def AccountInUse (state : State) (addr : Evm.Address) : Prop :=
   let acc := state.getAccount addr
   acc.nonce > 0 ∨ acc.code.size > 0 ∨

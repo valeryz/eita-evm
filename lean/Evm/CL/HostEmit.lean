@@ -113,7 +113,7 @@ inductive RestoreAction where
   | createdUnmake  -- un-create a CREATE'd account: drop code/nonce/storage, and
                    -- existence unless the entry's old value records it existed before
                    -- (its balance has its own balance entry)
-  | untouch        -- untouch! addr  (EIP-161 revert-scoping, #271): a
+  | untouch        -- untouch! addr  (EIP-161 revert-scoping): a
                    -- touch journaled inside a frame is dropped when the frame
                    -- reverts, so it can't reach the end-of-tx empty-account sweep
   deriving DecidableEq, Repr
@@ -171,10 +171,9 @@ def revertDispatch : List (Nat × RestoreAction) :=
    -- invalid-jump tx touched 0xf5ed057f, deleting the empty account created at
    -- 637752 → spurious +25000 new-account overcharges across 637785+).
    (9, .nonceSet), (10, .createdUnmake), (11, .existUnmark),
-   -- 12: EIP-161 touched-set revert-scoping (#271). Host-only type above the
+   -- 12: EIP-161 touched-set revert-scoping. Host-only type above the
    -- native codes; eita_ts_revert's `default` arm skips it. Single-sourced here
-   -- so the touch-undo can't drift from the world-state restores (it used to be
-   -- a hand-written special case in src/evm/journal.lisp's revert-journal-to).
+   -- so the touch-undo can't drift from the world-state restores.
    (12, .untouch)]
 
 /-- Emit the `(case type …)` body from `revertDispatch`. -/
@@ -188,21 +187,20 @@ EELS `block_hash`: the hash of block `n` is available at current block `cur`
 iff `cur - 256 <= n < cur`, i.e. `n < cur` AND `cur <= n + 256`. The OLDEST
 valid block is `cur-256`, INCLUSIVE.
 
-The hand-written `cb-block-hash` used `(> n (- cur 256))` (truncated-Nat
-subtraction), excluding `cur-256` and returning 0 where mainnet returns the
-hash — diverging every contract that used `blockhash(block.number-256)` for
-randomness (#265, the dominant Byzantium-era divergence). Emitting the
-predicate in EELS's no-subtraction form makes that off-by-one
+A form like `(> n (- cur 256))` (truncated-Nat subtraction) excludes `cur-256`
+and returns 0 where mainnet returns the hash — diverging every contract that
+uses `blockhash(block.number-256)` for randomness (common in the Byzantium era).
+Emitting the predicate in EELS's no-subtraction form makes that off-by-one
 *unrepresentable*: there is no `cur-256` term to get `<` vs `<=` wrong on. -/
 
 /-- EELS block_hash validity: is block `n` queryable at current block `cur`. -/
 def blockhashValid (n cur : Nat) : Bool :=
   decide (n < cur) && decide (cur ≤ n + 256)
 
--- Kernel-checked boundary. The buggy `(> n (- cur 256))` form makes the FIRST
+-- Kernel-checked boundary. The off-by-one `(> n (- cur 256))` form makes the FIRST
 -- example false, so `by decide` fails to typecheck — the off-by-one cannot
 -- survive re-emission.
-example : blockhashValid 744 1000  = true  := by decide   -- cur-256: VALID (the #265 bug)
+example : blockhashValid 744 1000  = true  := by decide   -- cur-256: VALID (the off-by-one case)
 example : blockhashValid 743 1000  = false := by decide   -- cur-257: too old
 example : blockhashValid 1000 1000 = false := by decide   -- current block: 0
 example : blockhashValid 999 1000  = true  := by decide   -- cur-1: valid

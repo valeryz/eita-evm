@@ -10,7 +10,7 @@
 import Evm.CL.ARM64.JIT
 import Evm.CL.X86JIT
 
-/-! ## Unix-domain-socket emit server (#235)
+/-! ## Unix-domain-socket emit server
 
 A persistent `emitJIT serve <sock>` daemon: the replay connects once and streams
 `(fork, code)` requests, getting back the serialized loader blob — no per-contract
@@ -137,7 +137,7 @@ def main (args : List String) : IO Unit := do
   -- Modes:
   --   emitJIT <hex> [ord]            → per-chunk .S text to stdout (clang path)
   --   emitJIT bin <hex> <ord> <out>  → serialized in-process loader blob to <out>
-  --   emitJIT serve <sock>           → persistent UDS emit server (#235)
+  --   emitJIT serve <sock>           → persistent UDS emit server
   let x86 ← x86Host
   match args with
   | ["serve", sock] =>

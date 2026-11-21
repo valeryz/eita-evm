@@ -1,17 +1,16 @@
 /-
   Evm.CL.StaticGuard — EIP-214 write protection, as a theorem.
 
-  Last item of stage 1 (#238). `AsmCore.staticGuard` emits
+  `AsmCore.staticGuard` emits
 
       ldrb w14, [x20, #130]            ; EvmState.is_static
       cbnz w14, _eita_static_violation
 
-  and denoted `m` — "coarse: static-context check (no static flag modelled)".
-  With nothing modelled, no proof could tell a handler that checks the flag from
-  one that does not, which is the whole content of EIP-214: inside a STATICCALL,
+  Without a modelled flag no proof could tell a handler that checks it from one
+  that does not, which is the whole content of EIP-214: inside a STATICCALL,
   every state-modifying op must fault.
 
-  `Mach.isStatic` now carries byte #130 and `staticGuard` traps on it, so the
+  `Mach.isStatic` carries byte #130 and `staticGuard` traps on it, so the
   question becomes which bodies carry the guard — and that is checkable both
   ways: every write op faults, and no read-only op does (a spurious guard would
   break ordinary execution, which is the failure mode a "just add the guard
@@ -109,9 +108,8 @@ theorem return_has_no_static_guard :
 
 EIP-214 forbids SSTORE, LOG0-4, CREATE, CREATE2, SELFDESTRUCT and a CALL with
 nonzero value; Cancun adds TSTORE. CALL is the one that is NOT a plain guard: its
-restriction is value-conditional, `staticValueGuard`. (Until 2026-10-24 this file
-said the call-gas plan handled it; nothing did, and a value CALL inside STATICCALL
-moved wei — ethereum/tests static_CheckOpcodes2/3, Byzantium+.) -/
+restriction is value-conditional, `staticValueGuard` (without it a value CALL
+inside STATICCALL moves wei — ethereum/tests static_CheckOpcodes2/3, Byzantium+). -/
 
 /-- Bodies that must carry the guard, and do. -/
 theorem guarded_bodies_carry_it :

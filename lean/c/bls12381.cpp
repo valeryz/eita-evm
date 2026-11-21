@@ -15,15 +15,13 @@
  * multiple (MSM, PAIRING), and a wrong length is a hard failure that consumes
  * all the gas the caller forwarded.
  *
- * Built on blst (vendor/blst, pinned release). blst was chosen over mcl for one
- * structural reason: mcl keeps the active curve in process-global state, so
- * serving BN254 and BLS12-381 from it meant re-initialising on every change of
- * family. Measured, that cost 2.8 ms per round trip against 0.78 ms for a
- * 2-pair pairing check, and it was charged no gas — a transaction alternating a
- * 375-gas G1ADD with a 150-gas BN254 add could buy roughly 80 seconds of
- * switching inside one 30M-gas block. blst carries no global curve state, so
- * mcl now stays pinned to BN254 forever (see mcl_curve.h) and the stall is
- * unrepresentable rather than merely avoided.
+ * Built on blst (vendor/blst, pinned release), which carries no global curve
+ * state. mcl keeps the active curve process-global, so serving BN254 and
+ * BLS12-381 from it would re-initialise it on every change of family: 2.8 ms per
+ * round trip against 0.78 ms for a 2-pair pairing check, charged no gas — a
+ * transaction alternating a 375-gas G1ADD with a 150-gas BN254 add could buy
+ * roughly 80 seconds of switching inside one 30M-gas block. mcl stays pinned to
+ * BN254 (see mcl_curve.h), so that stall is unrepresentable.
  *
  * Encoding (confirmed against the canonical outputs in
  * lean/c/testdata/bls12381-vectors.json, not just read off the EIP):

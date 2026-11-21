@@ -145,10 +145,9 @@ def applyAuthorization (state : Evm.Prague.State) (chainId : Evm.U256)
         -- the EIP-161 sense). The intrinsic charges the full
         -- PER_EMPTY_ACCOUNT_COST (= 25000) per auth upfront; this
         -- refund returns half of it when no new account needed
-        -- creating. Earlier we had this backwards (refund-if-empty),
-        -- which over-credited new accounts and under-credited
-        -- existing ones — caught by tx 31 of 0x2c9a9a0 (~3300 gas
-        -- short after the EIP-3529 cap).
+        -- creating (refund-if-empty would over-credit new accounts and
+        -- under-credit existing ones; tx 31 of block 0x2c9a9a0
+        -- exercises it).
         let wasEmpty := ¬ state.accountExists authority ∨
                         (acc.nonce = 0 ∧ acc.balance = (0 : Evm.U256) ∧
                          acc.code.size = 0)

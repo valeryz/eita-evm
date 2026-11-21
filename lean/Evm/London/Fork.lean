@@ -20,8 +20,8 @@
       `Evm.London.Transactions` (sum type with three variants).
     * EIP-2929: warm/cold storage / account access pricing —
       Berlin's per-opcode handlers in `Evm.Berlin.Vm.Effect` are
-      now reached at London via the `Paris → London → Berlin`
-      fall-through in the step1 chain (see commit ce9f6bc).
+      reached at London via the `Paris → London → Berlin`
+      fall-through in the step1 chain.
       The tx level (`Evm.Frontier.Vm.Tx`) pre-seeds
       `accessedAddresses` from the precompiles, sender, target and
       access list.

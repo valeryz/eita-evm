@@ -1,8 +1,7 @@
 ;;;; tests/world-slots.lisp — the native slot tables (c/world_slots.c) through the world's
 ;;;; storage API, randomized, against two references: a finite map (the semantics:
-;;;; lean/Evm/CL/WorldSlotsModel.lean) and the Lisp packed table the native one replaced
-;;;; (state/world.lisp before owner note 6 step 2), whose walk order the native table must
-;;;; keep (a journaled wipe's entries, layer files and observers walk an account's slots).
+;;;; lean/Evm/CL/WorldSlotsModel.lean) and a Lisp packed table (below), whose walk order
+;;;; the native table must keep (a journaled wipe's entries, layer files and observers walk an account's slots).
 ;;;; Ops: writes (zero-removing and lazy-world zero-keeping), overwrites, reads of absent
 ;;;; keys, colliding keys, growth, frames reverted in reverse order, wipes, un-creates,
 ;;;; copies. Run: (eita.test:run-all :only '("world-slots")).
@@ -10,7 +9,7 @@
 (defpackage #:eita.test.world-slots (:use #:cl #:eita.state))
 (in-package #:eita.test.world-slots)
 
-;;; The replaced Lisp table (hash, linear probe, tombstones, growth), for the walk order.
+;;; The reference Lisp table (hash, linear probe, tombstones, growth), for the walk order.
 (defstruct (ref (:constructor make-ref ())) (cap 4) (count 0) (used 0)
   (keys (make-array 4 :initial-element nil)) (vals (make-array 4)) (state (make-array 4 :initial-element 0)))
 (defun ref-hash (k mask)

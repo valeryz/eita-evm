@@ -325,15 +325,14 @@ theorem sstoreStep_refundInv (evm evm' : Evm) (h : IsSstoreStep evm evm')
       rcases eq_or_ne value 0 with rfl | hv <;> split_ifs at hnn ⊢ <;>
       first | omega | (exfalso; tauto) | (subst_vars; first | omega | (exfalso; tauto))
 
-/-! EIP-2718's envelope (`IsBerlinTxEncoding`) was a parse-validity predicate with no
-    Lean decoder to refine (transactions are decoded by the host); deleted 2026-11-09
-    rather than kept as a `P → P` placeholder. -/
+/-! EIP-2718's envelope has no relation here: transactions are decoded by the host, so
+    there is no Lean decoder to refine. -/
 
 /-! ## Notes
 
     - The pre-Berlin `Frontier.Spec.IsSloadStep` / `IsSstoreStep`
       relations are *replaced* at Berlin (not extended) — pre-Berlin
-      Refinement.lean files no longer apply to 0x54 / 0x55 at this
+      Refinement.lean files do not apply to 0x54 / 0x55 at this
       fork.
 
     - `AccessList.lean` exposes two `*_monotonic` and one

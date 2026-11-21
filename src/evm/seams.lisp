@@ -27,8 +27,8 @@
 (defun chain-frame-init (from to value &key (emit-log t))
   "THE entry point for a chain's frame-init check on a value-bearing frame: the
    top-level tx (apply-tx), CALL (cb-call) and CREATE (cb-create) all come through
-   here, so a chain rule cannot be honoured at some frame kinds and missed at others —
-   which is exactly how stop #15 happened (the tx level dropped the verdict). Returns
+   here, so a chain rule cannot be honoured at some frame kinds and missed at others
+   (e.g. dropped at the tx level). Returns
    NIL (proceed) or (values :revert output); on :revert the CALLER must revert the
    frame before any value moves or code runs, with no gas spent inside it. No hook
    (plain Ethereum) or zero value: NIL."
@@ -65,10 +65,10 @@
    the two are compared, and an in-range address missing from this list is a loud
    error rather than a silent answer.
 
-   This gate exists because the absence of 0x0b..0x11 did NOT fail: an address past
-   the fork range is an ordinary empty account, so a CALL to the BLS12-381 pairing
-   check succeeded, returned nothing and cost only the call base. Arc block
-   21 142 242 undercharged 131 592 gas that way and its logs bloom diverged.")
+   This gate exists because a missing precompile does NOT fail by itself: an address
+   past the fork range is an ordinary empty account, so a CALL to, e.g., the BLS12-381
+   pairing check succeeds, returns nothing and costs only the call base (Arc block
+   21 142 242 would undercharge 131 592 gas that way and diverge in its logs bloom).")
 
 (defun precompile-coverage-gaps ()
   "In-range precompile addresses with no implementation, at the active fork."
@@ -96,11 +96,10 @@
    another image at a new base, and dyld may then place the old mapping's pages
    elsewhere: the cached pointers read another image's memory, with no error.
 
-   That is not hypothetical. Loading src/state/mpt.lisp used to re-dlopen libeita,
-   and a cold SLOAD read 4 341 146 380 from this table instead of 2100 — Arc's
-   ProtocolConfig proxy OOG'd, feeParams() failed, and block 1 silently took the
-   chainspec-default base fee. In other runs the stale read was 0, which
-   UNDERCHARGES and does not fail at all. Call this after anything that may load
+   A stale table read can return a huge cost (a cold SLOAD priced 4 341 146 380
+   instead of 2100: Arc's ProtocolConfig proxy OOGs, feeParams() fails, and block 1
+   silently takes the chainspec-default base fee) or 0, which UNDERCHARGES and does
+   not fail at all. Call this after anything that may load
    a foreign library mid-run."
   (let ((now (foreign-symbol-pointer "eita_access_costs")))
     (unless (pointer-eq *access-costs* now)
@@ -113,10 +112,9 @@
   (error "host cb ~A returned out-of-range gas ~A~@[ (= ~A − 2^64)~]~%  inputs: ~{~A~^ ~}~%  fork=~A depth=~A"
          who g (and (integerp g) (minusp g) (+ g (ash 1 64))) ctx *fork-ord* *call-depth*))
 (defmacro cb-gas-check (who g &rest ctx)
-  "A host callback must return gas as an (UNSIGNED-BYTE 64). Returning anything
-   else used to surface as a bare CFFI TYPE-ERROR from the trampoline, naming
-   neither the callback nor its inputs — the second JIT bug cost a session to
-   that. Fail loudly with both instead (CTX is built only then)."
+  "A host callback must return gas as an (UNSIGNED-BYTE 64). Anything else would
+   surface as a bare CFFI TYPE-ERROR from the trampoline, naming neither the
+   callback nor its inputs; this fails loudly with both (CTX is built only then)."
   (let ((v (gensym "G")))
     `(let ((,v ,g)) (if (typep ,v '(unsigned-byte 64)) ,v (cb-gas-fail ,who ,v (list ,@ctx))))))
 

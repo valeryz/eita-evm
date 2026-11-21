@@ -65,10 +65,8 @@ def pointEvaluation : Precompile := fun input gasAvailable => do
 def registry : List (Evm.Address × Precompile) :=
   -- Replace Istanbul's modexp (Byzantium gas formula) with Berlin's
   -- EIP-2565 reprice, then add KZG (0x0a). EIP-2565 was Berlin —
-  -- between Istanbul and Cancun — and Cancun inherits it, but we
-  -- previously slipped through with the old formula because no
-  -- mainnet ValidBlocks test exercised modexp prominently. Caught
-  -- by Base Isthmus block 0x1d10000 tx 204.
+  -- between Istanbul and Cancun — and Cancun inherits it (Base
+  -- Isthmus block 0x1d10000 tx 204 exercises it).
   (Evm.Istanbul.Vm.PrecompiledContracts.registry.filter
       (fun (a, _) => a ≠ Evm.Address.ofNat 0x05)) ++
   [ (Evm.Address.ofNat 0x05, Evm.Berlin.Vm.PrecompiledContracts.modexp)

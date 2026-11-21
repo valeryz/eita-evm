@@ -29,8 +29,8 @@
                                          ⇒ 200 gas, with refund adjust:
           - if original != 0:
               if current == 0            ⇒ refund -= 15000
-                                            (we previously refunded for
-                                             clearing; that's now wrong)
+                                            (an earlier write in this tx
+                                             cleared the slot and was refunded)
               if value    == 0           ⇒ refund += 15000
           - if original == value        (slot is being reset)
               if original == 0           ⇒ refund += 19800
@@ -80,11 +80,11 @@ def sstoreGas (refund : Nat) (original current value : Evm.U256) :
         let r1 : Int :=
           if original ≠ (0 : Evm.U256) then
             -- Cancel a previously-issued clear refund if `current = 0`
-            -- (we previously gave back 15000 for clearing it, but now
-            -- it's being changed back to non-zero, so reclaim that).
+            -- (an earlier clear in this tx earned 15000; the slot is changed
+            -- back to non-zero, so reclaim it).
             (if current = (0 : Evm.U256)
                 then -(Gas.sClearRefund : Int) else 0) +
-            -- Issue a clear refund if `value = 0` (we're now clearing
+            -- Issue a clear refund if `value = 0` (this write clears
             -- it to zero).
             (if value = (0 : Evm.U256)
                 then (Gas.sClearRefund : Int) else 0)

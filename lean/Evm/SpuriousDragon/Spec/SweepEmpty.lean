@@ -136,12 +136,11 @@ theorem sweepEmptyAccounts_sound (state : State) (touched : List Evm.Address) :
       `sweepEmptyAccounts_sound` syntactically straightforward.
 
     - Emptiness is EELS `account_is_empty` exactly: storage plays no
-      part. An earlier `state.storage.all ...` survivor guard kept
-      empty-with-storage touched accounts alive; that was wrong (it
-      diverged from mainnet at block 4457731, 0xd29dfe5a, the post-#37
-      4.5M state-root mismatch). The reverted-frame touch it was
-      meant to handle is excluded earlier by revert-scoping the
-      touched set, not at the sweep.
+      part. A storage-based survivor guard would keep
+      empty-with-storage touched accounts alive and diverge from
+      mainnet (block 4457731, account 0xd29dfe5a). A reverted frame's
+      touch is excluded earlier, by revert-scoping the touched set,
+      not at the sweep.
 
     - Pre-EIP-161 forks (Frontier, Homestead, TW): the touched set
       is always empty in `processTransaction`, so this relation is

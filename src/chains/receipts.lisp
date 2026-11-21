@@ -7,9 +7,9 @@
 ;;;; deposit receipts from Canyon: depositNonce, depositReceiptVersion) sets the tx's
 ;;;; `*tx-receipt-extension*` (integers, appended in order) as it runs the tx.
 ;;;;
-;;;; Why it exists: the header gate compared only Σ gas and the logs bloom. A tx that
-;;;; FAILED on-chain but succeeded for us at equal gas and with no logs was invisible —
-;;;; Arc block 21 418 236 tx 9 drifted the state that way and surfaced 235k blocks later.
+;;;; Why it exists: a header gate on Σ gas and the logs bloom alone misses a tx that
+;;;; FAILED on-chain but succeeds in the replay at equal gas and with no logs (Arc block
+;;;; 21 418 236 tx 9 is such a case; its state drift surfaces 235k blocks later).
 ;;;; The receipts root commits to every receipt's status, cumulative gas, bloom and logs,
 ;;;; so that class is caught in the block where it happens.
 ;;;;

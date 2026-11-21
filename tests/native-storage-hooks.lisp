@@ -7,7 +7,7 @@
 ;;;;   - both runs produce the same rows (hooks observe, never perturb): every tx's net storage
 ;;;;     changes (do-storage-changes: the native first-touch log, tier (a)) and account changes;
 ;;;;   - the rows, the watched accesses and the summary hash to the digest recorded from the
-;;;;     Lisp effect path (step 5's hook mode, rel-ns5, before it was deleted): +reference+;
+;;;;     Lisp effect path (recorded at e7fcd13, see +reference+);
 ;;;;   - the native SLOADs/SSTOREs ran (eita_sh_g's counters move).
 ;;;; Run: (eita.test:run-all :only '("native-storage-hooks")).
 

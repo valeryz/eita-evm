@@ -73,9 +73,9 @@ import Evm.Berlin.Vm.Gas
 
 /-! ## The three gas plans (EELS `calculate_message_call_gas`)
 
-    Moved here unchanged from the fork Effect modules (which no longer define them) so
-    that `Call` can select them by fork; the names are kept: `Evm.CL.ARM64.CallGasSem`
-    proves the emitted `_eita_call_gas*` routines equal to them. -/
+    Defined here, in the fork Effect namespace, so that `Call` can select them by fork;
+    `Evm.CL.ARM64.CallGasSem` proves the emitted `_eita_call_gas*` routines equal to
+    them. -/
 
 namespace Evm.Frontier.Vm.Effect
 

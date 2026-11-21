@@ -63,10 +63,9 @@ def spScale : AInstr → List AInstr
   | .subImm d .x23 k    => [.subImm d .x23 (32 * k)]
   | .addImm d .x23 k    => [.addImm d .x23 (32 * k)]
   -- the stack-address idiom, whatever register it lands in: the index is a
-  -- (scaled) sp-derived byte count, so the `lsl #5` goes. The `d == e` guard
-  -- that used to be here left `copyGasInstrs`' `add x15, x24, x14, lsl #5` in
-  -- word form — CODECOPY read its length from the wrong slot (depth 3 hid it:
-  -- slot 0 is offset 0 either way); the x86-64 Linux ValidBlocks run found it.
+  -- (scaled) sp-derived byte count, so the `lsl #5` goes. It must not be
+  -- restricted to `d == e`: `copyGasInstrs`' `add x15, x24, x14, lsl #5` would
+  -- stay in word form and CODECOPY read its length from the wrong slot.
   | .addLsl5 d .x24 e   => [.addReg d .x24 e]
   | i => match dest? i with
          | some d => if isNos d then [] else [i]
@@ -80,8 +79,8 @@ at [rsp] after `sub rsp, 32`. The ARM64 program names its argument registers
 x0-x3; on x86-64 the SysV registers are reached through the ARM names whose
 x86 HOMES are rdi/rsi/rdx/rcx — x3, x2, x1, x14 under the forced colouring —
 which `sysv_arg_homes` pins so the correspondence cannot drift silently.
-Stack-word addresses are byte offsets off r12 (sp is a byte offset on x86-64,
-stage 4d): &top = r12 + r13 − 32, &nos = r12 + r13 − 64, &third = −96.
+Stack-word addresses are byte offsets off r12 (sp is a byte offset on
+x86-64): &top = r12 + r13 − 32, &nos = r12 + r13 − 64, &third = −96.
 
 Alignment: a SysV callee expects rsp ≡ 8 (mod 16) at entry. A handler body
 is entered by `call` from a frame that pushed six registers after its own
@@ -265,8 +264,8 @@ def Op.instrsX86? : Op → Option (List AInstr)
          .subImm .x14 .x23 (32 * inLen), .addReg .x14 .x24 .x14, .ldrBase .x15 .x14, .strSp .x15 80,
          -- the gas word's high limbs go through x8/x9 (TOS is synced, so they are
          -- free): x1's x86-64 home is x15's (rdx), and loading limb 3 into x1 while
-         -- limb 0 sits in x15 zeroed the forwarded gas — the first x86-64 Linux ValidBlocks
-         -- run's sub-frames all started at gas 0 (`no_alias_overlap` now forbids it)
+         -- limb 0 sits in x15 would zero the forwarded gas, every sub-frame starting
+         -- at gas 0 (`no_alias_overlap` forbids it)
          .subImm .x14 .x23 32, .addReg .x14 .x24 .x14, .ldpOff .x15 .x16 .x14 0, .ldpOff .x8 .x9 .x14 16,
          .orr3 .x16 .x16 .x8, .orr3 .x16 .x16 .x9, .cmpImm .x16 0, .csinvEqZr .x15 .x15, .strSp .x15 88,
          .stpZrSp 96, .stpZrSp 112,
@@ -418,11 +417,11 @@ def helperCallsAligned (p : List AInstr) : Bool :=
 
 /-! ## Callback arguments are defined by the op that passes them
 
-EXTCODECOPY's ARM64 cb op passed `len` (the fifth argument, x4) without loading it:
-the gas gadget before it happened to leave len.l0 there, until f812945 rebuilt that
-gadget on `memRangeInstrs` and x4 reached the host stale — a copy length of
-8·10^18, a memset past the memory arena (mainnet 4,972,698 tx 17). `Op.denote`
-models a callback coarsely (sp −= 4, gas/memory host effects), so no theorem saw
+A cb op must load every argument it passes. An EXTCODECOPY cb op that passes `len`
+(the fifth argument, x4) without loading it relies on the preceding gas gadget
+leaving len.l0 there; when it does not, x4 reaches the host stale — a copy length
+of 8·10^18, a memset past the memory arena (mainnet 4,972,698 tx 17). `Op.denote`
+models a callback coarsely (sp −= 4, gas/memory host effects), so no theorem sees
 the argument. This is the instruction-level check that does.
 
 A must-analysis over the flattened body, per path: `D` is the set of registers
@@ -433,8 +432,8 @@ GROUP has written — the call's own op plus the dedicated argument-marshalling 
 right before it; `W` is emptied at the start of every other op. At every call
 (`blr` through a vtable slot, `bl` to a C helper) the callee must have a known
 arity and all its argument registers, and the `blr` target, must be in `W`. So
-an argument cannot be inherited from a previous gadget (the pre-f812945 design,
-correct but fragile) and cannot be left unset (the post-f812945 bug). -/
+an argument can neither be inherited from a previous gadget (correct only by
+accident) nor be left unset. -/
 
 /-- Registers an instruction writes. -/
 def defs : AInstr → List Reg
@@ -618,10 +617,10 @@ On ARM64 the top two stack words are cached in registers — x6-x9 (TOS) and x10
 (NOS) — and the stack memory holds every word as well. A body is entered with x6-x9 =
 stack[sp-1] and x10-x13 = stack[sp-2] (`_eita_run` loads them, every body keeps them)
 and must leave by `br x27` the same way for the sp it leaves (TOS only if sp ≥ 1, NOS
-only if sp ≥ 2). CLZ broke it: it computed in x10-x13 ("free in a unary op") and kept
-no NOS, so the next AND read the clobbered x10 (mainnet 26,042,126 tx 135; x86-64
-caches no NOS and was right). `Op.denote` keeps `nos` as a field of its own, so
-`clz_correct` held — the emit/denote gap of the #260 family.
+only if sp ≥ 2). A unary op that computes in x10-x13 ("free in a unary op") breaks
+it: the next AND reads the clobbered x10 (CLZ, mainnet 26,042,126 tx 135; x86-64
+caches no NOS). `Op.denote` keeps `nos` as a field of its own, so `clz_correct`
+holds regardless — an emit/denote gap this check closes.
 
 The check is a value numbering over the flattened body, run separately on every path
 (each instruction at most once: the bodies are acyclic): a register or stack limb holds

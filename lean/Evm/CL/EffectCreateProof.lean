@@ -706,7 +706,7 @@ macro "create_bind" a:term:max b:term:max : tactic => `(tactic| (
   simp only [specCreate, Terminator.stepHandler, stepHandlerFrontier, stepHandlerHomestead,
     stepHandlerTangerine, stepHandlerSpurious, stepHandlerByzFamily, Evm.Fork.atLeast, Evm.Fork.ord,
     Option.map_some, Option.some.injEq, reduceCtorEq]
-  -- On v4.29 the per-argument equation lemmas no longer rewrite the bare,
+  -- On v4.29 the per-argument equation lemmas do not rewrite the bare,
   -- not-yet-applied `doCreate` constant under `Option.map` (simp reports no
   -- progress for it), so unfold the bound handler explicitly — before the
   -- opcode-unfolding simp below, or the re-exposed `opcode` stays folded

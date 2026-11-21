@@ -1,7 +1,7 @@
 #!/bin/bash
 # Gate: the migrated JIT leaf-core emitters (Evm.CL.ARM64.JITEmit, Item lists)
 # assemble byte-exact vs clang. Catches transcription typos in the String->Item
-# migration (#235). The encoder/assembler themselves are gated by verify-asm-encode.sh.
+# migration. The encoder/assembler themselves are gated by verify-asm-encode.sh.
 set -e
 # Portable: on macOS clang assembles arm64 natively; on Linux x86-64 it
 # cross-assembles with -target (nothing is executed — this is a byte check).

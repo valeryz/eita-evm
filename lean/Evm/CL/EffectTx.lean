@@ -5,7 +5,7 @@ import Evm.CL.EffectIR
 A transaction's effect up to the end of its message, as one `EffectIR` term for every fork,
 proved in `Evm.CL.EffectTxProof` against `Evm.Frontier.Vm.Tx` (every fork's
 `processTransaction` is `Tx.run`) and emitted as `spec-tx-effect`. The settlement and the
-end of tx after it are the derived terms of stage 2 (`EffectSettle`, `EffectEndTx`); the
+end of tx after it are derived terms too (`EffectSettle`, `EffectEndTx`); the
 wrapper (`run-evm-tx`) runs the four in the order `Tx.finish` does, and `apply_tx_refines`
 is about that sequence.
 

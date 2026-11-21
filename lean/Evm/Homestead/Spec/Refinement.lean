@@ -13,10 +13,6 @@
   rules `Evm.Homestead.Vm.Effect` runs CREATE with (`opcode` for the
   yield, `resume` for the merge). Both are pure functions, so both
   branches are closed here, not left as `_shape` placeholders.
-
-  (Until 2026-11-02 this module held two `P → P` `_shape` theorems; they
-  stopped elaborating when `IsCreateDepositRevert` gained its
-  `sender`/`senderAccNonce` arguments, and nothing imported the module.)
 -/
 
 import Evm.Homestead.Spec.CreateStep

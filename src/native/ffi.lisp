@@ -80,7 +80,7 @@
   (input :pointer) (inlen :uint64) (output :pointer))
 
 ;;; Inlined: one C call each on the SLOAD/SSTORE/CALL path, where the out-of-line Lisp
-;;; wrapper (a full call before the foreign call) was ~1 % of the replay thread.
+;;; wrapper (a full call before the foreign call) would cost ~1 % of the replay thread.
 (declaim (inline %ts-access-addr %ts-access-slot %ts-refund-add %ts-created-insert %ts-created-p
                  %ts-orig-record %ts-orig-get))
 ;;; Native per-tx state tables (c/tx_state.h). One TxState + one root

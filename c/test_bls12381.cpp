@@ -7,10 +7,9 @@
  * seven precompiles. A vector marked "ok" must return 1 with byte-identical
  * output; a vector marked "fail" must return 0.
  *
- * Also exercises what used to be the cross-curve hazard. BLS12-381 now runs on
- * blst, which has no global curve state, and mcl is pinned to BN254, so a BLS
- * call between two BN254 calls cannot disturb the BN254 result and cannot
- * trigger a re-init. The test asserts both: the BN254 answer is unchanged, and
+ * Also exercises the cross-curve hazard. BLS12-381 runs on blst, which has no
+ * global curve state, and mcl is pinned to BN254, so a BLS call between two
+ * BN254 calls cannot disturb the BN254 result and cannot trigger a re-init. The test asserts both: the BN254 answer is unchanged, and
  * mcl has been initialised exactly once no matter how the calls interleave.
  *
  *   make -C c test_bls12381
