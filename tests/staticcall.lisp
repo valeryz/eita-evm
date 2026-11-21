@@ -4,9 +4,8 @@
 ;;;; callback recognizes 0x42, sets up a fresh EvmState with sub-bytecode,
 ;;;; calls eita_run on it (RECURSIVE re-entry into native), reads the
 ;;;; sub-frame's RETURN output back into a CallResult, returns to ARM64.
-;;;; Outer program then reads returndata back via RETURNDATACOPY (skipped
-;;;; for MVP — we just check that state.returndata_size was set correctly
-;;;; and success was pushed.
+;;;; The test checks that state.returndata_size is set and success is
+;;;; pushed (it does not read the returndata back via RETURNDATACOPY).
 
 (defpackage #:eita.test.staticcall (:use #:cl #:cffi))
 (in-package :eita.test.staticcall)
@@ -83,8 +82,8 @@
            ;; Write CallResult fields
            (setf (mem-ref result :int 0) (if (and halted (not reverted)) 1 0))
            ;; Copy output into a fresh buffer the caller owns (the sub-state is
-           ;; about to be freed). For MVP, leak the buffer; production would
-           ;; arena-allocate.
+           ;; about to be freed). The test leaks the buffer (the engine's cb-call
+           ;; frees it, see calls.lisp).
            (let ((out-copy (foreign-alloc :uint8 :count (max output-len 1) :initial-element 0)))
              (when (and output-ptr (plusp output-len))
                (loop for i from 0 below output-len do

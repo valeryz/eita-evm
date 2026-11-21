@@ -1,19 +1,14 @@
 ;;;; test-return-width.lisp — RETURN/REVERT lengths are u256, not u64.
 ;;;;
-;;;; `memExpandIfLen` decided "zero length, no expansion" from the LENGTH'S LOW
-;;;; LIMB (`cbz x10, 4f`) and then computed the end as `off.l0 + len.l0` with no
-;;;; high-limb fold and no carry check. So a RETURN of 2^64 bytes (low limb 0)
-;;;; skipped the expansion entirely and returned EMPTY with gas to spare, where
-;;;; EELS charges an unaffordable expansion and the frame OOGs.
+;;;; A gadget that decides "zero length, no expansion" from the LENGTH'S LOW
+;;;; LIMB (`cbz x10, 4f`) and computes the end as `off.l0 + len.l0`, with no
+;;;; high-limb fold and no carry check, lets a RETURN of 2^64 bytes (low limb 0)
+;;;; skip the expansion and return EMPTY with gas to spare (999 994 of 1 000 000),
+;;;; where EELS charges an unaffordable expansion and the frame OOGs (gas 0).
 ;;;;
-;;;; This is #260 in a different op: that was the CALL family reading in/out
-;;;; offsets and lengths as u64; the fix there introduced `memRangeInstrs`,
-;;;; whose full-u256 semantics are proved against EELS in
-;;;; lean/Evm/CL/MemExpandSpec.lean. RETURN/REVERT simply never got routed
-;;;; through it — the gadget's own docstring claimed they were.
-;;;;
-;;;; Measured on the pre-fix build: RETURN with length 2^64 halted with 999 994
-;;;; of 1 000 000 gas left. After: gas 0, i.e. the exceptional halt EELS gives.
+;;;; RETURN/REVERT go through `memRangeInstrs`, the same gadget as the CALL family's
+;;;; in/out ranges, whose full-u256 semantics are proved against EELS in
+;;;; lean/Evm/CL/MemExpandSpec.lean.
 ;;;;
 ;;;; Proofs: lean/Evm/CL/MemExpandSpec.lean (`memRangeEnd_*`, `memexp_unaffordable`).
 ;;;; Run: (eita.test:run-all :only '("return-width")), or (asdf:test-system "eita") for all suites.
@@ -78,8 +73,8 @@
 (let ((r (run-program (ret-program '(#x01 #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x20) #xf3))))
   (chk "exceptional halt (OOG)" (oog-p r) t))
 
-;; Controls: the same shape with a narrow length must still work, and cost the
-;; same as it always did — the fix must not charge anything new on the happy path.
+;; Controls: the same shape with a narrow length must still work and charge only
+;; the ordinary expansion on the happy path.
 (format t "~%control: RETURN length 32, offset 0~%")
 (let ((r (run-program '(#x60 #x20 #x60 #x00 #xf3))))
   (chk "not OOG"   (oog-p r) nil)

@@ -1,4 +1,4 @@
-;;;; recovery-vectors.lisp — the P1 refinement check: src/state/recovery.lisp decides
+;;;; recovery-vectors.lisp — the refinement check: src/state/recovery.lisp decides
 ;;;; exactly what the proved Lean definitions decide (lean/Evm/Persist/Recovery.lean).
 ;;;;
 ;;;;   (cd lean && lake exe recoveryVectors) > /tmp/rv.txt

@@ -31,8 +31,8 @@
 (defconstant +address-offset+        144)
 (defconstant +cb-offset+             496)
 (defconstant +cb-ctx-offset+         504)
-;; sizeof(EvmState): the engine's own constant (one owner; a copy here fell behind at 600 when
-;; EvmState grew to 608 for x86-64 cont_table, and the handlers wrote past the allocation).
+;; sizeof(EvmState): the engine's own constant (one owner: a local copy can fall behind when
+;; EvmState grows, and the handlers then write past the allocation).
 (defconstant +evm-state-size+ eita.evm::+substate-bytes+)
 
 (defconstant +u256-bytes+ 32)
@@ -342,7 +342,7 @@
         (setf (mem-ref state :pointer +code-offset+) buf)
         (setf (mem-ref state :uint64 +code-size-offset+)
               (/ (length (getf pre :code-hex)) 2))
-        ;; The valid-JUMPDEST map the JUMP/JUMPI handlers consult (#136).
+        ;; The valid-JUMPDEST map the JUMP/JUMPI handlers consult (EvmState offset 136).
         (let* ((n (/ (length (getf pre :code-hex)) 2))
                (map (foreign-alloc :uint8 :count (max n 1) :initial-element 0)))
           (track-aux map)

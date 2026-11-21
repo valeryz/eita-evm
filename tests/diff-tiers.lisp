@@ -4,10 +4,9 @@
 ;;;; The differential runs a tx's top frame on tier A, restores the pre-state, runs it on tier B
 ;;;; and compares. With both tiers the bytecode interpreter, every comparison must agree; a
 ;;;; divergence is a hole in the restore, which would also show up as a false TIERDIFF (or a
-;;;; wrong kept result) against the JIT. The restore missed two things (2026-11-06): tier A's
-;;;; memory arena was left dirty, so tier B's memory expansion read tier A's bytes instead of
-;;;; zeros, and tier A's logs and transfers stayed in the tx's event buffer (16 divergences and
-;;;; 11 receipt mismatches in 30 mainnet blocks).
+;;;; wrong kept result) against the JIT. Two such holes this guards: tier A's memory arena left
+;;;; dirty (tier B's memory expansion then reads tier A's bytes instead of zeros), and tier A's
+;;;; logs and transfers left in the tx's event buffer.
 ;;;;
 ;;;; Then the memory rule: tier A's final memory is made to differ from tier B's (byte 0 of every
 ;;;; top frame that has memory flipped after tier A). A frame both tiers end in an exceptional halt

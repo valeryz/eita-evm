@@ -1,14 +1,14 @@
 ;;;; test-jump-truncation.lisp — JUMP/JUMPI destinations are u256, not u64.
 ;;;;
-;;;; The native handlers validated a jump destination by comparing the LOW LIMB
-;;;; only (`cmp x6, x14` against code_size), so a destination of 2^64 + k whose
-;;;; low limb landed on a real JUMPDEST jumped to k — where the spec
+;;;; A handler that validates a jump destination by comparing the LOW LIMB only
+;;;; (`cmp x6, x14` against code_size) jumps to k for a destination of 2^64 + k
+;;;; whose low limb lands on a real JUMPDEST — where the spec
 ;;;; (`Frontier…jump`: `dest.toNat`, then `isValidJumpDest`) halts exceptionally,
 ;;;; because dest.toNat ≥ 2^64 ≥ code_size.
 ;;;;
-;;;; Why ethereum/tests did not catch it: stMemoryStressTest/JUMP_Bounds2 and
+;;;; Why ethereum/tests does not catch it: stMemoryStressTest/JUMP_Bounds2 and
 ;;;; JUMPI_Bounds jump to 0xffffffff, 2^64-1, 2^128-1, 2^176-1 — every one of
-;;;; which has a huge LOW limb too, so the truncated compare rejected them for
+;;;; which has a huge LOW limb too, so a truncated compare rejects them for
 ;;;; the right reason by accident. The shape that breaks it is a SMALL low limb
 ;;;; with a nonzero high limb, which is what this file tests.
 ;;;;
@@ -125,8 +125,8 @@
   (chk "halted"          (getf r :halted) t))
 
 ;;; The condition is folded over all four limbs: a condition whose low limb is
-;;; zero but whose high limb is not must TAKE the branch (this half the asm
-;;; always had right; pinned so it stays right).
+;;; zero but whose high limb is not must TAKE the branch (pinned so it stays
+;;; right).
 (format t "~%JUMPI with condition 2^64 (low limb 0) takes the branch~%")
 ;; offsets: 0-9 PUSH9, 10-11 PUSH1, 12 JUMPI, 13 INVALID, 14 JUMPDEST, 15 STOP
 (let ((r (run-program (append '(#x68 #x01 #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00) ; cond 2^64
@@ -137,11 +137,11 @@
 
 ;;; ---------------------------------------------------------------------------
 ;;; The second class: a JUMPDEST BYTE inside PUSH data is not a destination.
-;;; EELS get_valid_jump_destinations skips PUSH immediates; the handlers used to
-;;; test `code[dest] = 0x5b` and accepted it. Mainnet 5,800,596 tx 117
+;;; EELS get_valid_jump_destinations skips PUSH immediates; a handler that tests
+;;; `code[dest] = 0x5b` accepts it. Mainnet 5,800,596 tx 117
 ;;; (0x3666640316df11865abd1352f4c0b4c5126f8ac1d858ef2a0c6e744a4865bca2) is a
 ;;; creation whose init code is exactly this program: geth halts with all gas
-;;; ("invalid jump destination"); the byte test jumped to 1 and ran the PUSH9
+;;; ("invalid jump destination"); the byte test jumps to 1 and runs the PUSH9
 ;;; immediate as code (PUSH1 0xaa, PUSH1 0, PUSH1 0, LOG1, STOP: 54,466 gas).
 ;;; Lean: Evm.CL.JumpDest `byte_test_is_wrong`, `tx117_has_no_jumpdests`.
 ;;;   0: PUSH9 0x5b60aa60006000a100   10: PUSH1 1   12: JUMP      — offset 1 is 0x5b, PUSH data

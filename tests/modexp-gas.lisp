@@ -1,5 +1,5 @@
 (in-package #:eita.evm)
-;;;; #260 verification: modexp-gas against the EIPs' OWN published numbers.
+;;;; modexp-gas against the EIPs' OWN published numbers.
 ;;;; Canonical EIP-198 example: modexp(3, 2^256-2^32-978, 2^256-2^32-977),
 ;;;;   base_len=exp_len=mod_len=32.
 ;;;;   EIP-198 (pre-Berlin): mult_complexity(32)=1024, adj_exp_len=255,
