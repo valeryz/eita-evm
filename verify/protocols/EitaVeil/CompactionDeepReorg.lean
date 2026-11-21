@@ -47,7 +47,7 @@ set_option veil.violationIsError false in
 #gen_theorems
 report_axioms "CompactionDeepReorg"
 
--- the old violation's prefix is reachable: a rollback below a pending base, which it discards
+-- CompactionDeepReorgOld's violation prefix is reachable: a rollback below a pending base, which it discards
 -- (the fixed rollback's encoding needs more than the default 200000 heartbeats)
 set_option maxHeartbeats 4000000
 sat trace [deep_reorg_discards] {

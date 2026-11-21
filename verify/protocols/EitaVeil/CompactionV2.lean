@@ -2,7 +2,7 @@ module
 
 public import EitaVeil.CompactionParts
 
-/-! # The layer stack under snapshot v2's persistence stages P2–P3 (planned): safe
+/-! # The layer stack under snapshot v2's reorg window and anchored compaction (planned): safe
 
 The design model of the stack under snapshot v2 (`docs/state-snapshot-format.md`, "The RAM
 reorg window" and "Compaction to a verified anchor"), written before its code: steps that change cite
@@ -11,11 +11,11 @@ replaces `Compaction` / `CompactionDeepReorg` when the code lands; until then th
 the running code.
 
 What changed from `Compaction`:
-* **P3, the RAM reorg window.** Every block freezes a RAM layer (`freeze`); a block leaving the
+* **The RAM reorg window.** Every block freezes a RAM layer (`freeze`); a block leaving the
   window (at or below `fin`) is folded into the one open **settled RAM layer** (`settle`,
   Lean `compose`); at a quarter point the settled layer goes to the writer (`qpoint`), which
-  writes it as one disk layer. Minor compaction is gone.
-* **P2, compaction to a verified anchor.** Major compaction merges the base and the disk layers
+  writes it as one disk layer. There is no minor compaction.
+* **Compaction to a verified anchor.** Major compaction merges the base and the disk layers
   up to a verified anchor A (`vfy`), computes the root in the same pass and swaps the new base
   in at once (`take_major`): no pending base, no root-check process, no `*compacting-base*`.
 * **Persisted fences.** Opening a snap maps its fence: no fence thread.
