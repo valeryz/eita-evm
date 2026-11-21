@@ -209,6 +209,13 @@
   (:export
            #:main #:parse-test))
 
+(defpackage #:eita.factlog.writer
+  (:documentation "The fact-log writer: an observer on the engine's observation seam
+   (src/factlog/writer.lisp). The format is the package EITA-FACTLOG (src/factlog/format.lisp,
+   standalone).")
+  (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain)
+  (:export #:install-factlog-observer!))
+
 (defpackage #:eita
   (:documentation "The user-facing API (src/eita.lisp): worlds, transactions and calls at a fork's
    rules, fixtures (system eita/fixtures), chain replays (system eita/chains), and the engine
@@ -231,6 +238,8 @@
    #:replay
    ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
    #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
+   ;; the same handlers fed past blocks from a fact log (src/factlog/backfill.lisp)
+   #:backfill
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*

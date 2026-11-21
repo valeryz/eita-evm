@@ -16,13 +16,14 @@
       (sb-posix:setenv name (princ-to-string value) 1)
       (sb-posix:unsetenv name)))
 
-(defun eita:replay (chain from &key to blocks source observer state checkpoint-every
+(defun eita:replay (chain from &key to blocks source observer factlog state checkpoint-every
                                     (full-state nil full-state-p) resume genesis)
   "Replay CHAIN (\"ethereum\", \"hoodi\", \"devnet\" (GENESIS: its genesis.json), \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
    \"world\") from block FROM to TO (default FROM; :tip follows the head, when the source can).
    BLOCKS: a directory of block files (docs/block-input.md); SOURCE: a Lisp file installing a
    block source; OBSERVER: a Lisp file loaded before the first block (subscriptions,
-   docs/hooks.md, or an observer); STATE: the state directory
+   docs/hooks.md, or an observer); FACTLOG: the fact log's directory, recording every block
+   (docs/fact-log.md); STATE: the state directory
    (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default
    true, every chain) runs from the genesis alloc (GENESIS overrides the chain's) or
    from the anchored snapshot at RESUME; without it the source serves state lazily."
@@ -33,6 +34,7 @@
     (when blocks (setenv! "EITA_BLOCKS_DIR" blocks))
     (when source (setenv! "EITA_SOURCE" source))
     (when observer (setenv! "EITA_OBSERVER" observer))
+    (when factlog (setenv! "EITA_FACTLOG_DIR" factlog))
     (when state (setenv! "EITA_STATE_DIR" state))
     (when genesis (setenv! "EITA_GENESIS" genesis))
     (when resume (setenv! "EITA_RESUME_FROM" resume))
