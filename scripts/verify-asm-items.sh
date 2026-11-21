@@ -3,9 +3,9 @@
 #
 # `AInstr.emitARM64` produces the TEXT that clang assembles into c/handlers.S at
 # build time; `AsmItems.items` produces the Items the in-process encoder turns
-# into BYTES at run time. Until these were one vocabulary, every gadget in both
-# paths was hand-written twice — which is how ChunkGas's `retake` ended up with
-# a bare `sub` and no borrow check on the Item side only.
+# into BYTES at run time. Both come from one vocabulary, so no gadget is written
+# twice by hand (two copies drift: e.g. a bare `sub` with no borrow check on the
+# Item side only).
 #
 # This gate drives the comparison off the vocabulary: for every instruction in
 # the structured gadget set, encode(items i) must equal clang(emitARM64 i).

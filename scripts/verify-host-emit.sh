@@ -13,8 +13,8 @@ case "$(uname -s)" in
   Linux)  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/usr/local/lib" ;;
 esac
 
-# A gate that dies silently in CI is useless (2026-10-28: this script exited 1
-# with zero output because the failing command's stderr went to /dev/null).
+# A gate that dies silently in CI is useless: every failing step prints its captured
+# stderr or log tail.
 # build LOG TARGETS... — lake build with output captured; the log is the
 # diagnosis on failure, so print its tail.
 build() {
@@ -87,6 +87,6 @@ for pair in "emitLimbC:generated/limb_ops.h" "emitStorageC:generated/storage_eff
 done
 # ...and no gas schedule copied by hand into the replay code around it
 python3 ../scripts/check-derived-gas.py   # cwd is lean/ here
-# ...and the committed interpreter runs against CHECKING callbacks (c/test_interp.c: the
-# EXTCODECOPY case failed on handlers.S from f812945 on, but nothing ran it)
+# ...and the committed interpreter runs against CHECKING callbacks (c/test_interp.c, whose
+# EXTCODECOPY case catches a handler that passes a stale argument)
 make -C ../c test_interp >/dev/null && echo "c/test_interp (handler callbacks pass their arguments) OK"

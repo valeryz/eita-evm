@@ -16,7 +16,7 @@
 # only `L`-prefixed labels are assembler-temporaries, so `.Lzero` / `.Lmcd0`
 # start new ATOMS and a branch between atoms is forced to rel32 with a linker
 # relocation — even inside one function. Our assembler has no atoms, and
-# neither does the x86-64 deployment target (stage 4 is ELF/mmap), so ELF is
+# neither does the x86-64 deployment target (ELF/mmap), so ELF is
 # the format whose behaviour we are matching.
 set -euo pipefail
 cd "$(dirname "$0")/.."

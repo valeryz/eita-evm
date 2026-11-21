@@ -3,8 +3,8 @@
 # lowering (AsmItems.assembleGadget = resolveLocals + AsmEncode.assemble).
 #
 # verify-asm-items.sh pairs instructions one to one and skips branch items, so
-# it never checked a branch's TARGET — which is how the gadgets' numeric local
-# labels (`7f` = "the next `7:`") were silently unresolved in the byte lowering.
+# it does not check a branch's TARGET, e.g. that the gadgets' numeric local
+# labels (`7f` = "the next `7:`") resolve in the byte lowering.
 # This assembles each gadget whole with clang (labels, branches, relocations)
 # and compares the function's bytes. Twin of verify-x86-asm.sh; ELF target for
 # the same reason (Mach-O atoms force cross-label relocations).
