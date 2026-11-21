@@ -257,4 +257,4 @@
 (defpackage #:eita.cli
   (:documentation "bin/eita: the command line (src/cli.lisp).")
   (:use #:cl)
-  (:export #:main #:register-command))
+  (:export #:main #:register-command #:*swank-default-port*))
