@@ -1,38 +1,42 @@
-;;;; snapshot.lisp — the binary state snapshot (docs/state-snapshot-format.md, v1):
-;;;; writer, mmap reader, verification. See docs/state-snapshot-format.md.
+;;;; snapshot.lisp — the binary state snapshot (docs/state-snapshot-format.md): writers,
+;;;; mmap reader, verification, and `compose-range`, the one merge over a stack.
 ;;;;
 ;;;; A snapshot is the flat state after block N, in a directory published atomically:
-;;;;   snap-N/accounts.dat  96 B records sorted by addr      (addr nonce balance codehash)
-;;;;          storage.dat   88 B records sorted by addr,slot (value never 0)
+;;;;   snap-N/accounts.dat  account records sorted by their key
+;;;;          storage.dat   slot records sorted by (account key, slot key) (value never 0)
 ;;;;          code.dat      variable records sorted by codehash
 ;;;;          code.idx      (codehash, offset) of every code record   (derived; lookups)
 ;;;;          MANIFEST.sexp counts, per-file sizes and FNV-1a 64, the content hash
 ;;;; Each file but the manifest starts with a 4096-byte header (format doc), so data is
 ;;;; page-aligned and the reader can mmap it. Everything big-endian; keys sort by memcmp.
 ;;;;
-;;;; The writer is a MERGE: a sorted stream of changes laid over an older snapshot (or
-;;;; over nothing), copying unchanged records byte for byte. So a checkpoint costs one
-;;;; sequential pass over the old files plus the changed keys, never a decode/encode of
-;;;; the whole state. The reader maps the files read-only; a point lookup goes through
-;;;; the file's FENCE (an in-memory radix index built at open) to a bucket of at most a
-;;;; few hundred records, then binary-searches it.
+;;;; Two key orders share the files' shape. Version 1 (raw: 96 B accounts keyed by addr,
+;;;; 88 B slots keyed by addr ‖ slot) is what the engine runs on: its writer is a MERGE, a
+;;;; sorted stream of changes laid over an older snapshot, copying unchanged records byte
+;;;; for byte, and its reader builds the files' FENCE (a radix index) when it opens them.
+;;;; Version 2 (hashed: 128 B accounts keyed by keccak(addr), 96 B slots keyed by
+;;;; keccak(addr) ‖ keccak(slot)) is the trie's own order, so every subtrie is one range of
+;;;; records; its writer takes records in key order and persists the fences it builds in
+;;;; the same pass (accounts.fnc, storage.fnc), which the reader loads instead of building.
 ;;;;
 ;;;; A LAYER (layer-P-N/, docs/layered-snapshots.md) is the same file set holding only
 ;;;; what blocks P+1..N changed, over a base snap-B/ and the layers below it: one account
 ;;;; record per address it mentions, always with the fields (flag bit 0 = the RAM's
 ;;;; existence mark, bit 2 = the storage was WIPED), and slot records that may be 0 (a
-;;;; tombstone). Readers look an address up through the stack newest layer first
-;;;; (`view-account`, `view-slot`); the composers (`compose-address`) fold a run of
-;;;; layers, with or without the base, one address at a time. Lean: Evm.Persist.Layered.
+;;;; tombstone). Readers look a key up through the stack newest layer first; every merge
+;;;; of sources (a key range of the layers and the base, newest first) is `compose-range`
+;;;; (Lean `composeRuns`, Evm.Persist.Layered Part E).
 ;;;;
 ;;;; Standalone: no libeita, no replay code (the importer, the root checker and the
-;;;; tests load it alone). Codehashes are passed in, never computed here.
+;;;; tests load it alone). Codehashes and hashed keys are passed in, never computed here.
 
 (in-package #:eita.state.snapshot)
 
 (defconstant +header+ 4096)
-(defconstant +acct-rec+ 96)
-(defconstant +slot-rec+ 88)
+(defconstant +acct-rec+ 96)            ; v1
+(defconstant +slot-rec+ 88)            ; v1
+(defconstant +acct-rec-2+ 128)         ; v2: hkey 32 · addr 20 · flags 4 · nonce 8 · balance 32 · codehash 32
+(defconstant +slot-rec-2+ 96)          ; v2: haddr 32 · hslot 32 · value 32
 (defconstant +flag-exists-empty+ 1)  ; base: empty and present; layer: the RAM existence mark
 (defconstant +flag-wiped+ 4)         ; layer: the address's storage below was removed
 
@@ -182,13 +186,13 @@
   (replace (out-buf o) v :start1 (out-pos o))
   (incf (out-pos o) (length v)))
 
-(defun out-close (o table count recsize stride chain-id block)
+(defun out-close (o table count recsize stride chain-id block &optional (version 1))
   "Flush, write the header, fsync. Returns (bytes fnv-hex)."
   (out-flush o)
   (let ((s (out-stream o))
         (hdr (make-array +header+ :element-type '(unsigned-byte 8) :initial-element 0)))
     (replace hdr (map 'vector #'char-code "EITASNAP"))
-    (put-be hdr 8 1 4) (put-be hdr 12 table 4) (put-be hdr 16 count 8) (put-be hdr 24 chain-id 8)
+    (put-be hdr 8 version 4) (put-be hdr 12 table 4) (put-be hdr 16 count 8) (put-be hdr 24 chain-id 8)
     (put-be hdr 32 block 8) (put-be hdr 40 recsize 4) (put-be hdr 44 stride 4)
     (file-position s 0)
     (write-sequence hdr s)
@@ -276,7 +280,7 @@
     (ignore-errors (sb-posix:munmap (mapping-sap m) (mapping-len m)))))
 
 (defstruct (snap (:constructor %make-snap))
-  dir block manifest
+  dir block manifest (version 1 :type fixnum)   ; 1 raw key order, 2 hashed
   acct slot-map code-map code-idx
   (acct-fence nil) (slot-fence nil)     ; the in-memory indexes of accounts.dat, storage.dat
   (n-accounts 0 :type fixnum) (n-slots 0 :type fixnum) (n-codes 0 :type fixnum)
@@ -321,14 +325,17 @@
    resident (the root check: on x300 an Ethereum check held 42 GB of the base's pages
    after its fences, and pushed the Arc replay's heap into swap). A snapshot from
    before the fences also holds accounts.idx and storage.idx: listed in its manifest (so
-   verified and hashed as before), never read."
-  (let* ((dir (as-dir dir)) (m (snap-sealed-p dir)))
+   verified and hashed as before), never read. A version 2 snapshot's fences are read
+   from its .fnc files (its writer built them): FENCE does not apply."
+  (let* ((dir (as-dir dir)) (m (snap-sealed-p dir)) (v2 (eql (getf m :version) 2)))
     (unless m (error "snapshot ~A is not complete (no manifest, or a file of the wrong size)" dir))
     (flet ((mf (name) (map-file (merge-pathnames name dir))))
       (let ((c (getf m :counts)))
-        (let ((s (%make-snap :dir dir :block (getf m :block) :manifest m
+        (let ((s (%make-snap :dir dir :block (getf m :block) :manifest m :version (if v2 2 1)
                              :acct (mf "accounts.dat") :slot-map (mf "storage.dat")
                              :code-map (mf "code.dat") :code-idx (mf "code.idx")
+                             :acct-fence (and v2 (read-fence-file (merge-pathnames "accounts.fnc" dir)))
+                             :slot-fence (and v2 (read-fence-file (merge-pathnames "storage.fnc" dir)))
                              :n-accounts (getf c :accounts) :n-slots (getf c :slots) :n-codes (getf c :codes))))
           (flet ((fences () ; @veil snap-open/fences
                    ;; each published whole: its contents before the pointer to it (the
@@ -339,7 +346,7 @@
                    (let ((f (build-fence (snap-slot-map s) +slot-rec+ 52 (snap-n-slots s) (eq fence :scan)))) ; @veil snap-open/build
                      (sb-thread:barrier (:write))
                      (setf (snap-slot-fence s) f)))) ; @veil snap-open/publish
-            (case fence
+            (case (and (not v2) fence)
               ((nil))
               (:background ; @veil snap-open/background
                (setf (snap-fence-thread s)
@@ -411,8 +418,10 @@
 ;;; record whose R bits there are >= p, so bucket p is [A[p], A[p+1]). A bucket of more
 ;;; than +fence-split+ records gets a node of its own, keyed by the bits after its
 ;;; records' common prefix: in storage.dat a big contract's slots (one address) are split
-;;; by the slot's bits. Built at open: a pass over the keys, and one over each big bucket;
-;;; 4 bytes per 64..128 records (+fence-bucket+).
+;;; by the slot's bits. 4 bytes per 64..128 records (+fence-bucket+). A v1 snapshot's is
+;;; built at open (a pass over the keys, and one over each big bucket); a v2 writer builds
+;;; its top level as it emits records and its kids from the records it just wrote, and
+;;; persists it (`write-fence-file`), so opening reads it (`read-fence-file`).
 
 (defconstant +fence-bucket+ 128 "The most records per bucket the fence aims at.")
 (defconstant +fence-split+ 512 "A bucket over this many records gets a node of its own.")
@@ -431,12 +440,16 @@
     (dotimes (i 5) (let ((j (+ b0 i))) (setf x (logior (ash x 8) (if (< j klen) (sb-sys:sap-ref-8 sap (+ off j)) 0)))))
     (ldb (byte r (- 40 (logand bit 7) r)) x)))
 
+(defun fence-radix (n)
+  "The radix bits of a node over N records: buckets of 64..128."
+  (min 30 (max 1 (integer-length (floor n +fence-bucket+)))))
+
 (defun fence-node (sap recsize klen lo hi bit &optional release)
   "The node over records [LO, HI) of the file mapped at SAP (keys of KLEN bytes, equal
    in their first BIT bits). RELEASE: that mapping, whose pages the pass releases behind
    it, every +RELEASE-STEP+ bytes (a node's kids re-read their records and release them)."
   (declare (type fixnum recsize klen lo hi bit) (optimize (speed 3) (safety 0)))
-  (let* ((r (min 30 (max 1 (integer-length (floor (- hi lo) +fence-bucket+)))))
+  (let* ((r (fence-radix (- hi lo)))
          (a (make-array (1+ (ash 1 r)) :element-type '(unsigned-byte 32)))
          (f (%make-fence a bit r)) (p 0)
          (step (max 1 (floor +release-step+ recsize))) (done lo))
@@ -450,7 +463,15 @@
                  (setf done j))))
     (when release (release-range release (+ +header+ (* done recsize)) (+ +header+ (* hi recsize))))
     (loop while (<= p (ash 1 r)) do (setf (aref a p) hi) (incf p))
-    (dotimes (p (ash 1 r) f)
+    (fence-split! f sap recsize klen release)))
+
+(defun fence-split! (f sap recsize klen &optional release)
+  "Give every bucket of F over +FENCE-SPLIT+ records a node of its own, keyed by the bits
+   after its records' common prefix (the records are those of the file mapped at SAP).
+   Returns F."
+  (declare (type fixnum recsize klen) (optimize (speed 3) (safety 0)))
+  (let ((a (fence-a f)))
+    (dotimes (p (ash 1 (fence-r f)) f)
       (let ((blo (aref a p)) (bhi (aref a (1+ p))))
         (when (> (- bhi blo) +fence-split+)
           ;; the first bit where the bucket's first and last keys differ
@@ -615,7 +636,8 @@
 
 (declaim (inline bloom-h))
 (defun bloom-h (addr)
-  "Two hashes of the 160-bit integer ADDR (double hashing gives the three probes)."
+  "Two hashes of the integer ADDR, from its low 160 bits (double hashing gives the three
+   probes)."
   (let* ((lo (ldb (byte 62 0) addr)) (hi (ldb (byte 62 62) addr)) (top (ldb (byte 36 124) addr))
          (a (ldb (byte 62 0) (* (logxor lo (* 31 top)) #x9E3779B97F4A7C15)))
          (b (logior 1 (ldb (byte 62 0) (* (logxor hi (* 131 top)) #xC2B2AE3D27D4EB4F)))))
@@ -632,12 +654,15 @@
           (when (zerop (sbit (bloom-bits bl) (logand (+ a (* i b)) (bloom-mask bl)))) (return nil))))))
 
 (defun build-bloom (s)
+  "The filter over S's account keys: addresses (v1), or their hashes (v2: uniform already;
+   `bloom-h` takes their low bits)."
   (let* ((n (snap-n-accounts s))
          (m (max 1024 (ash 1 (integer-length (* 16 n)))))
          (bl (%make-bloom (make-array m :element-type 'bit :initial-element 0) (1- m)))
          (sap (mapping-sap (snap-acct s))))
-    (dotimes (i n bl)
-      (bloom-add bl (sap-be sap (+ +header+ (* i +acct-rec+)) 20)))))
+    (multiple-value-bind (rec klen) (if (= (snap-version s) 2) (values +acct-rec-2+ 32) (values +acct-rec+ 20))
+      (dotimes (i n bl)
+        (bloom-add bl (sap-be sap (+ +header+ (* i rec)) klen))))))
 
 (defun layer-account (s addr)
   "(values present nonce balance codehash mark wiped) for ADDR in the layer snap S."
@@ -738,9 +763,9 @@
 
 ;;; ---------------------------------------------------------------- layers: composing
 ;;;
-;;; Lean `composeAll` / `apply` one address at a time, on raw records (no slot is decoded):
-;;; minor compaction (layers -> one layer), major compaction (base + layers -> a base)
-;;; and the layered root check all go through `compose-address`.
+;;; Lean `composeAll` / `apply` over key ranges, on raw records (no slot is decoded): minor
+;;; compaction (layers -> one layer), major compaction (base + layers -> a base) and the
+;;; layered root check all go through `compose-range`.
 
 (defstruct (obuf (:constructor %make-obuf (sap cap)))
   ;; records at +HEADER+ + i*88, so the buffer reads like a mapped storage.dat. Outside
@@ -790,87 +815,104 @@
     (dotimes (i +slot-rec+) (setf (sb-sys:sap-ref-8 d (+ p i)) (sb-sys:sap-ref-8 sap (+ off i))))
     (incf (obuf-count out))))
 
-(defun acct-lower-bound (s key)
-  "Index of the first account record of S whose address is >= KEY (20 octets)."
-  (lower-bound (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec+ key 20))
+;;; compose-range: the one merge. A RUN is the records [I, J) of a mapped file (or a buffer
+;;; laid out like one), RECSIZE bytes each, ascending by the KLEN-byte key at their start;
+;;; STOP: the run's source wiped the account whose slots the run holds, so the sources
+;;; after it are not read. Lean: `composeRuns` over (run, stop) pairs.
 
-(defun map-touched-addresses (layers fn &key lo hi)
-  "FN (addr) for every address some layer of LAYERS (snaps) mentions, ascending, each
-   once; only addresses in [LO, HI) when given (integers; HI NIL: no bound)."
-  (let* ((n (length layers))
-         (cur (make-array n :element-type 'fixnum :initial-element 0))
-         (saps (map 'vector (lambda (l) (mapping-sap (snap-acct l))) layers))
-         (ends (map 'vector #'snap-n-accounts layers))
-         (hikey (and hi (int->octets hi 20))))
-    (when lo
-      (loop for l in layers for i from 0 do (setf (aref cur i) (acct-lower-bound l (int->octets lo 20)))))
+(defstruct (run (:constructor make-run (sap i j recsize klen &optional stop)))
+  (sap (sb-sys:int-sap 0) :type sb-sys:system-area-pointer)
+  (i 0 :type fixnum) (j 0 :type fixnum) (recsize 0 :type fixnum) (klen 0 :type fixnum)
+  (stop nil))
+
+(defun compose-range (runs fn &key drop-zero)
+  "Lean `composeRuns` (Evm.Persist.Layered, Part E): the k-way merge of RUNS, newest
+   first, up to and including the first with STOP set. On equal keys the newest run's
+   record wins and every run moves past the key. FN (sap off) for each winning record, in
+   key order. DROP-ZERO: the offset of a 32-byte value in the records; a winner whose value
+   is 0 (a tombstone) is not passed on (Lean `viewRange_slot`'s filter: the base is among
+   the sources). Returns the number of records passed to FN."
+  (let* ((runs (coerce (let ((k (position-if #'run-stop runs))) (if k (subseq runs 0 (1+ k)) runs))
+                       'simple-vector))
+         (k (length runs)) (n 0))
+    (declare (type fixnum k n))
     (loop
-      (let ((bi -1) (boff 0))
-        (dotimes (i n)                  ; the smallest address under the cursors
-          (when (< (aref cur i) (aref ends i))
-            (let ((off (+ +header+ (* (aref cur i) +acct-rec+))))
-              (when (or (< bi 0) (minusp (cmp-sap* (aref saps i) off (aref saps bi) boff 20)))
-                (setf bi i boff off)))))
-        (when (or (< bi 0) (and hikey (not (plusp (cmp-key hikey (aref saps bi) boff 20)))))
-          (return))
-        (let* ((bsap (aref saps bi)) (addr (sap-be bsap boff 20)))
-          (dotimes (i n)
-            (when (and (< (aref cur i) (aref ends i))
-                       (zerop (cmp-sap* (aref saps i) (+ +header+ (* (aref cur i) +acct-rec+)) bsap boff 20)))
-              (incf (aref cur i))))
-          (funcall fn addr))))))
+      (let ((best nil) (boff 0))
+        (declare (type fixnum boff))
+        (dotimes (q k)
+          (let ((r (svref runs q)))
+            (when (< (run-i r) (run-j r))
+              (let ((off (+ +header+ (* (run-i r) (run-recsize r)))))
+                (when (or (null best) (minusp (cmp-sap* (run-sap r) off (run-sap best) boff (run-klen r))))
+                  (setf best r boff off))))))
+        (unless best (return n))
+        (let ((bsap (run-sap best)) (klen (run-klen best)))
+          (unless (and drop-zero (zero-bytes-p bsap (+ boff drop-zero) 32))
+            (funcall fn bsap boff)
+            (incf n))
+          (dotimes (q k)              ; every run at this key moves on (the newest won)
+            (let ((r (svref runs q)))
+              (when (and (< (run-i r) (run-j r))
+                         (zerop (cmp-sap* (run-sap r) (+ +header+ (* (run-i r) (run-recsize r))) bsap boff klen)))
+                (incf (run-i r))))))))))
 
-(defun slot-run (s addr)
-  "(values start end): the indices of ADDR's slot records in S."
-  (let* ((i (first-slot-of s addr)) (j i) (n (snap-n-slots s))
-         (key (int->octets addr 20)) (sap (mapping-sap (snap-slot-map s))))
-    (loop while (and (< j n) (zerop (cmp-key key sap (+ +header+ (* j +slot-rec+)) 20))) do (incf j))
-    (values i j)))
+(defun key-range (p bits klen)
+  "(values lo hi): the KLEN-byte keys whose first BITS bits are the integer P, as the
+   range [LO, HI) of octet vectors (HI NIL: P is the last prefix, the range is unbounded)."
+  (let ((shift (- (* 8 klen) bits)))
+    (values (int->octets (ash p shift) klen)
+            (and (< (1+ p) (ash 1 bits)) (int->octets (ash (1+ p) shift) klen)))))
+
+(defun table-of (s table)
+  "(values mapping fence count recsize klen) of S's TABLE, :accounts or :storage."
+  (let ((v2 (= (snap-version s) 2)))
+    (ecase table
+      (:accounts (values (snap-acct s) (snap-acct-fence s) (snap-n-accounts s)
+                         (if v2 +acct-rec-2+ +acct-rec+) (if v2 32 20)))
+      (:storage (values (snap-slot-map s) (snap-slot-fence s) (snap-n-slots s)
+                        (if v2 +slot-rec-2+ +slot-rec+) (if v2 64 52))))))
+
+(defun snap-run (s table lo hi &optional stop)
+  "The run of S's TABLE (:accounts or :storage) over the keys [LO, HI) (octet vectors of
+   the table's key length; NIL: unbounded; HI :KEY: the one key LO), found through its
+   fence."
+  (multiple-value-bind (m f count recsize klen) (table-of s table)
+    (let ((i (if lo (lower-bound m f count recsize lo klen) 0)))
+      (make-run (mapping-sap m) i
+                (cond ((eq hi :key)
+                       (if (and (< i count) (zerop (cmp-key lo (mapping-sap m) (+ +header+ (* i recsize)) klen))) (1+ i) i))
+                      (hi (lower-bound m f count recsize hi klen))
+                      (t count))
+                recsize klen stop))))
 
 (defun compose-address (layers base addr out &key final base-at)
-  "Lean `composeAll` (FINAL NIL) or `apply` over BASE (FINAL true) at ADDR, on raw
-   records. LAYERS: layer snaps, newest first; BASE: a base snap or NIL. Writes ADDR's
-   slot records (ascending; zeros kept unless FINAL) into the obuf OUT and returns
-   (values fields wiped): FIELDS (nonce balance codehash mark) from the newest layer that
-   mentions ADDR, else (FINAL) BASE's record, else NIL; WIPED: some layer removed the
-   storage below it (BASE's slots are then not read). BASE-AT (I SI SJ): BASE's account
-   record I (NIL: none) and slots SI..SJ-1 at ADDR, from a scan (the root check: no fence)."
+  "One address of a v1 stack: Lean `composeAll` (FINAL NIL) or `apply` over BASE (FINAL
+   true) at ADDR, on raw records, through `compose-range` over its slot range. LAYERS:
+   layer snaps, newest first; BASE: a base snap or NIL. Writes ADDR's slot records
+   (ascending; zeros kept unless FINAL) into the obuf OUT and returns (values fields wiped):
+   FIELDS (nonce balance codehash mark) from the newest layer that mentions ADDR, else
+   (FINAL) BASE's record, else NIL; WIPED: some layer removed the storage below it (BASE's
+   slots are then not read). BASE-AT (I SI SJ): BASE's account record I (NIL: none) and
+   slots SI..SJ-1 at ADDR, from a scan (the root check: no fence)."
   (setf (obuf-count out) 0)
-  (let ((runs '()) (fields nil) (wiped nil))
-    (dolist (l layers)
-      (multiple-value-bind (present nonce balance codehash mark w) (layer-account l addr)
-        (when present
-          (unless fields (setf fields (list nonce balance codehash mark)))
-          (multiple-value-bind (i j) (slot-run l addr)
-            (when (< i j) (setf runs (nconc runs (list (vector (mapping-sap (snap-slot-map l)) i j))))))
-          (when w (setf wiped t) (return)))))
-    (when (and final base)
-      (destructuring-bind (i si sj)
-          (or base-at (list* (and (not fields) (acct-index base addr))
-                             (if wiped (list 0 0) (multiple-value-list (slot-run base addr)))))
-        (when (and i (not fields)) (setf fields (acct-fields base i)))
-        (when (and (not wiped) (< si sj))
-          (setf runs (nconc runs (list (vector (mapping-sap (snap-slot-map base)) si sj)))))))
-    ;; RUNS: newest first, BASE last; on equal keys the first (newest) run wins
-    (let* ((runs (coerce runs 'simple-vector)) (k (length runs)))
-      (loop
-        (let ((best -1) (boff 0))
-          (dotimes (q k)
-            (let ((r (aref runs q)))
-              (when (< (aref r 1) (aref r 2))
-                (let ((off (+ +header+ (* (aref r 1) +slot-rec+) 20)))
-                  (when (or (< best 0) (minusp (cmp-sap* (aref r 0) off (aref (aref runs best) 0) boff 32)))
-                    (setf best q boff off))))))
-          (when (< best 0) (return))
-          (let* ((bsap (aref (aref runs best) 0)) (rec (- boff 20)))
-            (unless (and final (zero-bytes-p bsap (+ rec 52) 32))
-              (copy-record out bsap rec))
-            (dotimes (q k)              ; every run at this key moves on (the newest won)
-              (let ((r (aref runs q)))
-                (when (and (< (aref r 1) (aref r 2))
-                           (zerop (cmp-sap* (aref r 0) (+ +header+ (* (aref r 1) +slot-rec+) 20) bsap boff 32)))
-                  (incf (aref r 1)))))))))
-    (values fields wiped)))
+  (multiple-value-bind (lo hi) (key-range addr 160 52)
+    (let ((runs '()) (fields nil) (wiped nil))
+      (dolist (l layers)
+        (multiple-value-bind (present nonce balance codehash mark w) (layer-account l addr)
+          (when present
+            (unless fields (setf fields (list nonce balance codehash mark)))
+            (push (snap-run l :storage lo hi w) runs)
+            (when w (setf wiped t) (return)))))
+      (when (and final base)
+        (destructuring-bind (&optional (i (and (not fields) (acct-index base addr))) si sj) base-at
+          (when (and i (not fields)) (setf fields (acct-fields base i)))
+          (unless wiped
+            (push (if base-at
+                      (make-run (mapping-sap (snap-slot-map base)) si sj +slot-rec+ 52)
+                      (snap-run base :storage lo hi))
+                  runs))))
+      (compose-range (nreverse runs) (lambda (sap off) (copy-record out sap off)) :drop-zero (and final 52))
+      (values fields wiped))))
 
 ;;; ---------------------------------------------------------------- compositions
 ;;;
@@ -1085,69 +1127,77 @@
           (emit-fields m addr fields has-storage)))
     (when base-acct (incf (merge-acct-i m))))))
 
+(defun write-codes (dir chain-id block base codes version)
+  "code.dat and code.idx in DIR: BASE's codes (in hash order; BASE NIL: none) merged with
+   CODES, an alist of (codehash . octets) in any order, duplicates ignored (octets may be a
+   function of no arguments returning them). Returns (values file-entries count)."
+  (let* ((new (sort (remove-duplicates (copy-list codes) :key #'car :test #'=) #'< :key #'car))
+         (o (make-out (merge-pathnames "code.dat" dir)))
+         (idx (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+         (n 0) (hdr (make-array 36 :element-type '(unsigned-byte 8))))
+    (flet ((note (hash)
+             (loop for b across (int->octets hash 32) do (vector-push-extend b idx))
+             (loop for b across (int->octets (out-bytes-total o) 8) do (vector-push-extend b idx))
+             (incf n))
+           (pad ()
+             (let ((r (mod (out-bytes-total o) 8)))
+               (unless (zerop r) (out-octets o (make-array (- 8 r) :element-type '(unsigned-byte 8) :initial-element 0))))))
+      (flet ((put-new (hash bytes)
+               (when (functionp bytes) (setf bytes (funcall bytes)))   ; supplied lazily (importer)
+               (note hash)
+               (put-be hdr 0 hash 32) (put-be hdr 32 (length bytes) 4)
+               (out-octets o hdr) (out-octets o (coerce bytes '(simple-array (unsigned-byte 8) (*)))) (pad)))
+        (when base
+          (snap-map-codes base
+                          (lambda (hash off len sap)
+                            (loop while (and new (< (car (first new)) hash))
+                                  do (let ((c (pop new))) (put-new (car c) (cdr c))))
+                            (when (and new (= (car (first new)) hash)) (pop new))
+                            (note hash)
+                            (out-sap o sap (- off 36) (+ 36 len)) (pad))))
+        (dolist (c new) (put-new (car c) (cdr c)))))
+    (let ((code (out-close o 3 n 0 0 chain-id block version))
+          (oi (make-out (merge-pathnames "code.idx" dir))))
+      (out-octets oi (coerce idx '(simple-array (unsigned-byte 8) (*))))
+      (values (list (list* "code.dat" code) (list* "code.idx" (out-close oi 6 n 0 0 chain-id block version)))
+              n))))
+
+(defun finish-manifest (dir head counts files provenance)
+  "Write DIR's MANIFEST.sexp: HEAD (the leading fields), COUNTS, FILES (name bytes fnv),
+   PROVENANCE, the creation time and the content hash; fsync it and DIR. Returns it."
+  (let ((manifest (append head
+                          (list :counts counts
+                                :files (sort (copy-list files) #'string< :key #'first)
+                                :provenance (or provenance "")
+                                :created (multiple-value-bind (s mi h d mo y) (decode-universal-time (get-universal-time) 0)
+                                           (format nil "~4,'0D-~2,'0D-~2,'0DT~2,'0D:~2,'0D:~2,'0DZ" y mo d h mi s))))))
+    (setf manifest (append manifest (list :content-hash (snap-content-hash manifest))))
+    (with-open-file (f (merge-pathnames "MANIFEST.sexp" dir) :direction :output
+                                                             :if-exists :supersede :if-does-not-exist :create)
+      (let ((*print-pretty* nil) (*print-case* :downcase)) (prin1 manifest f) (terpri f))
+      (finish-output f)
+      (sb-posix:fsync (sb-sys:fd-stream-fd f)))
+    (fsync-path dir)
+    manifest))
+
 (defun merge-finish (m codes &key provenance)
-  "Copy the rest of BASE, write the code table (BASE's codes plus CODES: an alist of
-   (codehash . octets), any order, duplicates ignored), its index and the manifest.
-   Returns the manifest. The directory is complete but not yet published. A code's
-   octets may be a function of no arguments returning them."
+  "Copy the rest of BASE, write the code table (BASE's codes plus CODES, `write-codes`),
+   its index and the manifest. Returns the manifest. The directory is complete but not
+   yet published."
   (copy-base-upto m nil)
   (when (merge-base m)
     (release-all (snap-acct (merge-base m)))
     (release-all (snap-slot-map (merge-base m))))
-  (let* ((dir (merge-dir m)) (base (merge-base m))
-         (cid (merge-chain-id m)) (blk (merge-block m))
-         (files '())
+  (let* ((dir (merge-dir m)) (cid (merge-chain-id m)) (blk (merge-block m))
          (acct (out-close (merge-accts m) 1 (merge-n-acct m) +acct-rec+ 0 cid blk))
          (slot (out-close (merge-slots m) 2 (merge-n-slot m) +slot-rec+ 0 cid blk)))
-    (push (list* "accounts.dat" acct) files)
-    (push (list* "storage.dat" slot) files)
-    ;; code: BASE's (in hash order) merged with the new ones
-    (let* ((new (sort (remove-duplicates (copy-list codes) :key #'car :test #'=) #'< :key #'car))
-           (o (make-out (merge-pathnames "code.dat" dir)))
-           (idx (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-           (n 0) (hdr (make-array 36 :element-type '(unsigned-byte 8))))
-      (flet ((note (hash)
-               (loop for b across (int->octets hash 32) do (vector-push-extend b idx))
-               (loop for b across (int->octets (out-bytes-total o) 8) do (vector-push-extend b idx))
-               (incf n))
-             (pad ()
-               (let ((r (mod (out-bytes-total o) 8)))
-                 (unless (zerop r) (out-octets o (make-array (- 8 r) :element-type '(unsigned-byte 8) :initial-element 0))))))
-        (flet ((put-new (hash bytes)
-                 (when (functionp bytes) (setf bytes (funcall bytes)))   ; supplied lazily (importer)
-                 (note hash)
-                 (put-be hdr 0 hash 32) (put-be hdr 32 (length bytes) 4)
-                 (out-octets o hdr) (out-octets o (coerce bytes '(simple-array (unsigned-byte 8) (*)))) (pad)))
-          (when base
-            (snap-map-codes base
-                            (lambda (hash off len sap)
-                              (loop while (and new (< (car (first new)) hash))
-                                    do (let ((c (pop new))) (put-new (car c) (cdr c))))
-                              (when (and new (= (car (first new)) hash)) (pop new))
-                              (note hash)
-                              (out-sap o sap (- off 36) (+ 36 len)) (pad))))
-          (dolist (c new) (put-new (car c) (cdr c)))))
-      (push (list* "code.dat" (out-close o 3 n 0 0 cid blk)) files)
-      (let ((oi (make-out (merge-pathnames "code.idx" dir))))
-        (out-octets oi (coerce idx '(simple-array (unsigned-byte 8) (*))))
-        (push (list* "code.idx" (out-close oi 6 n 0 0 cid blk)) files))
-      (let ((manifest (list* :version 1 :chain-id cid :block blk :state-root (merge-root m)
-                             (append
-                              (and (merge-parent m) (list :kind :layer :parent (merge-parent m)))
-                              (list
-                            :counts (list :accounts (merge-n-acct m) :slots (merge-n-slot m) :codes n)
-                            :files (sort (nreverse files) #'string< :key #'first)
-                            :provenance (or provenance "")
-                            :created (multiple-value-bind (s mi h d mo y) (decode-universal-time (get-universal-time) 0)
-                                       (format nil "~4,'0D-~2,'0D-~2,'0DT~2,'0D:~2,'0D:~2,'0DZ" y mo d h mi s)))))))
-        (setf manifest (append manifest (list :content-hash (snap-content-hash manifest))))
-        (with-open-file (f (merge-pathnames "MANIFEST.sexp" dir) :direction :output
-                                                                 :if-exists :supersede :if-does-not-exist :create)
-          (let ((*print-pretty* nil) (*print-case* :downcase)) (prin1 manifest f) (terpri f))
-          (finish-output f)
-          (sb-posix:fsync (sb-sys:fd-stream-fd f)))
-        (fsync-path dir)
-        manifest))))
+    (multiple-value-bind (code-files n) (write-codes dir cid blk (merge-base m) codes 1)
+      (finish-manifest dir
+                       (list* :version 1 :chain-id cid :block blk :state-root (merge-root m)
+                              (and (merge-parent m) (list :kind :layer :parent (merge-parent m))))
+                       (list :accounts (merge-n-acct m) :slots (merge-n-slot m) :codes n)
+                       (list* (list* "accounts.dat" acct) (list* "storage.dat" slot) code-files)
+                       provenance))))
 
 (defun snap-publish (parent n tmpdir &key (final (snap-path parent n)))
   "Rename the finished TMPDIR to FINAL (default PARENT/snap-N) atomically (an existing one
@@ -1163,24 +1213,343 @@
       (sb-ext:run-program "rm" (list "-rf" old) :search t))
     final))
 
-(defun write-composed (tmpdir chain-id block root layers base &key parent provenance)
-  "Compaction, written to TMPDIR (not published). LAYERS: layer snaps, newest first.
-   PARENT NIL (major): the base at BLOCK = BASE with LAYERS applied (Lean `view`: S1 on
-   the merged state); PARENT P (minor): one layer over block P = LAYERS composed (Lean
-   `composeAll`). Returns the manifest."
-  (let ((m (make-merge tmpdir chain-id block root (and (null parent) base) :parent parent))
-        (out (make-obuf)) (codes '()))
-    (unwind-protect
-         (map-touched-addresses
-          layers
-          (lambda (addr)
-            (multiple-value-bind (fields wiped) (compose-address layers base addr out :final (null parent))
-              (merge-account m addr :fields fields :wiped wiped
-                                    :raw-slots (list (obuf-sap out) +header+ (obuf-count out))))))
-      (obuf-free out))
-    (dolist (l layers)
+(defun layer-codes (layers)
+  "The codes LAYERS hold, as an alist of (codehash . octets)."
+  (let ((codes '()))
+    (dolist (l layers codes)
       (snap-map-codes l (lambda (hash off len sap)
                           (let ((v (make-array len :element-type '(unsigned-byte 8))))
                             (dotimes (i len) (setf (aref v i) (sb-sys:sap-ref-8 sap (+ off i))))
-                            (push (cons hash v) codes)))))
-    (merge-finish m codes :provenance provenance)))
+                            (push (cons hash v) codes)))))))
+
+(defun write-composed (tmpdir chain-id block root layers base &key parent provenance)
+  "Compaction, written to TMPDIR (not published). LAYERS: layer snaps, newest first.
+   PARENT NIL (major): the base at BLOCK = BASE with LAYERS applied (Lean `view`: S1 on
+   the merged state); PARENT P (minor, v1 only): one layer over block P = LAYERS composed
+   (Lean `composeAll`). A v2 stack goes to `write-composed-2`. Returns the manifest."
+  (when (= 2 (snap-version (or base (first layers))))
+    (when parent (error "write-composed: no minor compaction of a v2 stack"))
+    (return-from write-composed (write-composed-2 tmpdir chain-id block root layers base provenance)))
+  (let ((m (make-merge tmpdir chain-id block root (and (null parent) base) :parent parent))
+        (out (make-obuf)))
+    (unwind-protect
+         ;; every address some layer mentions, ascending, once: the layers' account runs
+         (compose-range
+          (mapcar (lambda (l) (snap-run l :accounts nil nil)) layers)
+          (lambda (sap off)
+            (let ((addr (sap-be sap off 20)))
+              (multiple-value-bind (fields wiped) (compose-address layers base addr out :final (null parent))
+                (merge-account m addr :fields fields :wiped wiped
+                                      :raw-slots (list (obuf-sap out) +header+ (obuf-count out)))))))
+      (obuf-free out))
+    (merge-finish m (layer-codes layers) :provenance provenance)))
+
+;;; ---------------------------------------------------------------- v2: the persisted fence
+;;;
+;;; <name>.fnc: the header (table 7 accounts, 8 storage; count = nodes), then the nodes,
+;;; root first, each followed by its kids' subtrees in bucket order:
+;;;   bit u32 · r u32 · nkids u32 · a[2^r + 1] u32 · nkids × (bucket u32 · offset u64)
+;;; OFFSET: the kid's node, in bytes from the end of the header. No fence (an empty table):
+;;; no nodes.
+
+(defun out-int (o n width)
+  (out-room o width)
+  (put-be (out-buf o) (out-pos o) n width)
+  (incf (out-pos o) width))
+
+(defun fence-kid-list (f)
+  (and (fence-kids f)
+       (sort (loop for p being the hash-keys of (fence-kids f) using (hash-value k) collect (cons p k))
+             #'< :key #'car)))
+
+(defun fence-node-bytes (f)
+  (+ 12 (* 4 (1+ (ash 1 (fence-r f)))) (* 12 (hash-table-count (or (fence-kids f) (make-hash-table))))))
+
+(defun fence-tree-bytes (f)
+  (+ (fence-node-bytes f) (loop for (nil . k) in (fence-kid-list f) sum (fence-tree-bytes k))))
+
+(defun write-fence-file (path table f chain-id block)
+  "Persist the fence F (NIL: none) at PATH. Returns (bytes fnv-hex)."
+  (let ((o (make-out path)) (nodes 0))
+    (labels ((emit (f at)
+               (incf nodes)
+               (let ((kids (fence-kid-list f)) (a (fence-a f)))
+                 (out-int o (fence-bit f) 4) (out-int o (fence-r f) 4) (out-int o (length kids) 4)
+                 (dotimes (i (length a)) (out-int o (aref a i) 4))
+                 (let ((child (+ at (fence-node-bytes f))))
+                   (dolist (pk kids)
+                     (out-int o (car pk) 4) (out-int o child 8)
+                     (incf child (fence-tree-bytes (cdr pk)))))
+                 (let ((child (+ at (fence-node-bytes f))))
+                   (dolist (pk kids)
+                     (emit (cdr pk) child)
+                     (incf child (fence-tree-bytes (cdr pk))))))))
+      (when f (emit f 0)))
+    (out-close o table nodes 0 0 chain-id block 2)))
+
+(defun read-fence-file (path)
+  "The fence persisted at PATH (`write-fence-file`), or NIL for none."
+  (let ((m (map-file path)))
+    (unwind-protect
+         (let ((sap (mapping-sap m)))
+           (labels ((node (at)
+                      (let* ((o (+ +header+ at))
+                             (r (sap-be sap (+ o 4) 4)) (nkids (sap-be sap (+ o 8) 4))
+                             (a (make-array (1+ (ash 1 r)) :element-type '(unsigned-byte 32)))
+                             (f (%make-fence a (sap-be sap o 4) r)))
+                        (dotimes (i (length a)) (setf (aref a i) (sap-be sap (+ o 12 (* 4 i)) 4)))
+                        (let ((ko (+ o 12 (* 4 (length a)))))
+                          (dotimes (k nkids f)
+                            (setf (gethash (sap-be sap (+ ko (* 12 k)) 4)
+                                           (or (fence-kids f) (setf (fence-kids f) (make-hash-table))))
+                                  (node (sap-be sap (+ ko (* 12 k) 4) 8))))))))
+             (and (plusp (sap-be sap 16 8)) (node 0))))
+      (unmap m))))
+
+;;; ---------------------------------------------------------------- v2: the writer
+;;;
+;;; (make-writer dir chain-id block root &key parent expect), then the records in key order:
+;;; for each account, its slots (`writer-slot`, ascending hslot), then its record
+;;; (`writer-account`); `writer-record` copies a v2 record whole. `writer-finish` writes the
+;;; fences, the code tables and the manifest (the directory complete, not yet published).
+;;; The writer checks S4 (strictly ascending keys), S5 (no slot without its account record:
+;;; an account's slots come right before it) and, in a base, S2 (no zero slot); S1, which
+;;; accounts a base holds, is its caller's. PARENT: a layer over block P (tombstones and the
+;;; WIPED flag allowed). EXPECT (accounts slots): about how many records will come, which
+;;; sizes the fences' top levels built during the pass; a low guess costs a re-read of the
+;;; records at the end. The fence is the same either way (`build-fence` over the files), so
+;;; the content hash does not depend on the guess.
+
+(defstruct (ffill (:constructor make-ffill (r &aux (a (make-array (1+ (ash 1 r)) :element-type '(unsigned-byte 32))))))
+  (r 0 :type fixnum) (a nil :type (simple-array (unsigned-byte 32) (*)))
+  (p 0 :type fixnum) (n 0 :type fixnum))
+
+(defun ffill-note (ff sap off klen)
+  "The next record (key at SAP+OFF) has been emitted: fill the buckets up to its own."
+  (declare (type fixnum off klen) (optimize (speed 3) (safety 0)))
+  (let ((b (sap-bits sap off 0 (ffill-r ff) klen)) (a (ffill-a ff)) (n (ffill-n ff)))
+    (declare (type fixnum b n))
+    (loop while (<= (ffill-p ff) b) do (setf (aref a (ffill-p ff)) n) (incf (ffill-p ff)))
+    (setf (ffill-n ff) (1+ n))))
+
+(defun ffill-fence (ff)
+  "The top node of the fence over the records noted, at the radix `fence-radix` picks for
+   their count (the pass's own subsampled), or NIL when the pass's radix is coarser than
+   that (a low estimate) or there are none."
+  (let ((n (ffill-n ff)) (r (ffill-r ff)) (a (ffill-a ff)))
+    (when (and (plusp n) (>= r (fence-radix n)))
+      (loop while (<= (ffill-p ff) (ash 1 r)) do (setf (aref a (ffill-p ff)) n) (incf (ffill-p ff)))
+      (let* ((rf (fence-radix n)) (sh (- r rf))
+             (b (make-array (1+ (ash 1 rf)) :element-type '(unsigned-byte 32))))
+        (dotimes (p (length b)) (setf (aref b p) (aref a (ash p sh))))
+        (%make-fence b 0 rf)))))
+
+(defstruct (writer (:constructor %make-writer))
+  dir chain-id block root parent accts slots afill sfill
+  (n-acct 0 :type fixnum) (n-slot 0 :type fixnum)
+  (akey nil) (skey nil)                 ; the last keys emitted
+  (pending nil))                        ; the haddr whose slots came before its account record
+
+(defun make-writer (dir chain-id block root &key parent (expect '(0 0)))
+  (ensure-directories-exist (merge-pathnames "x" (pathname dir)))
+  (%make-writer :dir (pathname dir) :chain-id chain-id :block block :root root :parent parent
+                :accts (make-out (merge-pathnames "accounts.dat" (pathname dir)))
+                :slots (make-out (merge-pathnames "storage.dat" (pathname dir)))
+                :afill (make-ffill (fence-radix (first expect))) :sfill (make-ffill (fence-radix (second expect)))))
+
+(defun key-hex (buf pos n) (format nil "~{~(~2,'0X~)~}" (coerce (subseq buf pos (+ pos n)) 'list)))
+
+(defun writer-put (w table fill)
+  "Emit one record of TABLE: (FILL buf pos) writes its bytes at BUF[POS]."
+  (let* ((acct (eq table :accounts))
+         (o (if acct (writer-accts w) (writer-slots w)))
+         (recsize (if acct +acct-rec-2+ +slot-rec-2+)) (klen (if acct 32 64)))
+    (out-room o recsize)
+    (let ((buf (out-buf o)) (pos (out-pos o)))
+      (funcall fill buf pos)
+      (let ((last (if acct (writer-akey w) (writer-skey w))))
+        (when (and last (not (minusp (sb-sys:with-pinned-objects (buf)
+                                        (cmp-key last (sb-sys:vector-sap buf) pos klen)))))
+          (error "v2 writer: ~(~A~) key ~A after ~A (S4: strictly ascending)"
+                 table (key-hex buf pos klen) (key-hex last 0 klen)))
+        (if last (replace last buf :start2 pos :end2 (+ pos klen))
+            (let ((k (subseq buf pos (+ pos klen)))) (if acct (setf (writer-akey w) k) (setf (writer-skey w) k)))))
+      (let ((pending (writer-pending w)))
+        (if acct
+            (when pending
+              (unless (zerop (sb-sys:with-pinned-objects (buf) (cmp-key pending (sb-sys:vector-sap buf) pos 32)))
+                (error "v2 writer: slots of ~A without its account record (S5)" (key-hex pending 0 32)))
+              (setf (writer-pending w) nil))
+            (progn
+              (cond ((null pending) (setf (writer-pending w) (subseq buf pos (+ pos 32))))
+                    ((not (zerop (sb-sys:with-pinned-objects (buf) (cmp-key pending (sb-sys:vector-sap buf) pos 32))))
+                     (error "v2 writer: slots of ~A without its account record (S5)" (key-hex pending 0 32))))
+              (when (and (null (writer-parent w))
+                         (sb-sys:with-pinned-objects (buf) (zero-bytes-p (sb-sys:vector-sap buf) (+ pos 64) 32)))
+                (error "v2 writer: a zero slot in a base (S2), at ~A" (key-hex buf pos 64))))))
+      (sb-sys:with-pinned-objects (buf)
+        (ffill-note (if acct (writer-afill w) (writer-sfill w)) (sb-sys:vector-sap buf) pos klen))
+      (incf (out-pos o) recsize)
+      (if acct (incf (writer-n-acct w)) (incf (writer-n-slot w))))))
+
+(defun writer-account (w hkey addr flags nonce balance codehash)
+  "The account record: HKEY (32 octets, keccak(ADDR)), ADDR (an integer), FLAGS (bit 0
+   EXISTS, bit 2 WIPED), NONCE, BALANCE, CODEHASH (integers)."
+  (writer-put w :accounts
+              (lambda (buf pos)
+                (replace buf hkey :start1 pos :end2 32)
+                (put-be buf (+ pos 32) addr 20) (put-be buf (+ pos 52) flags 4) (put-be buf (+ pos 56) nonce 8)
+                (put-be buf (+ pos 64) balance 32) (put-be buf (+ pos 96) codehash 32))))
+
+(defun writer-slot (w haddr hslot value)
+  "The slot record: HADDR, HSLOT (32 octets each), VALUE (an integer; 0 only in a layer)."
+  (writer-put w :storage
+              (lambda (buf pos)
+                (replace buf haddr :start1 pos :end2 32) (replace buf hslot :start1 (+ pos 32) :end2 32)
+                (put-be buf (+ pos 64) value 32))))
+
+(defun writer-record (w table sap off &key flags)
+  "A v2 record of TABLE copied whole from SAP+OFF; FLAGS: an account's flag word instead."
+  (writer-put w table
+              (lambda (buf pos)
+                (dotimes (i (if (eq table :accounts) +acct-rec-2+ +slot-rec-2+))
+                  (setf (aref buf (+ pos i)) (sb-sys:sap-ref-8 sap (+ off i))))
+                (when flags (put-be buf (+ pos 52) flags 4)))))
+
+(defun writer-finish (w codes &key base provenance)
+  "Close the data files, write their fences (the top levels built in the pass, the kids of
+   the buckets over +FENCE-SPLIT+ records from the records just written; after a low
+   estimate, the whole fence from the records written), the code tables
+   (BASE's codes, if any, and CODES: `write-codes`) and the manifest. Returns the manifest."
+  (when (writer-pending w)
+    (error "v2 writer: slots of ~A without its account record (S5)" (key-hex (writer-pending w) 0 32)))
+  (let* ((dir (writer-dir w)) (cid (writer-chain-id w)) (blk (writer-block w))
+         (files (list (list* "accounts.dat" (out-close (writer-accts w) 1 (writer-n-acct w) +acct-rec-2+ 0 cid blk 2))
+                      (list* "storage.dat" (out-close (writer-slots w) 2 (writer-n-slot w) +slot-rec-2+ 0 cid blk 2)))))
+    (loop for (name data ff recsize klen table) in `(("accounts" "accounts.dat" ,(writer-afill w) ,+acct-rec-2+ 32 7)
+                                                      ("storage" "storage.dat" ,(writer-sfill w) ,+slot-rec-2+ 64 8))
+          do (let ((f (ffill-fence ff)) (fnc (format nil "~A.fnc" name)) (n (ffill-n ff)))
+               (when (plusp n)
+                 (let ((m (map-file (merge-pathnames data dir))))
+                   (unwind-protect (setf f (if f
+                                               (fence-split! f (mapping-sap m) recsize klen m)
+                                               (build-fence m recsize klen n t)))
+                     (unmap m))))
+               (push (list* fnc (write-fence-file (merge-pathnames fnc dir) table f cid blk)) files)))
+    (multiple-value-bind (code-files n) (write-codes dir cid blk base codes 2)
+      (finish-manifest dir
+                       (list* :version 2 :key-order :hashed :chain-id cid :block blk :state-root (writer-root w)
+                              (and (writer-parent w) (list :kind :layer :parent (writer-parent w))))
+                       (list :accounts (writer-n-acct w) :slots (writer-n-slot w) :codes n)
+                       (append files code-files)
+                       provenance))))
+
+;;; ---------------------------------------------------------------- v2: reading a stack
+;;;
+;;; By hashed key, every read a `compose-range` over the sources' runs: the layers newest
+;;; first, then the base (Lean `viewRange_acct`, `viewRange_slot`). A layer the key's Bloom
+;;; filter rules out holds no record for it, and (FieldsCover) no slot of it either.
+
+(defun maybe-holds-p (s key)
+  "S may hold the account with the hashed key KEY (an integer): a base, or a layer whose
+   Bloom filter does not rule it out."
+  (or (not (snap-layer-p s)) (bloom-maybe-p (snap-bloom s) key)))
+
+(defun acct-flags-h (s hkey &optional (key (octets->int hkey)))
+  "(values present flags) of S's account record with key HKEY (32 octets; KEY, the same as
+   an integer)."
+  (when (maybe-holds-p s key)
+    (let ((i (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec-2+ hkey 32)))
+      (and i (values t (sap-be (mapping-sap (snap-acct s)) (+ +header+ (* i +acct-rec-2+) 52) 4))))))
+
+(defun slot-runs (layers base hkey lo hi)
+  "Lean `slotFns`: the runs of HKEY's slots in [LO, HI) (64-octet keys) from each layer
+   holding HKEY's account record, newest first, up to the first that WIPED it, then from
+   BASE."
+  (let ((runs '()) (key (octets->int hkey)))
+    (dolist (l layers)
+      (multiple-value-bind (present flags) (acct-flags-h l hkey key)
+        (when present
+          (push (snap-run l :storage lo hi (logtest +flag-wiped+ flags)) runs)
+          (when (logtest +flag-wiped+ flags) (return-from slot-runs (nreverse runs))))))
+    (when base (push (snap-run base :storage lo hi) runs))
+    (nreverse runs)))
+
+(defun storage-range (hkey) (key-range (octets->int hkey) 256 64))
+
+(defun view-map-storage-h (layers base hkey fn)
+  "FN (hslot value) for every nonzero slot of the account HKEY in the view, ascending by
+   HSLOT (fresh 32-octet vectors). Returns their count."
+  (multiple-value-bind (lo hi) (storage-range hkey)
+    (compose-range (slot-runs layers base hkey lo hi)
+                   (lambda (sap off)
+                     (let ((k (make-array 32 :element-type '(unsigned-byte 8))))
+                       (dotimes (i 32) (setf (aref k i) (sb-sys:sap-ref-8 sap (+ off 32 i))))
+                       (funcall fn k (sap-be sap (+ off 64) 32))))
+                   :drop-zero 64)))
+
+(defun view-slot-h (layers base hkey hslot)
+  "The value of slot HSLOT of the account HKEY (32 octets each) in the view, 0 when absent."
+  (let ((v 0))
+    (compose-range (slot-runs layers base hkey (concatenate '(simple-array (unsigned-byte 8) (*)) hkey hslot) :key)
+                   (lambda (sap off) (setf v (sap-be sap (+ off 64) 32)))
+                   :drop-zero 64)
+    v))
+
+(defun view-account-h (layers base hkey)
+  "Lean `view` at HKEY (32 octets): (values found addr nonce balance codehash
+   exists-empty), S1 applied to the newest record of the account."
+  (let ((key (octets->int hkey)) (rec nil))
+    (compose-range (loop for s in (if base (append layers (list base)) layers)
+                         when (maybe-holds-p s key) collect (snap-run s :accounts hkey :key))
+                   (lambda (sap off)
+                     (setf rec (list (sap-be sap (+ off 32) 20) (sap-be sap (+ off 56) 8) (sap-be sap (+ off 64) 32)
+                                     (sap-be sap (+ off 96) 32) (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4))))))
+    (destructuring-bind (&optional addr nonce balance codehash mark) rec
+      (let ((empty (and rec (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
+        (cond ((null rec) (values nil 0 0 0 +empty-code-hash+ nil))
+              ((not empty) (values t addr nonce balance codehash nil))
+              ((or mark (view-has-storage-h layers base hkey)) (values t addr 0 0 codehash t))
+              (t (values nil 0 0 0 +empty-code-hash+ nil)))))))
+
+(defun view-has-storage-h (layers base hkey)
+  (view-map-storage-h layers base hkey (lambda (k v) (declare (ignore k v)) (return-from view-has-storage-h t)))
+  nil)
+
+(defun write-composed-2 (tmpdir chain-id block root layers base provenance)
+  "Major compaction of a v2 stack into a base at TMPDIR (not published): one pass of
+   `compose-range` over the accounts of LAYERS (newest first) and BASE, each account's
+   slots composed over its slot sources (tombstones dropped) and written before it, S1
+   deciding which accounts the base keeps. BASE's slots are read by a cursor (they come in
+   the accounts' order), the layers' through their fences. Returns the manifest."
+  (let* ((srcs (append layers (and base (list base))))
+         (w (make-writer tmpdir chain-id block root
+                         :expect (list (reduce #'+ srcs :key #'snap-n-accounts) (reduce #'+ srcs :key #'snap-n-slots))))
+         (bsap (and base (mapping-sap (snap-slot-map base)))) (bn (if base (snap-n-slots base) 0)) (bi 0)
+         (hkey (make-array 32 :element-type '(unsigned-byte 8))))
+    (declare (type fixnum bi bn))
+    (flet ((base-at-p (j)               ; BASE's slot J belongs to HKEY
+             (zerop (cmp-key hkey bsap (+ +header+ (* j +slot-rec-2+)) 32))))
+      (compose-range
+       (mapcar (lambda (s) (snap-run s :accounts nil nil)) srcs)
+       (lambda (sap off)
+         (dotimes (i 32) (setf (aref hkey i) (sb-sys:sap-ref-8 sap (+ off i))))
+         (when (and (< bi bn) (plusp (cmp-key hkey bsap (+ +header+ (* bi +slot-rec-2+)) 32)))
+           (error "~A: slot record ~D belongs to no account (S5)" (snap-dir base) bi))
+         (let ((bj bi))
+           (declare (type fixnum bj))
+           (loop while (and (< bj bn) (base-at-p bj)) do (incf bj))
+           (let* ((runs (multiple-value-bind (lo hi) (storage-range hkey)
+                          (append (slot-runs layers nil hkey lo hi)
+                                  (and (> bj bi) (list (make-run bsap bi bj +slot-rec-2+ 64))))))
+                  (nslots (compose-range runs (lambda (s o) (writer-record w :storage s o)) :drop-zero 64))
+                  (nonce (sap-be sap (+ off 56) 8)) (balance (sap-be sap (+ off 64) 32))
+                  (codehash (sap-be sap (+ off 96) 32))
+                  (empty (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
+             (setf bi bj)
+             (when (s1-included-p nonce balance codehash (plusp nslots)
+                                  (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4)))
+               (writer-record w :accounts sap off :flags (if empty +flag-exists-empty+ 0)))))))
+      (when (< bi bn) (error "~A: ~D slot records belong to no account (S5)" (snap-dir base) (- bn bi))))
+    (when base (release-all (snap-acct base)) (release-all (snap-slot-map base)))
+    (writer-finish w (layer-codes layers) :base base :provenance provenance)))

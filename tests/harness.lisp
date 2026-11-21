@@ -60,6 +60,7 @@
     ("mpt-incremental" "mpt-incremental.lisp")
     ("snapshot-root" "snapshot-root.lisp")
     ("layers" "layers.lisp")
+    ("frontier" "frontier.lisp")
     ("world-slots" "world-slots.lisp")
     ("p256verify" "p256verify.lisp")
     ("op-l1-fee" "op-l1-fee.lisp")
