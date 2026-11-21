@@ -16,7 +16,8 @@
    connection that drops during authentication) is logged and the server goes on
    listening: Swank's own accept loop lets it escape its thread, and in a process with the
    debugger disabled an error that escapes a thread ends the process. The thread registers
-   itself as Swank's does, so `stop` (swank:stop-server) closes the socket and ends it.
+   itself as Swank's does (before SERVE returns), so `stop` (swank:stop-server) closes the
+   socket and ends it.
    Signals an error when the port cannot be bound (in use, or not permitted)."
   (swank::init-log-output)
   (let ((socket (let ((swank::*loopback-interface* "127.0.0.1")) (swank::socket-quest port nil))))
@@ -29,6 +30,8 @@
                  (format *error-output* "~&[swank] a connection failed (still listening): ~A~%" e)
                  (finish-output *error-output*)))))
      :name (format nil "Swank ~D" port))
+    ;; registered before this returns, so a `stop` right after it finds the server
+    (loop repeat 500 until (find socket swank::*servers* :key #'car) do (sleep 0.002))
     port))
 
 (defun stop (port)

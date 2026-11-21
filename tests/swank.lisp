@@ -1,7 +1,7 @@
 ;;;; tests/swank.lisp — the Swank server (src/swank.lisp) and how bin/eita starts it (src/cli.lisp):
 ;;;;   1. it listens on 127.0.0.1 only and answers an eval over Swank's wire protocol;
-;;;;   2. a connection that fails in accept (the client gone first: ECONNABORTED) is logged and
-;;;;      the server goes on; stop closes it and its thread ends;
+;;;;;   2. a connection that fails in accept (the client gone first: ECONNABORTED) is logged and
+;;;;      the server goes on; stop closes it and its thread ends, also right after the start;
 ;;;;   3. EITA_SWANK_PORT starts it, 0 or unset (with no default) does not, and a port in use
 ;;;;      leaves the command running without a server.
 
@@ -67,6 +67,15 @@
              (check (not (sb-thread:thread-alive-p thread)) "the accept thread outlived stop"))))
     (sb-int:unencapsulate 'swank/backend:accept-connection 'econnaborted)
     (when (server port) (ignore-errors (eita-swank:stop port)))))
+
+;;; a stop right after the start (a command that fails at once) closes the server
+(let ((port (free-port)) (swank::*log-output* (make-broadcast-stream)))
+  (eita-swank:serve port)
+  (let ((thread (third (server port))))
+    (eita-swank:stop port)
+    (check (and thread (not (server port))) "the server outlived a stop right after its start")
+    (when thread (sb-thread:join-thread thread :default nil :timeout 5))
+    (check (not (and thread (sb-thread:thread-alive-p thread))) "its thread outlived the stop")))
 
 ;;; 3: EITA_SWANK_PORT, as the commands read it
 (let ((saved (sb-posix:getenv "EITA_SWANK_PORT")) (port (free-port))
