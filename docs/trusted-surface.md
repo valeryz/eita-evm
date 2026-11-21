@@ -150,8 +150,8 @@ comparison, and the resume self-check.
 
 A proof is only as good as the statement it proves. Forty-one headline theorems have their
 statements written out in `lean/Comparator/Challenge.lean`, which is the human-reviewed record
-(reviewer: the owner; CODEOWNERS routes it, and `scripts/generated/comparator-challenge.sha256`
-must change with it). They cover Block-STM, the IR compiler, the effect layer, the stack-cache
+(CODEOWNERS routes it for review, and `scripts/generated/comparator-challenge.sha256` must change
+with it). They cover Block-STM, the IR compiler, the effect layer, the stack-cache
 check (ARM64, x86-64), the ARM64 call and SSTORE gas routines, the op semantics of JUMP/JUMPI and
 the memory-expansion prologue, the precompile wrappers (BLAKE2F, BLS12-381, P-256), and recent-fork
 opcodes. `scripts/verify-comparator.sh` (in CI) runs `lake comparator`, the judge built into Lean
@@ -198,22 +198,22 @@ it for finite checks over emitted code and tables (counts per component in
 runs an `@[extern]` / `@[implemented_by]` constant outside its short reviewed list, so what is evaluated is
 Lean code, not a C library.
 
-## Planned: the native storage path (owner note 6; docs/native-storage.md)
+## The native storage path
 
-Each section is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
+The design is [`native-storage.md`](native-storage.md). The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
 from the effect IR, whose semantics (`Stmt.run`) carry the effect proofs. What is trusted is (1) the IR -> C printer,
-the same class as today's IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. Unlike the Lisp it
-replaces, C has no bounds or type checks: memory safety is an obligation of its own.
+the same class as the IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. C has no bounds or type
+checks: memory safety is an obligation of its own.
 
 Classes: **derived** (emitted from a verified source), **proved** (a Lean theorem about the definition the C is emitted
 from), **model-checked** (CBMC: memory safety, and equivalence to the Lean model at small sizes), **tested** (randomized
 differential tests, sanitizer builds, the replay).
 
-### Limb primitives — proved, emitted (built: step 3)
+### Limb primitives — proved, emitted
 
 `lean/Evm/CL/LimbC.lean`: each primitive is a term of a small limb language (expressions, conditions,
 four-limb assignments) with a meaning, proved equal to its 256-bit operation through `Evm.CL.WordOps`
-(core def68c3: `eq_ofBV`, `isZero_ofBV`, `toBV_ofBV`), and PRINTED to `c/generated/limb_ops.h` from the same
+(`eq_ofBV`, `isZero_ofBV`, `toBV_ofBV`), and PRINTED to `c/generated/limb_ops.h` from the same
 term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No hand transcription.
 
 | primitive | contract | theorem |
@@ -223,17 +223,17 @@ term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No h
 | `limb_copy(dst, src)` | dst := src | `copyA_spec` |
 | `limb_zero(dst)` | dst := 0 | `zeroA_spec` |
 
-### The SLOAD effect in C — derived (built: step 3)
+### The SLOAD effect in C — derived
 
 `c/generated/storage_effect.c` (`eita_spec_sload_effect`) is `Evm.CL.EffectSload.term` printed as C by
 `Evm.CL.EffectC` (`lake exe emitStorageC`, drift-checked); the term and its proof (`sload_refines`) are
-untouched, and since step 6 this is the term's only printing. Trusted: the printer (the same class as `toCL`;
+untouched, and this is the term's only printing. Trusted: the printer (the same class as `toCL`;
 it fails on any construct outside its subset rather than skipping it) and the primitives below.
 
-### The SLOAD/SSTORE host — tested (built: steps 3-6)
+### The SLOAD/SSTORE host — tested
 
 `c/storage_host.{h,c}`: `eita_cb_sload` / `eita_cb_sstore` in the callbacks vtable's SLOAD/SSTORE slots are the
-opcodes' one execution path (step 6). Each binds the frame account and key (the account's id from a 64-entry
+opcodes' one execution path. Each binds the frame account and key (the account's id from a 64-entry
 cache keyed by the slot tables' serial, a freed table's address may be reused; an address not in it is
 learned once from Lisp, `cb-storage-learn`), runs the emitted effect, then calls the Lisp hook
 (`cb-storage-hook`) when the read stream is on, the account is watched, or (SSTORE) the slot changed while the
@@ -241,17 +241,15 @@ incremental root checker tracks dirty slots. Its primitives: `eita_sh_fault` (`e
 lazy world is loaded through `cb-storage-fault`, the world's fault hook, and read again; absent = zero; the
 observers' first touch), `eita_sh_sload` (`limb_copy`, and the value kept as the current one),
 `eita_sh_access_slot` / `eita_sh_orig_record` (the native TxState, unchanged). **Checked by** the fixtures
-(every GeneralStateTests storage directory), the differential (JIT vs interpreter), the 30k replay, the fact
-log and storage view of the 30k range compared with the ones step 5's Lisp path wrote, and
-`tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
+(every GeneralStateTests storage directory), the differential (JIT vs interpreter), a 30,000-block mainnet replay,
+and `tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
 emitted file).
 
-### Table primitives — proved in Velvet for every capacity, emitted (built: owner note 6 step 2; emitted since the Velvet swap)
+### Table primitives — proved in Velvet for every capacity, emitted
 
 `c/world_slots.h` (the ABI) over `c/world_slots_emit.c` (generated, do not edit) and `c/world_slots.c` (glue):
 per account id, one open-addressed table of slot -> value, under a directory per account table. The Lean model is
-a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put / remove / drop / copy). Until this swap the table was
-164 lines of hand-written C (126 of code), model-checked by CBMC at capacities 4 and 8 only.
+a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put / remove / drop / copy).
 
 | primitive | contract (on the model) | memory-safety obligations |
 |---|---|---|
@@ -286,18 +284,18 @@ regenerates `c/world_slots_emit.c` and fails on any difference.
   keeps the directory's pointer array, calls the map callback. It makes no table decision; the package's
   world-level proofs (`verify/velvet-slots/Slots/World.lean`) mirror it line by line, but the glue itself is hand-written C.
 
-**Still checked** (unchanged, now on the emitted C). CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
+**Also checked.** CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
 table of capacity 4 or 8 satisfying the probing invariant, get, place, remove and grow are memory-safe (bounds,
 pointers, frees, leaks, overflow, conversions) and agree with the model; the directory with concrete ids. Since
-the Velvet proofs cover every capacity, CBMC is now a cross-check of the C as compiled (the printer, the glue, the
-`Nat`/`uint64_t` gap) rather than the only evidence. Randomized: `c/test_world_slots` under ASan + UBSan and on a
+the Velvet proofs cover every capacity, CBMC is a cross-check of the C as compiled (the printer, the glue, the
+`Nat`/`uint64_t` gap). Randomized: `c/test_world_slots` under ASan + UBSan and on a
 trace of the Lean model itself (`lake exe worldSlotsVectors`); `tests/world-slots.lisp`; the fixtures (every
-GeneralStateTests storage directory) and the 30k replay.
+GeneralStateTests storage directory) and the mainnet replay.
 
-### The SSTORE effect in C, its journal entry and the native revert — derived + tested (built: step 4)
+### The SSTORE effect in C, its journal entry and the native revert — derived + tested
 
 `eita_spec_sstore_effect` and `eita_spec_sstore_plan` (c/generated/storage_effect.c) are
-`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (their only printing since step 6;
+`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (their only printing;
 `sstore_refines` untouched); the schedules themselves are the
 emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasSem`). The host primitives
 (c/storage_host.c, tested):
@@ -305,23 +303,20 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 | primitive | contract |
 |---|---|
 | `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
-| `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as the Lisp's `refund-add!`); returns the cost |
+| `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as `refund-add!`); returns the cost |
 | `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
 | `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
-**Checked by** the fixtures (every SSTORE/refund/revert directory), the differential (to step 5 native vs the
-Lisp effect, journal entries byte for byte, on every tx of the storage fixtures and sampled on the 30k replay;
-from step 6 JIT vs interpreter on the one path) and the replay.
+**Checked by** the fixtures (every SSTORE/refund/revert directory), the tier differential (JIT vs interpreter on
+the one path) and the replay.
 
-### Lisp accessors and hook tiers — tested (built: steps 2, 5 and 6)
+### Lisp accessors and hook tiers — tested
 
 The routed Lisp accessors (the routing list in docs/native-storage.md) and the hook tiers:
 (a) the observers' first-touch log (c/storage_host.c `eita_sh_touch`: one ordered log of every slot's first
 touch in a tx with its value then, written by the native effects and by `observe-slot-touch!`, read by
 `do-storage-changes`); (b) the watch filter (up to 16 accounts whose SLOAD/SSTOREs call the hook, which calls
 `*storage-access-hook*`); (c) the hook mode: the native effect plus `cb-storage-hook` per access while the read
-stream is on (step 5 swapped the vtable to the Lisp callbacks instead; step 6 deleted them). **Checked by** the
-differential, the fixtures, the 30k replay, `tests/native-storage-hooks.lisp` (observed fixtures: rows equal with
-and without the watch; rows and watched accesses equal a digest recorded from step 5's Lisp path), and the fact
-log and storage view of the 30k range compared with the ones the Lisp path wrote (step 5: rows and content
-hashes in every sealed segment; step 6: against step 5's Lisp-path outputs).
+stream is on. **Checked by** the differential, the fixtures, the mainnet replay and
+`tests/native-storage-hooks.lisp` (observed fixtures: rows equal with and without the watch; rows and watched
+accesses equal a recorded digest).

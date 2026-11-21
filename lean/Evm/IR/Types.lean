@@ -1,7 +1,7 @@
 /-
   Evm.IR.Types — the shared IR consumed by both the interpreter tier
   (ARM64 threaded dispatch handlers) and the JIT tier (per-chunk native
-  emit). Designed per docs/ir-op-design.md.
+  emit).
 
   This is a DATA STRUCTURE for compilation, not a separate semantic
   layer. Each `IR.Op` and `IR.Terminator` variant corresponds to one

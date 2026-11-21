@@ -1,6 +1,6 @@
 import Evm.CL.EffectIR
 
-/-! # CL/EffectEndTx — the end of a tx, derived (docs/effect-layer-derivation.md §7.2)
+/-! # CL/EffectEndTx — the end of a tx, derived (docs/effect-layer-derivation.md §4.3)
 
 After the fee settlement, EELS `process_transaction` destroys the accounts_to_delete — on
 every fork; before Cancun every first SELFDESTRUCT puts its account there, from Cancun

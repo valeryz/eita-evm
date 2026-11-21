@@ -1,6 +1,6 @@
 import Evm.CL.EffectIR
 
-/-! # CL/EffectSettle — the tx fee settlement, derived (docs/effect-layer-derivation.md §7.1)
+/-! # CL/EffectSettle — the tx fee settlement, derived (docs/effect-layer-derivation.md §4.2)
 
 After the message runs and the refund cap / calldata floor fix `gas-used`
 (`spec-tx-gas-used`), EELS `process_transaction` settles the fee:

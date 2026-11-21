@@ -154,7 +154,7 @@ written.
   deltas, while `Answer` is dependent per key kind. The fold is to make `Reads` generic over the
   key and value types (`[DecidableEq K]`, an additive value for deltas), instantiate it at
   `ReadKey`, and restate `Faithful`/`Deterministic` as `AgreeOn`/`Sufficient`. It goes with the
-  oracle-program work (witness-design W2), where `Deterministic` becomes a theorem.
+  oracle-program work (witness-design §6, `txProg`), where `Deterministic` becomes a theorem.
 - The EVM instance of `Sufficient` (`SameOutcome`, `Tx.run`) and the theorem that the asked set is
   sufficient: witness-design §2.2, §2.3.
 - The recorder gap above (credits outside tx windows).

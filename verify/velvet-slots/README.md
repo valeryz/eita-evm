@@ -49,7 +49,7 @@ Axioms (`Slots/Axioms.lean`, 26 `#print axioms`): only `propext`, `Classical.cho
 `lake build Slots Slots.CPrint && lake env lean Slots/Emit.lean && lake env lean PrinterNeg.lean` (the printer is
 not in the default target; Velvet is pinned by full SHA in `lake-manifest.json`).
 
-Velvet friction met here: anonymous goal names (`rename_i`); `simp` shows `set!` as `setIfInBounds`, so two lemma
+Velvet usage notes: anonymous goal names (`rename_i`); `simp` shows `set!` as `setIfInBounds`, so two lemma
 forms are needed; specs must use `⌜φ⌝ ⊓ post` (not `∧`) for vcgen to split them; anonymous-constructor notation
 doesn't see through a `def`; a callee's `given` ghost becomes an unsolvable goal at the call site (ghost-free inner
 contracts instead).

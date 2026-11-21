@@ -4,8 +4,8 @@ import Evm.CL.EffectSstore
 /-! # CL/EffectC — the effect IR printed as C, for the native storage path
 
 `Stmt.toCL` (Evm.CL.EffectIR) prints the other callbacks' effects as Common Lisp; this prints the
-SLOAD and SSTORE terms as C, their one execution path (docs/native-storage.md, owner note 6 and
-its addendum 2: there is no Lisp printing of these terms). The terms, their meaning (`Stmt.run`)
+SLOAD and SSTORE terms as C, their one execution path (docs/native-storage.md;
+there is no Lisp printing of these terms). The terms, their meaning (`Stmt.run`)
 and their proofs (`Evm.CL.EffectSloadProof`, `EffectSstoreProof`) are untouched: the trusted part
 is this printer (the same class as `toCL`) and the primitives it prints to (`c/storage_host.h`,
 `c/generated/limb_ops.h`; docs/trusted-surface.md).
