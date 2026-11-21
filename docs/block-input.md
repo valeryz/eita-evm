@@ -91,6 +91,10 @@ state is `<PREFIX>_FROM_GENESIS`.
   serves blocks only, so it refuses lazy runs.
 - The Hoodi testnet runs as `--chain hoodi` (mainnet's rules, Hoodi's id, genesis
   `chains/hoodi/genesis.json` from eth-clients/hoodi, and fork schedule `Evm.Fork.ofHoodi`).
+- A devnet on mainnet's rules (geth `--dev`, Kurtosis) runs as `--chain devnet --genesis FILE`:
+  its chain id and fork times are read from that genesis.json, the fork of each block is
+  `Evm.Fork.ofTimes` at those times, and a genesis that is not of that shape (a fork out of
+  order or after BPO2, a blob schedule other than the Lean one) is refused.
 - The other chains run the same way: `--chain arc-mainnet` / `arc-testnet`
   (`src/chains/arc.lisp`; the chain's `genesis.json` via `--genesis`), `--chain base` /
   `opt` / `world` (`src/chains/op.lisp`, OP Stack: `--genesis FILE` runs them from the

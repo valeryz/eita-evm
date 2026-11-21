@@ -158,21 +158,22 @@
                             r s))))
 
 (defun tx-sender-verified-p (tx)
-  "TX names the sender its signature recovers. An OP deposit (0x7e) is unsigned: its
-   sender is in its envelope, which transactionsRoot covers."
-  (or (= (tx-type tx) #x7e) (eql (tx-sender tx) (recover-tx-sender tx))))
+  "TX names the sender its signature recovers: a sender the source gave is compared with
+   the recovery here, one that `recover-senders!` set is the recovery. An OP deposit (0x7e)
+   is unsigned: its sender is in its envelope, which transactionsRoot covers."
+  (or (= (tx-type tx) #x7e) (tx-sender-recovered tx) (eql (tx-sender tx) (recover-tx-sender tx))))
 
 ;;; Sender recovery is half the verifier's CPU (one secp256k1 recovery per tx) and the
 ;;; verifier is one thread: at ~50 blocks/s it saturated and the replay waited on its pipe.
 ;;; The txs are independent, so a fixed pool checks a block's txs in parallel (tx k on
 ;;; worker k mod n). The answer is the same as a sequential scan's: the LOWEST failing index.
 (defconstant +sender-workers+ 4)
-(defvar *sender-pool* nil "(txs results go-semaphores done-semaphore), started on first use.")
+(defvar *sender-pool* nil "(txs results go-semaphores done-semaphore test), started on first use.")
 
 (defun sender-pool ()
   (or *sender-pool*
       (let* ((go (loop repeat +sender-workers+ collect (sb-thread:make-semaphore)))
-             (pool (list (vector) (make-array +sender-workers+) go (sb-thread:make-semaphore))))
+             (pool (list (vector) (make-array +sender-workers+) go (sb-thread:make-semaphore) nil)))
         (loop for sem in go for k from 0
               do (let ((sem sem) (k k))
                    (sb-thread:make-thread
@@ -180,26 +181,41 @@
                       (loop (sb-thread:wait-on-semaphore sem)
                             (setf (svref (second pool) k)
                                   (handler-case
-                                      (let ((txs (first pool)))
+                                      (let ((txs (first pool)) (test (fifth pool)))
                                         (loop for i from k below (length txs) by +sender-workers+
-                                              unless (tx-sender-verified-p (svref txs i)) return i))
+                                              unless (funcall test (svref txs i)) return i))
                                     (error (e) e)))
                             (sb-thread:signal-semaphore (fourth pool))))
                     :name (format nil "sender check ~D" k))))
         (setf *sender-pool* pool))))
 
-(defun first-unverified-sender (txs)
-  "The index of the first tx in TXS whose sender its signature does not recover, or NIL."
+(defun first-failing-tx (txs test)
+  "The index of the first tx in TXS that TEST (one tx's signature work) fails, or NIL; on the
+   pool from 8 txs. Callers are the replay thread and the verifier, never both at once: the
+   replay recovers a block's senders before it runs, the verifier checks them after."
   (if (< (length txs) 8)
-      (position-if-not #'tx-sender-verified-p txs)
+      (position-if-not test txs)
       (let ((pool (sender-pool)))
-        (setf (first pool) (coerce txs 'simple-vector))
+        (setf (first pool) (coerce txs 'simple-vector) (fifth pool) test)
         (dolist (sem (third pool)) (sb-thread:signal-semaphore sem))
         (sb-thread:wait-on-semaphore (fourth pool) :n +sender-workers+)
         (setf (first pool) (vector))
         (let ((rs (coerce (second pool) 'list)))
           (dolist (r rs) (when (typep r 'error) (error r)))
           (let ((fails (remove nil rs))) (and fails (reduce #'min fails)))))))
+
+(defun first-unverified-sender (txs)
+  "The index of the first tx in TXS whose sender its signature does not recover, or NIL."
+  (first-failing-tx txs #'tx-sender-verified-p))
+
+(defun recover-senders! (txs)
+  "Each tx's sender from its signature, for a source that carries none (Engine API payloads,
+   fixtures): the one recovery of that sender (marked, so the verifier does not repeat it).
+   The index of the first tx whose signature does not recover, or NIL."
+  (first-failing-tx txs (lambda (tx)
+                          (let ((s (recover-tx-sender tx)))
+                            (when s (setf (tx-sender tx) s (tx-sender-recovered tx) t))
+                            s))))
 
 ;; eita_ecrecover creates its secp256k1 context on first use, unlocked: create it here, on
 ;; the loading (or starting) thread, before the verifier and the replay thread can race to.

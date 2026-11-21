@@ -118,6 +118,9 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec
 #print axioms Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec
 #print axioms Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec
+#print axioms Evm.CL.GasEmitCancun.blobScheduleTarget_eq_spec
+#print axioms Evm.CL.GasEmitCancun.blobScheduleMax_eq_spec
+#print axioms Evm.CL.GasEmitCancun.blobBaseFeeUpdateFraction_eq_spec
 #print axioms Evm.CL.GasEmitPrague.calldataFloor_eq_spec
 #print axioms Evm.CL.GasEmitPrague.intrinsicCall_eq_spec
 #print axioms Evm.CL.GasEmitPrague.intrinsicCreate_eq_spec
@@ -127,6 +130,7 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.Flags.charge_is_spec
 #print axioms Evm.CL.ForkEmit.mainnetForkOrd_eq_spec
 #print axioms Evm.CL.ForkEmit.hoodiForkOrd_eq_spec
+#print axioms Evm.CL.ForkEmit.timesForkOrd_eq_spec
 #print axioms Evm.CL.BlobEnv.blobbasefee_is_spec
 #print axioms Evm.CL.BlobEnv.blobhash_is_spec
 #print axioms Evm.CL.HostEmit.createCollision_eq_spec

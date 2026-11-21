@@ -51,8 +51,9 @@
 ;;; The VERIFIER, the standing subscriber, runs each block's header check (:verify verdict
 ;;; check) while the replay runs on, at most 16 blocks behind. Nothing durable claims a
 ;;; block before its verdict: a layer at N (`stream-checkpoint!`'s waiter) and an observer's
-;;; commit of N wait for it. A refusal covers every later block. Reports run on the replay
-;;; thread at its next flush (`verifier-note!`).
+;;; commit of N wait for it. A refusal covers every later block of its chain: a rollback below
+;;; the refused block (`stream-rollback!`, the block dropped) lifts it, so the next branch is
+;;; judged on its own. Reports run on the replay thread at its next flush (`verifier-note!`).
 ;;;
 ;;; Records in a block's buffer, each a code and its fields: an EVENT (+fw-event+, a list):
 ;;; (:block-begin block) (:verify verdict check) (:commit n force durable verdict) (:checkpoint
@@ -182,17 +183,21 @@
   (sb-thread:with-mutex (*verdict-lock*) (push report *verifier-notes*)))
 
 (defun make-verifier-event ()
-  "Every verdict resolved, in order; a check that signals is a refusal, reported."
+  "Every verdict resolved, in order; a check that signals is a refusal, reported. REFUSED is
+   the first refused block: it and every later one are refused until a rollback below it."
   (let ((refused nil))
     (lambda (ev)
-      (when (eq (car ev) :verify)
-        (destructuring-bind (v check) (cdr ev)
-          (setf refused (or refused
-                            (not (handler-case (funcall check)
-                                   (error (e) (verifier-note! (lambda () (error "verifying block ~D: ~A" (verdict-block v) e))) nil)))))
-          (sb-thread:with-mutex (*verdict-lock*)
-            (setf (verdict-ok v) (not refused))
-            (sb-thread:condition-broadcast *verdict-cv*)))))))
+      (case (car ev)
+        (:verify
+         (destructuring-bind (v check) (cdr ev)
+           (unless (or refused
+                       (handler-case (funcall check)
+                         (error (e) (verifier-note! (lambda () (error "verifying block ~D: ~A" (verdict-block v) e))) nil)))
+             (setf refused (verdict-block v)))
+           (sb-thread:with-mutex (*verdict-lock*)
+             (setf (verdict-ok v) (not refused))
+             (sb-thread:condition-broadcast *verdict-cv*))))
+        (:rollback (when (and refused (> refused (second ev))) (setf refused nil)))))))
 
 (defun check-subscribers ()
   "Run the verifier's reports, then re-raise a subscriber's failure, on the replay thread."
@@ -263,15 +268,14 @@
         (setf acks (lambda () (sb-thread:wait-on-semaphore sem :n k)))))
     (lambda () (when acks (funcall acks)) (require-verified v))))
 (defun stream-rollback! (n)
-  "A reorg rolled the state back to block N: every subscriber rolls back (on its thread,
-   after everything captured). A subscriber that cannot stops the run instead of being
-   left ahead of the state."
-  (when *observer*
-    (let ((stuck (mapcar #'subscriber-name (remove-if #'subscriber-rolls-back *subscribers*))))
-      (when stuck
-        (error "reorg: subscribers ~{~A~^, ~} cannot roll back; restart from an anchor" stuck)))
-    (fw-push (list :rollback n))
-    (fw-drain)))
+  "A reorg (or a block refused) rolled the state back to block N: every subscriber rolls back
+   (on its thread, after everything captured), the verifier too. A subscriber that cannot
+   stops the run instead of being left ahead of the state."
+  (let ((stuck (mapcar #'subscriber-name (remove-if #'subscriber-rolls-back *subscribers*))))
+    (when stuck
+      (error "reorg: subscribers ~{~A~^, ~} cannot roll back; restart from an anchor" stuck)))
+  (fw-push (list :rollback n))
+  (fw-drain))
 
 (defun stream-finalize! ()
   "End of the stream: every subscriber sees (:finalize) after the last commit, then stops,

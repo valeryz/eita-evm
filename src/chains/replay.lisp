@@ -7,7 +7,7 @@
 (in-package #:eita.chain)
 
 (defparameter +replay-chains+
-  '(("ethereum" :ethereum) ("hoodi" :ethereum "hoodi") ("arc" :arc) ("arc-testnet" :arc "testnet") ("arc-mainnet" :arc "mainnet")
+  '(("ethereum" :ethereum) ("hoodi" :ethereum "hoodi") ("devnet" :ethereum "devnet") ("arc" :arc) ("arc-testnet" :arc "testnet") ("arc-mainnet" :arc "mainnet")
     ("base" :op "base") ("opt" :op "opt") ("world" :op "world"))
   "The chains REPLAY runs: name, driver, and the driver's network.")
 
@@ -18,7 +18,7 @@
 
 (defun eita:replay (chain from &key to blocks source observer state checkpoint-every
                                     (full-state nil full-state-p) resume genesis)
-  "Replay CHAIN (\"ethereum\", \"hoodi\", \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
+  "Replay CHAIN (\"ethereum\", \"hoodi\", \"devnet\" (GENESIS: its genesis.json), \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
    \"world\") from block FROM to TO (default FROM; :tip follows the head, when the source can).
    BLOCKS: a directory of block files (docs/block-input.md); SOURCE: a Lisp file installing a
    block source; OBSERVER: a Lisp file installing an observer; STATE: the state directory

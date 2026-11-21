@@ -4,7 +4,8 @@ import Evm.Testnets
 /-! Ethereum mainnet's fork schedule as an emitted `Expr`: `spec-mainnet-fork-ord (n ts)`
     in `src/generated/host.lisp` is the ordinal of `Evm.Fork.ofBlock n ts`, proved
     below, so the Lisp replay's fork choice comes from the one Lean table. Hoodi's,
-    `spec-hoodi-fork-ord (ts)`, is `Evm.Fork.ofHoodi ts` the same way. -/
+    `spec-hoodi-fork-ord (ts)`, is `Evm.Fork.ofHoodi ts` the same way, and a devnet's,
+    `spec-times-fork-ord (ts prague osaka bpo1 bpo2)`, is `Evm.Fork.ofTimes`. -/
 
 namespace Evm.CL.ForkEmit
 open Evm.CL.GasEmit
@@ -67,5 +68,33 @@ theorem hoodiForkOrd_eq_spec (ρ : Env) :
   generalize (1761677592 : Nat) = k3 at *
   generalize (1742999832 : Nat) = k4 at *
   simp only [ge_iff_le, ← Nat.not_lt, ite_not]
+
+/-- Mirrors `Fork.ofTimes`: the activation times are inputs (a devnet's genesis.json). -/
+def timesForkOrd : Expr :=
+  .ite (.var "ts") (.var "bpo2")
+    (.ite (.var "ts") (.var "bpo1")
+      (.ite (.var "ts") (.var "osaka")
+        (.ite (.var "ts") (.var "prague") (.lit 16) (.lit 17))
+        (.lit 18))
+      (.lit 19))
+    (.lit 20)
+
+theorem timesForkOrd_eq_spec (ρ : Env) :
+    timesForkOrd.eval ρ
+      = (Fork.ofTimes (ρ "prague") (ρ "osaka") (ρ "bpo1") (ρ "bpo2") (ρ "ts")).ord := by
+  simp only [timesForkOrd, Expr.eval, Fork.ofTimes, ge_iff_le]
+  -- one case per fork, newest first: each side's tests decided by the same hypotheses
+  by_cases h1 : ρ "bpo2" ≤ ρ "ts"
+  · simp only [h1, ite_true, Nat.not_lt.mpr h1, ite_false]; rfl
+  by_cases h2 : ρ "bpo1" ≤ ρ "ts"
+  · simp only [h1, h2, ite_true, ite_false, Nat.not_lt.mpr h2, Nat.lt_of_not_le h1]; rfl
+  by_cases h3 : ρ "osaka" ≤ ρ "ts"
+  · simp only [h1, h2, h3, ite_true, ite_false, Nat.not_lt.mpr h3, Nat.lt_of_not_le h1,
+      Nat.lt_of_not_le h2]; rfl
+  by_cases h4 : ρ "prague" ≤ ρ "ts"
+  · simp only [h1, h2, h3, h4, ite_true, ite_false, Nat.not_lt.mpr h4, Nat.lt_of_not_le h1,
+      Nat.lt_of_not_le h2, Nat.lt_of_not_le h3]; rfl
+  · simp only [h1, h2, h3, h4, ite_true, ite_false, Nat.lt_of_not_le h1, Nat.lt_of_not_le h2,
+      Nat.lt_of_not_le h3, Nat.lt_of_not_le h4]; rfl
 
 end Evm.CL.ForkEmit
