@@ -282,6 +282,52 @@ rv32_engine: | $(RV32_DIR)
 $(RV32_DIR):
 	mkdir -p $@
 
+# ---------------------------------------------------------------------------
+# The engine RUNNING, on this machine: qemu-system-riscv32 `virt`, bare metal.
+#
+# Until this target existed the rv32 assembly had never executed anywhere --
+# `rv32_engine` only links it, and c/test_interp.c links the ARM64 engine. That
+# gap is how a misaligned 64-bit load in the PUSH handlers reached silicon. The
+# harness is deliberately the same self-test the board runs (rv32/selftest.c),
+# with rv32/qemu/runtime.c supplying the six host hooks the firmware supplies
+# there, so the two runs are comparable line for line.
+#
+# Note what this does and does not catch. QEMU emulates misaligned accesses
+# instead of trapping on them, so a PASS here does NOT mean the chip is happy;
+# `scripts/check-rv32-alignment.py` is what answers that question. What this
+# catches is everything else: wrong results, wrong gas, faults, hangs.
+# A hang is a real outcome here (a handler that clobbers `ra` returns into its
+# own tail and never stops), so the run is always bounded.
+RV32_QEMU_TIMEOUT ?= $(shell command -v timeout || command -v gtimeout)
+RV32_QEMU      := $(RV32_DIR)/qemu
+RV32_QEMU_SRCS := rv32/qemu/runtime.c $(RV32_SRCS)
+RV32_QEMU_FLAGS := -march=rv32imac_zicsr -mabi=ilp32 -O2 -ffreestanding -fno-pic \
+                   -mcmodel=medany -Wall -Wextra -Wno-unused-function
+
+rv32_qemu: $(RV32_QEMU)/selftest.elf
+	@echo "--- qemu-system-riscv32 virt ---"
+	@$(RV32_QEMU_TIMEOUT) 30 qemu-system-riscv32 -machine virt -bios none -nographic \
+	  -kernel $(RV32_QEMU)/selftest.elf \
+	  | tee $(RV32_QEMU)/run.log || true
+	@grep -q "SELFTEST PASS" $(RV32_QEMU)/run.log \
+	  && echo "rv32 engine runs under QEMU OK" \
+	  || { echo "FAIL: see $(RV32_QEMU)/run.log" >&2; exit 1; }
+
+$(RV32_QEMU)/selftest.elf: handlers-rv32.S rv32/qemu/start.S rv32/qemu/virt.ld \
+                           $(RV32_QEMU_SRCS) | $(RV32_DIR)
+	mkdir -p $(RV32_QEMU)
+	rm -f $(RV32_QEMU)/*.o
+	$(RV32_CC) $(RV32_QEMU_FLAGS) -c handlers-rv32.S -o $(RV32_QEMU)/interp.o
+	$(RV32_CC) $(RV32_QEMU_FLAGS) -c rv32/qemu/start.S -o $(RV32_QEMU)/start.o
+	for f in $(RV32_QEMU_SRCS); do \
+	  $(RV32_CC) $(RV32_QEMU_FLAGS) -DEITA_RV32 -DEITA_NO_LEAN_WRAPPER \
+	    -I. -Irv32/include -I$(LEAN_C) -c $$f \
+	    -o $(RV32_QEMU)/`basename $$f .c`.o || exit 1; \
+	done
+	$(RV32_CC) -march=rv32imac_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+	  -T rv32/qemu/virt.ld -o $@ $(RV32_QEMU)/*.o -lgcc
+	@$(RV32_SIZE) $@ | tail -1
+
 
 $(BUILD)/%.o: $(LEAN_C)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -296,4 +342,4 @@ clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
 .PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation \
-	test_host_gas host_gas_rv32 test_compute_portable rv32_engine
+	test_host_gas host_gas_rv32 test_compute_portable rv32_engine rv32_qemu

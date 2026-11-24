@@ -364,6 +364,197 @@ def cmpDiscard (a b : Reg) (bin : Bool) : String :=
   subb32 v (hi a) (hi b) true true ++
   ln s!"lw   {v}, {spill2}"
 
+/-- A call, with the continuation saved around it.
+
+`Regs` notes that `cont` needs no register on rv32 because it "threads through
+`jal`/`ret` like x86-64" — true of the calling convention, false of the
+mechanism. x86-64's `call` pushes the return address to MEMORY; rv32's `jal`
+overwrites the REGISTER `ra`, which is the very register the dispatch loop put
+the continuation in. So where the x86-64 call gadget needs no frame save
+(`OpInstrs.x86BinHelper` has none, and rv32 consumes that stream), rv32 must
+save `ra` itself.
+
+Without this, `eita_handler_mul` returned to the instruction after its own
+`call eita_helper_mul`, because that is where `jal` had left `ra` — and ran
+that tail forever. QEMU showed it as a two-block cycle.
+
+Sixteen bytes rather than four: the ILP32 ABI wants `sp` 16-byte aligned at a
+call, and every `spSub` in the gadgets is a multiple of 16, so this preserves
+it. The slot is below anything the staging already addressed off `sp`, so the
+argument pointers computed before the call stay valid. -/
+def callSaving (insn : String) : String :=
+  ln "addi sp, sp, -16" ++ ln "sw   ra, 0(sp)" ++ ln insn ++
+  ln "lw   ra, 0(sp)" ++ ln "addi sp, sp, 16"
+
+/-! ## Alignment, which a load/store machine makes an obligation
+
+ARM64 and x86-64 both perform unaligned loads and stores, so the handler
+programs were written without a thought for alignment and nothing in the shared
+instruction layer records which addresses are byte-granular. **bao1x's VexRiscv
+traps them**: `rtl/modules/vexriscv/lib/VexRiscv_CramSoC.sv` raises exception 4
+(`LoadAddressMisaligned`) or 6 (`StoreAddressMisaligned`) from
+`io_cpu_writeBack_unalignedAccess`. The RISC-V ISA permits that — misaligned
+support is optional — so this is a lowering obligation, not a chip defect.
+
+Two families of address are byte-granular, and only two:
+
+* **code**, `codeBase + pc`: every `PUSH`<i>n</i> reads its immediate from an
+  arbitrary byte offset. This is what killed the first board run — `PUSH1` at
+  code offset 0 issues `lw` at `code + 1`.
+* **EVM memory / calldata / returndata**, a pointer loaded out of `EvmState`
+  plus an EVM offset: `MLOAD`, `MSTORE`, `MCOPY`, the copy opcodes.
+
+Everything else is aligned by construction: the stack is an array of `u256_t`
+(32-byte stride, 8-byte aligned by `_Static_assert`), `EvmState`'s own fields
+are at 8-byte offsets, and our frame is `sp`-relative.
+
+So the lowering runs a forward **alignment analysis** over each program and
+emits a byte-wise sequence for any access it cannot justify. It defaults to NOT
+aligned, which is the safe direction: an unjustified aligned claim is a trap on
+hardware, an unjustified byte-wise sequence is only instructions. The analysis
+resets at labels (a join it cannot see both sides of) and after a call (the
+caller-saved registers are gone), both conservative.
+
+`scripts/check-rv32-alignment.py` audits the same question from the other end —
+over the emitted TEXT, by backward base-provenance scan — so the two disagree
+if either is wrong. -/
+
+/-- The destination of an instruction, where it has one. -/
+def destOf : AInstr → Option Reg
+  | .subImm d _ _ | .addImm d _ _ | .movImm d _ | .movImmW d _ | .movReg d _
+  | .addLsl5 d _ _ | .addLsl d _ _ _ | .addLsr d _ _ _ | .ldrOff d _ _
+  | .ldrBase d _ | .addSp d _ | .addReg d _ _ | .ldrSp d _ | .orr3 d _ _
+  | .and3 d _ _ | .eor3 d _ _ | .mvn d _ | .adds d _ _ | .adcs d _ _
+  | .adc d _ _ | .subReg d _ _ | .subsReg d _ _ | .sbcs d _ _ | .sbc d _ _
+  | .mulReg d _ _ | .lsrImm d _ _ | .lslImm d _ _ | .clzReg d _ | .rev d _ => some d
+  | _ => none
+
+/-- Every register an instruction writes. `destOf` misses the pair loads, and
+    a stale alignment claim on a register a `ldp` just overwrote is exactly the
+    kind of thing that traps once on hardware and never in a test. -/
+def defsOf : AInstr → List Reg
+  | .ldpOff r1 r2 _ _ => [r1, r2]
+  | .ldpSp r1 r2 _    => [r1, r2]
+  | .ldpPostSp r1 r2 _ => [r1, r2]
+  | it => (destOf it).toList
+
+/-- The roles whose value is a multiple of four to begin with: `state` (an
+    `EvmState *`), `stackBase` (a `u256_t *`), and `sp`, which is a BYTE offset
+    but always a multiple of 32. `codeBase` is absent on purpose — it is a
+    `uint8_t *` and `pc` is added to it. -/
+def alignedSeed : List Reg := [.x20, .x23, .x24]
+
+def dropAligned (A : List Reg) (d : Reg) : List Reg := A.filter (fun r => r != d)
+
+def setAligned (A : List Reg) (d : Reg) (ok : Bool) : List Reg :=
+  if ok then (if A.contains d then A else d :: A) else dropAligned A d
+
+/-- One step of the forward analysis. -/
+def stepAligned (A : List Reg) (it : AInstr) : List Reg :=
+  match it with
+  -- a sum of two multiples of four is a multiple of four
+  | .addReg d a b    => setAligned A d (A.contains a && A.contains b)
+  | .subReg d a b    => setAligned A d (A.contains a && A.contains b)
+  | .addImm d a i    => setAligned A d (A.contains a && i % 4 == 0)
+  | .subImm d a i    => setAligned A d (A.contains a && i % 4 == 0)
+  -- `<< 5` is a multiple of 32, `<< sh` of four once `sh ≥ 2`
+  | .addLsl5 d a _   => setAligned A d (A.contains a)
+  | .addLsl d a _ sh => setAligned A d (A.contains a && 2 ≤ sh)
+  | .movReg d a      => setAligned A d (A.contains a)
+  | .addSp d i       => setAligned A d (i % 4 == 0)
+  | .movImm d i      => setAligned A d (i % 4 == 0)
+  | .movImmW d i     => setAligned A d (i % 4 == 0)
+  -- a call clobbers the caller-saved registers, a label is a join we cannot
+  -- see both sides of: in either case keep only what is aligned by role
+  | .blSym _ | .blr _ | .label _ => alignedSeed
+  | it => (defsOf it).foldl dropAligned A
+
+/-- Four bytes of a big-endian-innocent 32-bit value, gathered least
+    significant first. `D` is built up in place; `t` holds each byte. -/
+def byteGather (D base : String) (off : Nat) (t : String) : String :=
+  ln s!"lbu  {D}, {off}({base})" ++
+  ln s!"lbu  {t}, {off + 1}({base})" ++ ln s!"slli {t}, {t}, 8"  ++ ln s!"or   {D}, {D}, {t}" ++
+  ln s!"lbu  {t}, {off + 2}({base})" ++ ln s!"slli {t}, {t}, 16" ++ ln s!"or   {D}, {D}, {t}" ++
+  ln s!"lbu  {t}, {off + 3}({base})" ++ ln s!"slli {t}, {t}, 24" ++ ln s!"or   {D}, {D}, {t}"
+
+/-- …and the same four bytes written out. `S` is only read, so unlike the
+    gather this cannot destroy its own base. -/
+def byteScatter (S base : String) (off : Nat) (t : String) : String :=
+  ln s!"sb   {S}, {off}({base})" ++
+  ln s!"srli {t}, {S}, 8"  ++ ln s!"sb   {t}, {off + 1}({base})" ++
+  ln s!"srli {t}, {S}, 16" ++ ln s!"sb   {t}, {off + 2}({base})" ++
+  ln s!"srli {t}, {S}, 24" ++ ln s!"sb   {t}, {off + 3}({base})"
+
+/-- A 64-bit load from an address that may be byte-granular.
+
+    The gather writes its destination as it goes, so a destination half that IS
+    the base register would destroy the address mid-sequence; in that case the
+    base is copied first. The scratch comes from the temporary pool and is
+    spilled to the state scratch around its use, as `rev64` does — the pool is
+    full (`Regs`: 27 of 27), so there is nowhere else to borrow from. -/
+def ldrUnaligned (d : Reg) (b : String) (o : Nat) : String :=
+  let L := lo d
+  let H := hi d
+  let t := pickFree [L, H, b, carry]
+  let needsCopy := b == L || b == H
+  let u := if needsCopy then pickFree [L, H, b, carry, t] else b
+  ln s!"sw   {t}, {spill0}" ++
+  (if needsCopy then ln s!"sw   {u}, {spill1}" ++ ln s!"mv   {u}, {b}" else "") ++
+  byteGather L u o t ++ byteGather H u (o + 4) t ++
+  (if needsCopy then ln s!"lw   {u}, {spill1}" else "") ++
+  ln s!"lw   {t}, {spill0}"
+
+/-- A 64-bit store to an address that may be byte-granular. -/
+def strUnaligned (s : Reg) (b : String) (o : Nat) : String :=
+  let t := pickFree [lo s, hi s, b, carry]
+  ln s!"sw   {t}, {spill0}" ++
+  byteScatter (lo s) b o t ++ byteScatter (hi s) b (o + 4) t ++
+  ln s!"lw   {t}, {spill0}"
+
+/-- Is this access justified as 4-aligned: an aligned base and offsets that are
+    multiples of four? -/
+def accessAligned (A : List Reg) (b : Reg) (offs : List Nat) : Bool :=
+  A.contains b && offs.all (fun o => o % 4 == 0)
+
+/-- The byte-wise lowering of an access whose address the analysis cannot
+    justify, or `none` when the ordinary word-wise lowering is sound.
+
+    Only the forms that address off a BASE REGISTER are here. The `sp`-relative
+    ones (`ldrSp`, `strSp`, `stpSp`, …) address our own frame, which `eita_run`
+    established 16-byte aligned and every `spSub` in the gadgets keeps so. -/
+def unalignedAccess (A : List Reg) : AInstr → Option String
+  | .ldrBase d b   => if accessAligned A b [0] then none else some (ldrUnaligned d (lo b) 0)
+  | .ldrOff d b o  => if accessAligned A b [o] then none else some (ldrUnaligned d (lo b) o)
+  | .strOff s b o  => if accessAligned A b [o] then none else some (strUnaligned s (lo b) o)
+  | .strBase s b   => if accessAligned A b [0] then none else some (strUnaligned s (lo b) 0)
+  | .ldpOff r1 r2 b o =>
+      if accessAligned A b [o] then none
+      else some (ldrUnaligned r1 (lo b) o ++ ldrUnaligned r2 (lo b) (o + 8))
+  | .stpOff r1 r2 b o =>
+      if accessAligned A b [o] then none
+      else some (strUnaligned r1 (lo b) o ++ strUnaligned r2 (lo b) (o + 8))
+  | .strZr b o =>
+      if accessAligned A b [o] then none
+      else some (byteScatter "zero" (lo b) o "zero" ++ byteScatter "zero" (lo b) (o + 4) "zero")
+  | _ => none
+
+/-- A multi-word load off one base, with the base's own slot loaded **last**.
+
+ARM64 and x86-64 move 64 bits in a single instruction, so a handler program is
+free to write `ldr d, [d]` — and `log0` does, `.ldrBase .x1 .x1`, reading an
+EVM memory offset out of the stack slot its own address came from. rv32 splits
+that into two loads, and the naive order destroys the address between them: the
+second load's base register has already been overwritten with the first word.
+
+At most one destination can collide, because the `lo` of every pair is distinct
+from every `hi` (`Regs`: the pairs are disjoint and the single-register roles
+have `zero` as their high half), so deferring the colliding load to the end is
+always enough. -/
+def loadWords (b : String) (slots : List (String × Nat)) : String :=
+  let deferred := slots.filter (fun s => s.1 == b)
+  let first := slots.filter (fun s => s.1 != b)
+  (first ++ deferred).foldl (fun acc s => acc ++ ln s!"lw   {s.1}, {s.2}({b})") ""
+
 /-! ## One instruction
 
 `n` is a unique index, for the local labels some sequences need. Any NOS source
@@ -384,12 +575,11 @@ def emitBody (n : Nat) : AInstr → String
   | .movImm d i   =>
       if i < 2 ^ 32 then ln s!"li   {lo d}, {i}" ++ ln s!"li   {hi d}, 0"
       else ln s!"li   {lo d}, {i % 2 ^ 32}" ++ ln s!"li   {hi d}, {i / 2 ^ 32}"
-  | .ldrBase d b  => ln s!"lw   {lo d}, 0({lo b})" ++ ln s!"lw   {hi d}, 4({lo b})"
-  | .ldrOff d b o => ln s!"lw   {lo d}, {o}({lo b})" ++ ln s!"lw   {hi d}, {o + 4}({lo b})"
+  | .ldrBase d b  => loadWords (lo b) [(lo d, 0), (hi d, 4)]
+  | .ldrOff d b o => loadWords (lo b) [(lo d, o), (hi d, o + 4)]
   | .strOff s b o => ln s!"sw   {lo s}, {o}({lo b})" ++ ln s!"sw   {hi s}, {o + 4}({lo b})"
   | .ldpOff r1 r2 b o =>
-      ln s!"lw   {lo r1}, {o}({lo b})"     ++ ln s!"lw   {hi r1}, {o + 4}({lo b})" ++
-      ln s!"lw   {lo r2}, {o + 8}({lo b})" ++ ln s!"lw   {hi r2}, {o + 12}({lo b})"
+      loadWords (lo b) [(lo r1, o), (hi r1, o + 4), (lo r2, o + 8), (hi r2, o + 12)]
   | .addImm d a i =>
       if i < 2048 then
         ln s!"addi {lo d}, {lo a}, {i}" ++
@@ -430,7 +620,7 @@ def emitBody (n : Nat) : AInstr → String
   | .stpZrSp n    =>
       ln s!"sw   zero, {n}(sp)"     ++ ln s!"sw   zero, {n + 4}(sp)" ++
       ln s!"sw   zero, {n + 8}(sp)" ++ ln s!"sw   zero, {n + 12}(sp)"
-  | .blSym sym    => ln s!"call {sym}"
+  | .blSym sym    => callSaving s!"call {sym}"
   | .bSymU sym    => ln s!"j    {sym}"
   | .movzImm d i  => ln s!"li   {lo d}, {i}" ++ ln s!"li   {hi d}, 0"
   | .strZr b o    => ln s!"sw   zero, {o}({lo b})" ++ ln s!"sw   zero, {o + 4}({lo b})"
@@ -449,13 +639,13 @@ def emitBody (n : Nat) : AInstr → String
   | .ldrLsl3 d b i =>
       ln s!"slli {carry}, {lo i}, 3" ++
       ln s!"add  {carry}, {lo b}, {carry}" ++
-      ln s!"lw   {lo d}, 0({carry})" ++ ln s!"lw   {hi d}, 4({carry})"
+      loadWords carry [(lo d, 0), (hi d, 4)]
   | .cbnzSymW r sym => ln s!"bnez {lo r}, {sym}"
   | .cbnzSym r sym  => zeroBranch r sym false
   | .cbnzLbl r l    => zeroBranch r l false
   | .cbzWLbl r l    => ln s!"beqz {lo r}, {l}"
   | .brReg r      => ln s!"jr   {lo r}"
-  | .blr r        => ln s!"jalr {lo r}"
+  | .blr r        => callSaving s!"jalr {lo r}"
   | .loadSymAddr d sym => ln s!"la   {lo d}, {sym}"
   -- byte accesses are 32-bit operands: zero-extended, high half cleared
   | .ldrbOff d b o => ln s!"lbu  {lo d}, {o}({lo b})" ++ ln s!"li   {hi d}, 0"
@@ -588,17 +778,54 @@ and the pair rule never fires. That is checked against the C, not assumed: a
 helper that grows a `uint64_t` parameter breaks this mapping, and
 `argHome`'s docstring is where to look.
 
-Staging is recognised structurally rather than by register: `stpFpLr` opens a
-call block and `blSym` closes it, and only inside one does an argument register
-mean the ABI register. Outside, `x1`/`x2`/`x3`/`x5` have no home at all, so a
-stray use is a loud marker instead of a silent collision with TOS. -/
+**Which convention.** rv32 consumes the x86-64 instruction selection
+(`progInstrsRV32`, and the note at the end of this file), so the argument
+registers are the ones `OpInstrs.x86Conv` names — `x3`, `x2`, `x1`, `x14`, in
+that order — and NOT ARM64's `x0`-`x3`. Getting this wrong is not a build
+error: `x3`'s natural home here is the temporary pair `(s10, s11)`, so a
+mis-keyed `argHome` emits a plausible-looking `addi s10, sp, 0` and the helper
+is called with whatever TOS left in `a0`. That is what shipped to the board —
+`eita_helper_mul` was reached with `a1 = 0` and faulted on a null load, which
+`make rv32_qemu` now catches on this machine. `argHome_matches_x86Conv` pins
+the correspondence so it cannot drift again.
 
-/-- The ABI argument registers. All helper arguments are pointers, so each is a
-    single 32-bit register; see the section header. -/
+Staging is recognised **structurally**: a maximal run of argument-register
+writes immediately followed by `blSym` IS the argument staging for that call,
+because that is the shape every call gadget has (`OpInstrs.x86BinHelper`,
+`x86TernaryHelper`, `copyCbPop3`, `keccakCbPop1`). Keying on the register alone
+cannot work — the same registers are the temporary pool everywhere else — and
+keying on `stpFpLr` does not work either: the ARM64 selection opens its call
+blocks with it, the x86-64 selection does not, so only two of the twenty-four
+call sites in the emitted interpreter were ever recognised.
+
+Inside a staging run an argument register means the ABI register **as a source
+too** (`stageSrc`). `x86BinHelper` writes `subImm .x2 .x23 32` and then reads
+its own result in `addReg .x2 .x24 .x2`; reading that source from `x2`'s
+natural pair instead of from `a1` is how `calldataload` came to emit
+`add a1, s3, t4` against an uninitialised `t4`. -/
+
+/-- The ABI argument registers, under the x86-64 selection's convention
+    (`OpInstrs.x86Conv = (x3, x2, x1, x14)` — SysV's rdi/rsi/rdx/rcx). All
+    helper arguments are pointers, so each is a single 32-bit register on
+    ILP32 and the aligned-pair rule never fires; a helper that grows a
+    `uint64_t` parameter breaks that, and this is where to look. -/
 def argHome : Reg → Option String
-  | .x0 => some "a0" | .x1 => some "a1" | .x2 => some "a2"
-  | .x3 => some "a3" | .x5 => some "a5"
+  | .x3 => some "a0" | .x2 => some "a1" | .x1 => some "a2" | .x14 => some "a3"
   | _ => none
+
+/-- Inside a staging run, a SOURCE that is an argument register has already
+    been staged, so it reads from the ABI register. Elsewhere `lo` applies. -/
+def stageSrc (r : Reg) : String := (argHome r).getD (lo r)
+
+/-- **`argHome` is the SysV argument order, positionally.** `OpInstrs.argRegs`
+    is the x86-64 backend's own statement of which `Reg` carries which SysV
+    argument; rv32 consumes the same instruction stream, so its homes must be
+    `a0`-`a3` in that same order. Keyed to ARM64's `x0`-`x3` instead, as it was
+    until 2026-11-24, this compiles and assembles and calls every helper with
+    its arguments in the wrong registers. -/
+theorem argHome_matches_sysv_arg_order :
+    Evm.CL.OpInstrs.argRegs.map (fun (r, _) => argHome r)
+      = [some "a0", some "a1", some "a2", some "a3"] := by native_decide
 
 def isArgDest : AInstr → Bool
   | .subImm d _ _ | .addImm d _ _ | .movImm d _ | .movImmW d _ | .movReg d _
@@ -606,110 +833,145 @@ def isArgDest : AInstr → Bool
   | .ldrBase d _ | .addSp d _ | .addReg d _ _ | .ldrSp d _ => (argHome d).isSome
   | _ => false
 
+/-- `x0` is not an argument register under the x86-64 convention, but it is not
+    an ordinary temporary inside a call block either: the host-callback path
+    puts the vtable slot for `blr` in it and then reads the gas the callback
+    returned back out of it (`OpInstrs.chargeGasX0`). Neither meaning survives
+    the rv32 homes — a return value arrives in `a0`, while `x0`'s home here is
+    the rax-coloured temporary PAIR — so a call block that mentions it is
+    refused rather than lowered. That refusal is what `blockHazards` reports. -/
+def abiHazard (r : Reg) : Bool := r == .x0 || (argHome r).isSome
+
+/-- Is this the staging for a call — a run of argument-register writes whose
+    next non-staging instruction is the `blSym` that consumes them?
+
+    This is the recognition rule the section header argues for. Keying on
+    `stpFpLr` instead (as this did until the board run of 2026-11-24) misses
+    every x86-64 call gadget, because only ARM64's open with a frame save:
+    twenty-two of the twenty-four call sites in the emitted interpreter went
+    unrecognised and called their helpers with TOS in the argument
+    registers. -/
+def stagesCall : List AInstr → Bool
+  | .blSym _ :: _ => true
+  | it :: rest    => isArgDest it && stagesCall rest
+  | []            => false
+
 /-- Staging one argument: address arithmetic into an ABI register. The
     vocabulary is deliberately small — anything else inside a call block is a
     marker, so a block cannot quietly contain work that needed the temp pool. -/
 def emitStage : AInstr → String
   | .addSp d i       => ln s!"addi {(argHome d).getD marker}, sp, {i}"
   | .addImm d a i    =>
-      if i < 2048 then ln s!"addi {(argHome d).getD marker}, {lo a}, {i}"
+      if i < 2048 then ln s!"addi {(argHome d).getD marker}, {stageSrc a}, {i}"
       else s!"    /* «unlowered: staged add immediate over 12 bits» */\n"
   | .subImm d a i    =>
-      if i < 2048 then ln s!"addi {(argHome d).getD marker}, {lo a}, -{i}"
+      if i < 2048 then ln s!"addi {(argHome d).getD marker}, {stageSrc a}, -{i}"
       else s!"    /* «unlowered: staged sub immediate over 12 bits» */\n"
   | .movImm d i      =>
       if i < 2 ^ 32 then ln s!"li   {(argHome d).getD marker}, {i}"
       else s!"    /* «unlowered: staged immediate over 32 bits» */\n"
   | .movImmW d i     => ln s!"li   {(argHome d).getD marker}, {i}"
-  | .movReg d a      => ln s!"mv   {(argHome d).getD marker}, {lo a}"
-  | .addReg d a b    => ln s!"add  {(argHome d).getD marker}, {lo a}, {lo b}"
+  | .movReg d a      => ln s!"mv   {(argHome d).getD marker}, {stageSrc a}"
+  | .addReg d a b    => ln s!"add  {(argHome d).getD marker}, {stageSrc a}, {stageSrc b}"
   | .addLsl5 d a b   =>
       let A := (argHome d).getD marker
-      ln s!"slli {A}, {lo b}, 5" ++ ln s!"add  {A}, {lo a}, {A}"
+      ln s!"slli {A}, {stageSrc b}, 5" ++ ln s!"add  {A}, {stageSrc a}, {A}"
   | .addLsl d a b sh =>
       let A := (argHome d).getD marker
-      ln s!"slli {A}, {lo b}, {sh}" ++ ln s!"add  {A}, {lo a}, {A}"
+      ln s!"slli {A}, {stageSrc b}, {sh}" ++ ln s!"add  {A}, {stageSrc a}, {A}"
   | .addLsr d a b sh =>
       let A := (argHome d).getD marker
-      ln s!"srli {A}, {lo b}, {sh}" ++ ln s!"add  {A}, {lo a}, {A}"
-  | .ldrOff d b o    => ln s!"lw   {(argHome d).getD marker}, {o}({lo b})"
-  | .ldrBase d b     => ln s!"lw   {(argHome d).getD marker}, 0({lo b})"
+      ln s!"srli {A}, {stageSrc b}, {sh}" ++ ln s!"add  {A}, {stageSrc a}, {A}"
+  | .ldrOff d b o    => ln s!"lw   {(argHome d).getD marker}, {o}({stageSrc b})"
+  | .ldrBase d b     => ln s!"lw   {(argHome d).getD marker}, 0({stageSrc b})"
   | .ldrSp d o       => ln s!"lw   {(argHome d).getD marker}, {o}(sp)"
   | _ => s!"    /* «unlowered: not an argument-staging form» */\n"
 
 /-! ## A program, with compare-and-branch fusion -/
 
 /-- A program. Two pieces of context travel with it: a unique index for the
-    local labels some sequences need, and whether we are inside a **call block**
-    (opened by `stpFpLr`, closed by `blSym`), where an argument register means
-    the ABI register rather than its usual home. -/
-def emitFused : Bool → Nat → List AInstr → String
-  | _, _, [] => ""
+    local labels some sequences need, and whether we are inside a **call
+    block**, where an argument register means the ABI register rather than its
+    usual home. A block is closed by `blSym`; it is opened either by `stpFpLr`
+    (the frame save an ARM64-selected `cbEnter` leaves in the stream) or, the
+    case that matters, by the first instruction of a `stagesCall` run. -/
+def emitFused : List Reg → Bool → Nat → List AInstr → String
+  | _, _, _, [] => ""
   -- the call block's brackets
-  | _, n, .stpFpLr :: rest   => emitOne n .stpFpLr ++ emitFused true n.succ rest
-  | _, n, .blSym sym :: rest => emitOne n (.blSym sym) ++ emitFused false n.succ rest
+  | A, _, n, .stpFpLr :: rest   => emitOne n .stpFpLr ++ emitFused A true n.succ rest
+  | A, _, n, .blSym sym :: rest =>
+      emitOne n (.blSym sym) ++ emitFused (stepAligned A (.blSym sym)) false n.succ rest
   -- compare-and-branch / compare-and-select fusion (see `cmpBranch`)
-  | m, n, .cmpReg a b :: .bhiOog :: rest =>
-      cmpBranch n b a "_eita_oog" false ++ emitFused m n.succ rest
-  | m, n, .cmpReg a b :: .bloOog :: rest =>
-      cmpBranch n a b "_eita_oog" false ++ emitFused m n.succ rest
-  | m, n, .cmpReg a b :: .blsLbl l :: rest =>
-      cmpBranch n a b l true ++ emitFused m n.succ rest
-  | m, n, .cmpReg p q :: .cselHi d x y :: rest =>
-      cmpSelect n p q d x y ++ emitFused m n.succ rest
-  | m, n, .cmpImm a i :: .bSym c sym :: rest =>
-      cmpImmBranch n a i c sym ++ emitFused m n.succ rest
-  | m, n, .cmpImm a i :: .bcLbl c l :: rest =>
-      cmpImmBranch n a i c l ++ emitFused m n.succ rest
-  | m, n, .cmpImm a i :: .bhiOog :: rest =>
-      cmpImmBranch n a i .hi "_eita_oog" ++ emitFused m n.succ rest
-  | m, n, .cmpImm a i :: .bloOog :: rest =>
-      cmpImmBranch n a i .lo "_eita_oog" ++ emitFused m n.succ rest
-  | m, n, .cmpImm a i :: .blsLbl l :: rest =>
-      cmpImmBranch n a i .ls l ++ emitFused m n.succ rest
+  | A, m, n, .cmpReg a b :: .bhiOog :: rest =>
+      cmpBranch n b a "_eita_oog" false ++ emitFused A m n.succ rest
+  | A, m, n, .cmpReg a b :: .bloOog :: rest =>
+      cmpBranch n a b "_eita_oog" false ++ emitFused A m n.succ rest
+  | A, m, n, .cmpReg a b :: .blsLbl l :: rest =>
+      cmpBranch n a b l true ++ emitFused A m n.succ rest
+  | A, m, n, .cmpReg p q :: .cselHi d x y :: rest =>
+      cmpSelect n p q d x y ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImm a i :: .bSym c sym :: rest =>
+      cmpImmBranch n a i c sym ++ emitFused A m n.succ rest
+  | A, m, n, .cmpImm a i :: .bcLbl c l :: rest =>
+      cmpImmBranch n a i c l ++ emitFused A m n.succ rest
+  | A, m, n, .cmpImm a i :: .bhiOog :: rest =>
+      cmpImmBranch n a i .hi "_eita_oog" ++ emitFused A m n.succ rest
+  | A, m, n, .cmpImm a i :: .bloOog :: rest =>
+      cmpImmBranch n a i .lo "_eita_oog" ++ emitFused A m n.succ rest
+  | A, m, n, .cmpImm a i :: .blsLbl l :: rest =>
+      cmpImmBranch n a i .ls l ++ emitFused A m n.succ rest
   -- compare-then-select: `cset`, `csel …, ne`, `csinv …, xzr, eq`
-  | m, n, .cmpImm r i :: .cset d .eq :: rest =>
-      cmpImmSelect n r i true (setArm d 1) (setArm d 0) ++ emitFused m n.succ rest
-  | m, n, .cmpImm r i :: .cselNe d a b :: rest =>
-      cmpImmSelect n r i true (moveArm d b) (moveArm d a) ++ emitFused m n.succ rest
-  | m, n, .cmpImm r i :: .csinvEqZr d a :: rest =>
-      cmpImmSelect n r i true (moveArm d a) (onesArm d) ++ emitFused m n.succ rest
-  | m, n, .cmpImmWHex r i :: .cset d .eq :: rest =>
-      cmpImmSelect n r i false (setArm d 1) (setArm d 0) ++ emitFused m n.succ rest
-  | m, n, .cmpImmWHex r i :: .cselNe d a b :: rest =>
-      cmpImmSelect n r i false (moveArm d b) (moveArm d a) ++ emitFused m n.succ rest
-  | m, n, .cmpReg a b :: .bcLbl c l :: rest =>
+  | A, m, n, .cmpImm r i :: .cset d .eq :: rest =>
+      cmpImmSelect n r i true (setArm d 1) (setArm d 0) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImm r i :: .cselNe d a b :: rest =>
+      cmpImmSelect n r i true (moveArm d b) (moveArm d a) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImm r i :: .csinvEqZr d a :: rest =>
+      cmpImmSelect n r i true (moveArm d a) (onesArm d) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImmWHex r i :: .cset d .eq :: rest =>
+      cmpImmSelect n r i false (setArm d 1) (setArm d 0) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImmWHex r i :: .cselNe d a b :: rest =>
+      cmpImmSelect n r i false (moveArm d b) (moveArm d a) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpReg a b :: .bcLbl c l :: rest =>
       (match c with
        | .lo => cmpBranch n a b l false
        | .ls => cmpBranch n a b l true
        | .hi => cmpBranch n b a l false
        | .hs => cmpBranch n b a l true
-       | _ => s!"    /* «unlowered: compare branch condition» */\n") ++ emitFused m n.succ rest
-  | m, n, .cmpReg a b :: .bSym c sym :: rest =>
+       | _ => s!"    /* «unlowered: compare branch condition» */\n") ++ emitFused A m n.succ rest
+  | A, m, n, .cmpReg a b :: .bSym c sym :: rest =>
       (match c with
        | .lo => cmpBranch n a b sym false
        | .ls => cmpBranch n a b sym true
        | .hi => cmpBranch n b a sym false
        | .hs => cmpBranch n b a sym true
-       | _ => s!"    /* «unlowered: compare branch condition» */\n") ++ emitFused m n.succ rest
+       | _ => s!"    /* «unlowered: compare branch condition» */\n") ++ emitFused A m n.succ rest
   -- Inside a call block, a write to an argument register is staging. Any OTHER
   -- mention of one is a third meaning the duality does not cover — the host
   -- callbacks put the vtable slot AND the returned gas in x0 — so it stops
   -- loudly instead of quietly reading the shared temporary pair.
-  | m, n, it :: rest =>
-      (if m then
+  | A, m, n, it :: rest =>
+      -- A staging run opens here if this instruction writes an argument
+      -- register and everything up to the next `blSym` does too.
+      let staging := m || (isArgDest it && stagesCall rest)
+      (if staging then
          (if isArgDest it then emitStage it
-          else if (mentions it).any (fun r => (argHome r).isSome) then
+          else if (mentions it).any abiHazard then
             s!"    /* «unlowered: argument register used as a call target or result» */\n"
           else emitOne n it)
-       else emitOne n it) ++ emitFused m n.succ rest
+       else
+         -- outside staging, an access the alignment analysis cannot justify
+         -- gets the byte-wise sequence rather than a `lw`/`sw` the chip traps
+         match unalignedAccess A it with
+         | some txt => txt
+         | none => emitOne n it)
+      ++ emitFused (stepAligned A it) staging n.succ rest
 
-def emitProgRV32 (p : List AInstr) : String := emitFused false 0 p
+def emitProgRV32 (p : List AInstr) : String := emitFused alignedSeed false 0 p
 
 /-- The same, from a given label counter: the local labels some sequences need
     must be unique across a whole FILE, not just a program, or the assembler
     sees a duplicate definition. -/
-def emitProgRV32From (n : Nat) (p : List AInstr) : String := emitFused false n p
+def emitProgRV32From (n : Nat) (p : List AInstr) : String := emitFused alignedSeed false n p
 
 /-- The rv32 instance of the shared lowering. `emit` is the unfused path, so a
     compare reaching it is a marker; `emitProgRV32` is what the emitter uses. -/
@@ -802,31 +1064,28 @@ would read the temporary pair instead of the argument. x86-64 has no equivalent
 obligation (it stages into SysV registers through `X86Xfer`), so this one is
 checked here. -/
 
-/-- The destination of an instruction, where it has one. -/
-def destOf : AInstr → Option Reg
-  | .subImm d _ _ | .addImm d _ _ | .movImm d _ | .movImmW d _ | .movReg d _
-  | .addLsl5 d _ _ | .addLsl d _ _ _ | .addLsr d _ _ _ | .ldrOff d _ _
-  | .ldrBase d _ | .addSp d _ | .addReg d _ _ | .ldrSp d _ | .orr3 d _ _
-  | .and3 d _ _ | .eor3 d _ _ | .mvn d _ | .adds d _ _ | .adcs d _ _
-  | .adc d _ _ | .subReg d _ _ | .subsReg d _ _ | .sbcs d _ _ | .sbc d _ _
-  | .mulReg d _ _ | .lsrImm d _ _ | .lslImm d _ _ | .clzReg d _ | .rev d _ => some d
-  | _ => none
+/-- Walk a program, tracking the call block, and check the duality holds.
 
-/-- Walk a program, tracking the call block, and check the duality holds. -/
-def blockSafe : Bool → List AInstr → Bool
-  | _, [] => true
-  | _, .stpFpLr :: rest   => blockSafe true rest
-  | _, .blSym _ :: rest   => blockSafe false rest
-  | m, it :: rest =>
+    `staged` is the set of argument registers this block has already written.
+    Reading one of those as a SOURCE is sound — `stageSrc` reads the ABI
+    register, which holds the value the block just put there, which is exactly
+    what `x86BinHelper`'s `addReg .x2 .x24 .x2` means. Reading one the block
+    has NOT written is the hazard: `stageSrc` would read an ABI register
+    nothing set, instead of the temporary pair the program meant. -/
+def blockSafe : List Reg → Bool → List AInstr → Bool
+  | _, _, [] => true
+  | _, _, .stpFpLr :: rest   => blockSafe [] true rest
+  | _, _, .blSym _ :: rest   => blockSafe [] false rest
+  | staged, m, it :: rest =>
+      let d := destOf it
       let ok :=
         if !m then true
-        else match destOf it with
-          | some d =>
-              if (argHome d).isSome then
-                (mentions it).all (fun r => r == d || (argHome r).isNone)
-              else (mentions it).all (fun r => (argHome r).isNone)
-          | none => (mentions it).all (fun r => (argHome r).isNone)
-      ok && blockSafe m rest
+        else (mentions it).all (fun r =>
+          !abiHazard r || d == some r || staged.contains r)
+      let staged' := match d with
+        | some r => if (argHome r).isSome then r :: staged else staged
+        | none => staged
+      ok && blockSafe staged' m rest
 
 /-- The handlers whose call blocks touch an argument register in a way the
     duality does not permit: all six are the host-callback path, where `x0`
@@ -836,7 +1095,7 @@ def blockSafe : Bool → List AInstr → Bool
     emitter refuses them (a marker), so they are excluded from coverage rather
     than emitted wrongly. -/
 def blockHazards : List String :=
-  (rv32Streams.filterMap (fun (nm, is) => if blockSafe false is then none else some nm))
+  (rv32Streams.filterMap (fun (nm, is) => if blockSafe [] false is then none else some nm))
 
 /-- Pinned: the hazard set is exactly the six callback handlers, so it cannot
     grow unnoticed. -/

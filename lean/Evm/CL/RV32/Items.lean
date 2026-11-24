@@ -92,8 +92,17 @@ def nosLoadI (limb : Nat) : List RvItem :=
     RvItem.insn (.lw nosLoR (nosOff limb) nosHiR),
     RvItem.insn (.lw nosHiR (nosOff limb + 4) nosHiR) ]
 
+/-- `Lower.loadWords`, structurally: a multi-word load off one base, with the
+    base's own slot loaded LAST, so that `ldr d, [d]` does not destroy its own
+    address between the two halves. -/
+def loadWordsI (b : RvReg) (slots : List (RvReg × Nat)) : List RvItem :=
+  let deferred := slots.filter (fun s => s.1 == b)
+  let first := slots.filter (fun s => s.1 != b)
+  (first ++ deferred).map (fun s => RvItem.insn (.lw s.1 s.2 b))
+
 /-- The forms converted so far. `none` is "still string-only", not "unlowered":
     `Lower` handles many more, they are simply not yet provable. -/
+
 def itemsBody (n : Nat) : AInstr → Option (List RvItem)
   | .addReg d a b  => some (add64I n d a b false false)
   | .adds d a b    => some (add64I n d a b false true)
@@ -111,8 +120,8 @@ def itemsBody (n : Nat) : AInstr → Option (List RvItem)
                             .insn (.andr (hiR d) (hiR a) (hiR b))]
   | .eor3 d a b    => some [.insn (.xorr (loR d) (loR a) (loR b)),
                             .insn (.xorr (hiR d) (hiR a) (hiR b))]
-  | .ldrOff d b o  => some [.insn (.lw (loR d) o (loR b)), .insn (.lw (hiR d) (o + 4) (loR b))]
-  | .ldrBase d b   => some [.insn (.lw (loR d) 0 (loR b)), .insn (.lw (hiR d) 4 (loR b))]
+  | .ldrOff d b o  => some (loadWordsI (loR b) [(loR d, o), (hiR d, o + 4)])
+  | .ldrBase d b   => some (loadWordsI (loR b) [(loR d, 0), (hiR d, 4)])
   | .strOff s b o  => some [.insn (.sw (loR s) o (loR b)), .insn (.sw (hiR s) (o + 4) (loR b))]
   | _ => none
 

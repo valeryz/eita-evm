@@ -35,9 +35,15 @@ void eita_set_fork(uint64_t ord);
 static EvmState     g_st;
 static u256_t       g_stack[STACK_WORDS];
 static uint8_t      g_mem[MEM_BYTES];
+/* PUSH<n> reads a full 32-byte word from `code + pc`, so the buffer is padded
+   past the longest program here by more than the 31 bytes evm_state.h requires. */
 static uint8_t      g_code[CODE_BYTES];
 static EvmCallbacks g_cb;      /* all-null: none of these programs calls a host hook */
-static uint8_t      g_arena[ARENA_BYTES];   /* cb_ctx; these opcodes never journal */
+/* cb_ctx must be 8-aligned (evm_state.h); a bare uint8_t[] is only 1-aligned,
+   and on rv32 a word access through it would trap on hardware. These opcodes
+   never journal, so nothing reads it — the alignment is here so that a test
+   someone adds later does not inherit a latent fault. */
+static uint8_t      g_arena[ARENA_BYTES] __attribute__((aligned(8)));
 
 /* Run CODE; report the 32-byte RETURN value and the gas it used. */
 static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],

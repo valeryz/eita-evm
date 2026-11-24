@@ -62,3 +62,11 @@ fi
 TI=$(grep -cE '^\s{4}[a-z]' "$OUT/interp.s")
 TT=$("${RV32_CC%-gcc}-size" "$OUT/interp.o" | awk 'NR==2{print $1}')
 echo "whole interpreter assembles OK ($TI instructions, $TT bytes of text, 137 handlers + 22 fork tables)"
+
+# ...and the alignment audit, over the file the firmware actually assembles.
+# bao1x's VexRiscv TRAPS a misaligned load or store, so an `lw` on a
+# byte-granular address is a lowering bug that no emulator reproduces (QEMU
+# emulates misalignment) and that kills the process on hardware before it can
+# print. The emitter answers this with a forward analysis; this is the
+# independent backward audit of the emitted text.
+python3 -I "$(dirname "$0")/check-rv32-alignment.py" c/handlers-rv32.S

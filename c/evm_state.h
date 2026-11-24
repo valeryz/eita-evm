@@ -211,7 +211,22 @@ typedef struct EvmState {
     uint64_t   memory_cap;     /* offset  56 — capacity (bytes); resize when size = cap */
 
     /* --- Buffers (immutable per frame) ----------------------------------- */
-    EITA_PTR(const uint8_t *code, code);       /* offset  64 — contract code */
+    /* offset 64 — contract code.
+     *
+     * HOST CONTRACT, two parts, both of which the emitted handlers rely on:
+     *
+     *  - `code` MUST BE PADDED by at least 31 bytes beyond `code_size`.
+     *    PUSH<n> reads its immediate as a FULL 32-byte big-endian word from
+     *    `code + pc` and masks afterwards, so a PUSH1 in the last byte of the
+     *    bytecode reads 31 bytes past the end. All three backends do this; it
+     *    is the shape of the shared instruction stream, not an rv32 quirk.
+     *    (The EVM's own semantics are implicit zero-padding, so the padding
+     *    must read as zero.)
+     *
+     *  - no alignment is required. `code + pc` is byte-granular by nature, and
+     *    on rv32 the lowering issues byte-wise accesses for it, because bao1x
+     *    traps a misaligned load. See c/rv32/README.md.                     */
+    EITA_PTR(const uint8_t *code, code);
     uint64_t       code_size;  /* offset  72 */
     EITA_PTR(const uint8_t *calldata, calldata);   /* offset  80 — inputs from the caller */
     uint64_t       calldata_size; /* offset 88 */
@@ -253,7 +268,15 @@ typedef struct EvmState {
 
     /* --- Host link ------------------------------------------------------- */
     EITA_PTR(const EvmCallbacks *cb, cb);    /* offset 496 — vtable */
-    EITA_PTR(void               *cb_ctx, cb_ctx); /* offset 504 — opaque host context */
+    /* offset 504 — opaque host context.
+     *
+     * HOST CONTRACT: must be aligned to 8. It is opaque to the engine, but the
+     * emitted handlers read 64-bit fields off it directly (TLOAD/TSTORE reach
+     * the journal through it), and rv32 cannot do that with a word load unless
+     * the pointer is aligned — bao1x traps the misaligned case. Passing a
+     * `uint8_t[]` without an alignment attribute is the way to get this
+     * wrong.                                                               */
+    EITA_PTR(void               *cb_ctx, cb_ctx);
 
     /* --- Post-Merge env ------------------------------------------------- */
     u256_t         prev_randao; /* offset 512 — RANDAO mix (EIP-4399) */

@@ -6410,14 +6410,94 @@ eita_handler_blobhash:
     sltu s7, t2, s6
     add  t3, t5, t6
     add  t3, t3, s7
-    lw   a0, 0(t2)
-    lw   a1, 4(t2)
-    lw   a2, 8(t2)
-    lw   a3, 12(t2)
-    lw   a4, 16(t2)
-    lw   a5, 20(t2)
-    lw   a6, 24(t2)
-    lw   a7, 28(t2)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t2)
+    lbu  t0, 1(t2)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t2)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t2)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t2)
+    lbu  t0, 5(t2)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t2)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t2)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a4, 16(t2)
+    lbu  t0, 17(t2)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 18(t2)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 19(t2)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 20(t2)
+    lbu  t0, 21(t2)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 22(t2)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 23(t2)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a6, 24(t2)
+    lbu  t0, 25(t2)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 26(t2)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 27(t2)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 28(t2)
+    lbu  t0, 29(t2)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 30(t2)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 31(t2)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     j    .Lbh_done
 .Lbh_zero:
     li   a0, 0
@@ -6800,23 +6880,16 @@ eita_handler_mul:
     bltu s2, s7, eita_stack_underflow
 .Lx992:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_mul
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -6876,23 +6949,16 @@ eita_handler_div:
     bltu s2, s7, eita_stack_underflow
 .Lx1040:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_div
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -6952,23 +7018,16 @@ eita_handler_sdiv:
     bltu s2, s7, eita_stack_underflow
 .Lx1088:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_sdiv
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7028,23 +7087,16 @@ eita_handler_mod:
     bltu s2, s7, eita_stack_underflow
 .Lx1136:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_mod
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7104,23 +7156,16 @@ eita_handler_smod:
     bltu s2, s7, eita_stack_underflow
 .Lx1184:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_smod
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7180,23 +7225,16 @@ eita_handler_shl:
     bltu s2, s7, eita_stack_underflow
 .Lx1232:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_shl
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7256,23 +7294,16 @@ eita_handler_shr:
     bltu s2, s7, eita_stack_underflow
 .Lx1280:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_shr
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7332,23 +7363,16 @@ eita_handler_sar:
     bltu s2, s7, eita_stack_underflow
 .Lx1328:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_sar
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7408,23 +7432,16 @@ eita_handler_byte:
     bltu s2, s7, eita_stack_underflow
 .Lx1376:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_byte
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7484,23 +7501,16 @@ eita_handler_signextend:
     bltu s2, s7, eita_stack_underflow
 .Lx1424:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_signextend
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7560,30 +7570,18 @@ eita_handler_addmod:
     bltu s2, s7, eita_stack_underflow
 .Lx1472:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_addmod
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7643,30 +7641,18 @@ eita_handler_mulmod:
     bltu s2, s7, eita_stack_underflow
 .Lx1524:
     addi sp, sp, -32
-    addi s10, sp, 0
-    li   s11, 0
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    addi a0, sp, 0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_mulmod
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7728,11 +7714,15 @@ eita_handler_calldataload:
     addi sp, sp, -32
     addi sp, sp, -16
     sw   ra, 8(sp)
-    addi a3, sp, 0
-    mv   a2, s0
-    addi a1, s2, -32
-    add  a1, s3, t4
+    addi a0, sp, 0
+    mv   a1, s0
+    addi a2, s2, -32
+    add  a2, s3, a2
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_calldataload
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -7953,30 +7943,18 @@ eita_handler_calldatacopy:
     or   s7, s7, t0
     lw   t0, 608(s0)
     bnez s7, eita_oog
-    mv   s10, s0
-    mv   s11, zero
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    mv   a0, s0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_calldatacopy
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltiu s7, s2, 96
     addi s2, s2, -96
     sub  zero, zero, s7
@@ -8173,30 +8151,18 @@ eita_handler_codecopy:
     or   s7, s7, t0
     lw   t0, 608(s0)
     bnez s7, eita_oog
-    mv   s10, s0
-    mv   s11, zero
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    mv   a0, s0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_codecopy
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltiu s7, s2, 96
     addi s2, s2, -96
     sub  zero, zero, s7
@@ -8449,30 +8415,18 @@ eita_handler_returndatacopy:
     or   s7, s7, t0
     lw   t0, 608(s0)
     bnez s7, eita_oog
-    mv   s10, s0
-    mv   s11, zero
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    mv   a0, s0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_returndatacopy
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltiu s7, s2, 96
     addi s2, s2, -96
     sub  zero, zero, s7
@@ -8769,30 +8723,18 @@ eita_handler_mcopy:
     or   s7, s7, t0
     lw   t0, 608(s0)
     bnez s7, eita_oog
-    mv   s10, s0
-    mv   s11, zero
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    sltiu s7, s2, 96
-    addi t2, s2, -96
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
+    mv   a0, s0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, s2, -96
+    add  a3, s3, a3
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_mcopy
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltiu s7, s2, 96
     addi s2, s2, -96
     sub  zero, zero, s7
@@ -8996,25 +8938,17 @@ eita_handler_keccak256:
     lw   t0, 608(s0)
     bnez s7, eita_oog
     addi sp, sp, -32
-    mv   s10, s0
-    mv   s11, zero
-    sltiu s7, s2, 32
-    addi s8, s2, -32
-    sub  s9, zero, s7
-    add  s8, s8, s3
-    sltu s7, s8, s3
-    add  s9, s9, s7
-    add  s9, s9, zero
-    sltiu s7, s2, 64
-    addi t4, s2, -64
-    sub  t5, zero, s7
-    add  t4, t4, s3
-    sltu s7, t4, s3
-    add  t5, t5, s7
-    add  t5, t5, zero
-    addi t2, sp, 0
-    li   t3, 0
+    mv   a0, s0
+    addi a1, s2, -32
+    add  a1, s3, a1
+    addi a2, s2, -64
+    add  a2, s3, a2
+    addi a3, sp, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_keccak256
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -9075,14 +9009,17 @@ eita_handler_tload:
     addi sp, sp, -32
     addi sp, sp, -16
     sw   ra, 8(sp)
-    lw   a3, 504(s0)
-    lw   a3, 64(s10)
-    addi a2, s0, 144
-    addi a1, s2, -32
-    add  a1, s3, t4
-    addi t2, sp, 0
-    li   t3, 0
+    lw   a0, 504(s0)
+    lw   a0, 64(a0)
+    addi a1, s0, 144
+    addi a2, s2, -32
+    add  a2, s3, a2
+    addi a3, sp, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_ts_tload
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     addi t2, sp, 0
     li   t3, 0
     lw   a0, 0(t2)
@@ -9330,8 +9267,8 @@ eita_handler_extcodecopy:
     lw   a5, 28(t2)
     or   a6, a6, a4
     or   a7, a7, a5
-    lw   t2, 0(t2)
     lw   t3, 4(t2)
+    lw   t2, 0(t2)
     or   s7, a6, a7
     beqz s7, 94f
     li   t2, 0
@@ -9347,13 +9284,40 @@ eita_handler_extcodecopy:
     sltu s7, a0, s3
     add  a1, a1, s7
     add  a1, a1, zero
-    lw   a0, 0(a0)
     lw   a1, 4(a0)
+    lw   a0, 0(a0)
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 56(t0)
-    lw   t1, 60(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 56(t3)
+    lbu  t2, 57(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 58(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 59(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 60(t3)
+    lbu  t2, 61(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 62(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 63(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltu s7, s5, t0
     sub  s5, s5, t0
     sw   t0, 608(s0)
@@ -9768,9 +9732,36 @@ eita_handler_staticcall:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 88(t0)
-    lw   t1, 92(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 88(t3)
+    lbu  t2, 89(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 90(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 91(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 92(t3)
+    lbu  t2, 93(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 94(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 95(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t0, 136(sp)
     lw   t1, 140(sp)
     sw   t0, 96(s0)
@@ -9779,27 +9770,18 @@ eita_handler_staticcall:
     lw   t1, 148(sp)
     sw   t0, 104(s0)
     sw   t1, 108(s0)
-    sltiu s7, s2, 160
-    addi t2, s2, -160
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   s8, 0(t2)
-    lw   s9, 4(t2)
-    sltiu s7, s2, 192
-    addi t2, s2, -192
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   t4, 0(t2)
-    lw   t5, 4(t2)
-    mv   s10, s0
-    mv   s11, zero
+    addi a3, s2, -160
+    add  a3, s3, a3
+    lw   a1, 0(a3)
+    addi a3, s2, -192
+    add  a3, s3, a3
+    lw   a2, 0(a3)
+    mv   a0, s0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_returndata_to_mem
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t4, 128(sp)
     li   t5, 0
     lw   t0, 152(sp)
@@ -10269,9 +10251,36 @@ eita_handler_call:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 88(t0)
-    lw   t1, 92(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 88(t3)
+    lbu  t2, 89(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 90(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 91(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 92(t3)
+    lbu  t2, 93(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 94(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 95(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t0, 136(sp)
     lw   t1, 140(sp)
     sw   t0, 96(s0)
@@ -10280,27 +10289,18 @@ eita_handler_call:
     lw   t1, 148(sp)
     sw   t0, 104(s0)
     sw   t1, 108(s0)
-    sltiu s7, s2, 192
-    addi t2, s2, -192
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   s8, 0(t2)
-    lw   s9, 4(t2)
-    sltiu s7, s2, 224
-    addi t2, s2, -224
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   t4, 0(t2)
-    lw   t5, 4(t2)
-    mv   s10, s0
-    mv   s11, zero
+    addi a3, s2, -192
+    add  a3, s3, a3
+    lw   a1, 0(a3)
+    addi a3, s2, -224
+    add  a3, s3, a3
+    lw   a2, 0(a3)
+    mv   a0, s0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_returndata_to_mem
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t4, 128(sp)
     li   t5, 0
     lw   t0, 152(sp)
@@ -10743,9 +10743,36 @@ eita_handler_callcode:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 88(t0)
-    lw   t1, 92(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 88(t3)
+    lbu  t2, 89(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 90(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 91(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 92(t3)
+    lbu  t2, 93(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 94(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 95(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t0, 136(sp)
     lw   t1, 140(sp)
     sw   t0, 96(s0)
@@ -10754,27 +10781,18 @@ eita_handler_callcode:
     lw   t1, 148(sp)
     sw   t0, 104(s0)
     sw   t1, 108(s0)
-    sltiu s7, s2, 192
-    addi t2, s2, -192
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   s8, 0(t2)
-    lw   s9, 4(t2)
-    sltiu s7, s2, 224
-    addi t2, s2, -224
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   t4, 0(t2)
-    lw   t5, 4(t2)
-    mv   s10, s0
-    mv   s11, zero
+    addi a3, s2, -192
+    add  a3, s3, a3
+    lw   a1, 0(a3)
+    addi a3, s2, -224
+    add  a3, s3, a3
+    lw   a2, 0(a3)
+    mv   a0, s0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_returndata_to_mem
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t4, 128(sp)
     li   t5, 0
     lw   t0, 152(sp)
@@ -11202,9 +11220,36 @@ eita_handler_delegatecall:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 88(t0)
-    lw   t1, 92(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 88(t3)
+    lbu  t2, 89(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 90(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 91(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 92(t3)
+    lbu  t2, 93(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 94(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 95(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t0, 136(sp)
     lw   t1, 140(sp)
     sw   t0, 96(s0)
@@ -11213,27 +11258,18 @@ eita_handler_delegatecall:
     lw   t1, 148(sp)
     sw   t0, 104(s0)
     sw   t1, 108(s0)
-    sltiu s7, s2, 160
-    addi t2, s2, -160
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   s8, 0(t2)
-    lw   s9, 4(t2)
-    sltiu s7, s2, 192
-    addi t2, s2, -192
-    sub  t3, zero, s7
-    add  t2, t2, s3
-    sltu s7, t2, s3
-    add  t3, t3, s7
-    add  t3, t3, zero
-    lw   t4, 0(t2)
-    lw   t5, 4(t2)
-    mv   s10, s0
-    mv   s11, zero
+    addi a3, s2, -160
+    add  a3, s3, a3
+    lw   a1, 0(a3)
+    addi a3, s2, -192
+    add  a3, s3, a3
+    lw   a2, 0(a3)
+    mv   a0, s0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_helper_returndata_to_mem
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t4, 128(sp)
     li   t5, 0
     lw   t0, 152(sp)
@@ -11566,9 +11602,36 @@ eita_handler_create:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 96(t0)
-    lw   t1, 100(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 96(t3)
+    lbu  t2, 97(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 98(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 99(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 100(t3)
+    lbu  t2, 101(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 102(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 103(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t2, 136(sp)
     lw   t3, 140(sp)
     sw   t2, 96(s0)
@@ -11934,9 +11997,36 @@ eita_handler_create2:
     li   t5, 0
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 96(t0)
-    lw   t1, 100(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 96(t3)
+    lbu  t2, 97(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 98(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 99(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 100(t3)
+    lbu  t2, 101(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 102(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 103(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     lw   t2, 136(sp)
     lw   t3, 140(sp)
     sw   t2, 96(s0)
@@ -12053,9 +12143,36 @@ eita_handler_selfdestruct:
     mv   t5, t3
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 104(t0)
-    lw   t1, 108(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 104(t3)
+    lbu  t2, 105(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 106(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 107(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 108(t3)
+    lbu  t2, 109(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 110(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 111(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltu s7, s5, t0
     sub  s5, s5, t0
     sw   t0, 608(s0)
@@ -12221,14 +12338,94 @@ eita_handler_mload:
     sltu s7, t2, a0
     add  t3, t3, s7
     add  t3, t3, a1
-    lw   a0, 0(t2)
-    lw   a1, 4(t2)
-    lw   a2, 8(t2)
-    lw   a3, 12(t2)
-    lw   a4, 16(t2)
-    lw   a5, 20(t2)
-    lw   a6, 24(t2)
-    lw   a7, 28(t2)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t2)
+    lbu  t0, 1(t2)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t2)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t2)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t2)
+    lbu  t0, 5(t2)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t2)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t2)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a4, 16(t2)
+    lbu  t0, 17(t2)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 18(t2)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 19(t2)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 20(t2)
+    lbu  t0, 21(t2)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 22(t2)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 23(t2)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    lbu  a6, 24(t2)
+    lbu  t0, 25(t2)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 26(t2)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 27(t2)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 28(t2)
+    lbu  t0, 29(t2)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 30(t2)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 31(t2)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -12617,14 +12814,70 @@ eita_handler_mstore:
     mv   s11, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    sw   t0, 0(t2)
-    sw   t1, 4(t2)
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
-    sw   s8, 16(t2)
-    sw   s9, 20(t2)
-    sw   s10, 24(t2)
-    sw   s11, 28(t2)
+    sw   t3, 608(s0)
+    sb   t0, 0(t2)
+    srli t3, t0, 8
+    sb   t3, 1(t2)
+    srli t3, t0, 16
+    sb   t3, 2(t2)
+    srli t3, t0, 24
+    sb   t3, 3(t2)
+    sb   t1, 4(t2)
+    srli t3, t1, 8
+    sb   t3, 5(t2)
+    srli t3, t1, 16
+    sb   t3, 6(t2)
+    srli t3, t1, 24
+    sb   t3, 7(t2)
+    lw   t3, 608(s0)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    sb   s8, 16(t2)
+    srli t0, s8, 8
+    sb   t0, 17(t2)
+    srli t0, s8, 16
+    sb   t0, 18(t2)
+    srli t0, s8, 24
+    sb   t0, 19(t2)
+    sb   s9, 20(t2)
+    srli t0, s9, 8
+    sb   t0, 21(t2)
+    srli t0, s9, 16
+    sb   t0, 22(t2)
+    srli t0, s9, 24
+    sb   t0, 23(t2)
+    lw   t0, 608(s0)
+    sw   t0, 608(s0)
+    sb   s10, 24(t2)
+    srli t0, s10, 8
+    sb   t0, 25(t2)
+    srli t0, s10, 16
+    sb   t0, 26(t2)
+    srli t0, s10, 24
+    sb   t0, 27(t2)
+    sb   s11, 28(t2)
+    srli t0, s11, 8
+    sb   t0, 29(t2)
+    srli t0, s11, 16
+    sb   t0, 30(t2)
+    srli t0, s11, 24
+    sb   t0, 31(t2)
+    lw   t0, 608(s0)
     sltiu s7, s2, 64
     addi s2, s2, -64
     sub  zero, zero, s7
@@ -13297,8 +13550,28 @@ eita_handler_tstore:
     sw   a7, 28(t2)
     lw   s8, 504(s0)
     lw   s9, 508(s0)
-    lw   s10, 64(s8)
-    lw   s11, 68(s8)
+    sw   t0, 608(s0)
+    lbu  s10, 64(s8)
+    lbu  t0, 65(s8)
+    slli t0, t0, 8
+    or   s10, s10, t0
+    lbu  t0, 66(s8)
+    slli t0, t0, 16
+    or   s10, s10, t0
+    lbu  t0, 67(s8)
+    slli t0, t0, 24
+    or   s10, s10, t0
+    lbu  s11, 68(s8)
+    lbu  t0, 69(s8)
+    slli t0, t0, 8
+    or   s11, s11, t0
+    lbu  t0, 70(s8)
+    slli t0, t0, 16
+    or   s11, s11, t0
+    lbu  t0, 71(s8)
+    slli t0, t0, 24
+    or   s11, s11, t0
+    lw   t0, 608(s0)
     addi t4, s0, 144
     sltiu s7, t4, 144
     add  t5, zero, s7
@@ -13316,7 +13589,11 @@ eita_handler_tstore:
     sltu s7, a0, s3
     add  a1, a1, s7
     add  a1, a1, zero
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     call eita_ts_tstore
+    lw   ra, 0(sp)
+    addi sp, sp, 16
     sltiu s7, s2, 64
     addi s2, s2, -64
     sub  zero, zero, s7
@@ -13402,8 +13679,28 @@ eita_handler_push1:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13485,8 +13782,28 @@ eita_handler_push2:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13568,8 +13885,28 @@ eita_handler_push3:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13651,8 +13988,28 @@ eita_handler_push4:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13734,8 +14091,28 @@ eita_handler_push5:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13819,8 +14196,28 @@ eita_handler_push6:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13904,8 +14301,28 @@ eita_handler_push7:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -13989,8 +14406,28 @@ eita_handler_push8:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14070,8 +14507,28 @@ eita_handler_push9:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14102,8 +14559,28 @@ eita_handler_push9:
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14183,8 +14660,28 @@ eita_handler_push10:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14215,8 +14712,28 @@ eita_handler_push10:
     addi t4, t4, 2
     sltiu s7, t4, 2
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14296,8 +14813,28 @@ eita_handler_push11:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14328,8 +14865,28 @@ eita_handler_push11:
     addi t4, t4, 3
     sltiu s7, t4, 3
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14409,8 +14966,28 @@ eita_handler_push12:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14441,8 +15018,28 @@ eita_handler_push12:
     addi t4, t4, 4
     sltiu s7, t4, 4
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14522,8 +15119,28 @@ eita_handler_push13:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14556,8 +15173,28 @@ eita_handler_push13:
     addi t4, t4, 5
     sltiu s7, t4, 5
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14637,8 +15274,28 @@ eita_handler_push14:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14671,8 +15328,28 @@ eita_handler_push14:
     addi t4, t4, 6
     sltiu s7, t4, 6
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14752,8 +15429,28 @@ eita_handler_push15:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14786,8 +15483,28 @@ eita_handler_push15:
     addi t4, t4, 7
     sltiu s7, t4, 7
     add  t5, t5, s7
-    lw   a0, 0(t4)
-    lw   a1, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14867,8 +15584,28 @@ eita_handler_push16:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14894,8 +15631,28 @@ eita_handler_push16:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -14975,8 +15732,28 @@ eita_handler_push17:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15007,8 +15784,28 @@ eita_handler_push17:
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15034,8 +15831,28 @@ eita_handler_push17:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15115,8 +15932,28 @@ eita_handler_push18:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15147,8 +15984,28 @@ eita_handler_push18:
     addi t4, t4, 2
     sltiu s7, t4, 2
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15174,8 +16031,28 @@ eita_handler_push18:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15255,8 +16132,28 @@ eita_handler_push19:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15287,8 +16184,28 @@ eita_handler_push19:
     addi t4, t4, 3
     sltiu s7, t4, 3
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15314,8 +16231,28 @@ eita_handler_push19:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15395,8 +16332,28 @@ eita_handler_push20:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15427,8 +16384,28 @@ eita_handler_push20:
     addi t4, t4, 4
     sltiu s7, t4, 4
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15454,8 +16431,28 @@ eita_handler_push20:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15535,8 +16532,28 @@ eita_handler_push21:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15569,8 +16586,28 @@ eita_handler_push21:
     addi t4, t4, 5
     sltiu s7, t4, 5
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15596,8 +16633,28 @@ eita_handler_push21:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15677,8 +16734,28 @@ eita_handler_push22:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15711,8 +16788,28 @@ eita_handler_push22:
     addi t4, t4, 6
     sltiu s7, t4, 6
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15738,8 +16835,28 @@ eita_handler_push22:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15819,8 +16936,28 @@ eita_handler_push23:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15853,8 +16990,28 @@ eita_handler_push23:
     addi t4, t4, 7
     sltiu s7, t4, 7
     add  t5, t5, s7
-    lw   a2, 0(t4)
-    lw   a3, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15880,8 +17037,28 @@ eita_handler_push23:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 8(t4)
-    lw   a1, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15961,8 +17138,28 @@ eita_handler_push24:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -15988,8 +17185,28 @@ eita_handler_push24:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16015,8 +17232,28 @@ eita_handler_push24:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16096,8 +17333,28 @@ eita_handler_push25:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16128,8 +17385,28 @@ eita_handler_push25:
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16155,8 +17432,28 @@ eita_handler_push25:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16182,8 +17479,28 @@ eita_handler_push25:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16263,8 +17580,28 @@ eita_handler_push26:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16295,8 +17632,28 @@ eita_handler_push26:
     addi t4, t4, 2
     sltiu s7, t4, 2
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16322,8 +17679,28 @@ eita_handler_push26:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16349,8 +17726,28 @@ eita_handler_push26:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16430,8 +17827,28 @@ eita_handler_push27:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16462,8 +17879,28 @@ eita_handler_push27:
     addi t4, t4, 3
     sltiu s7, t4, 3
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16489,8 +17926,28 @@ eita_handler_push27:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16516,8 +17973,28 @@ eita_handler_push27:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16597,8 +18074,28 @@ eita_handler_push28:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16629,8 +18126,28 @@ eita_handler_push28:
     addi t4, t4, 4
     sltiu s7, t4, 4
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16656,8 +18173,28 @@ eita_handler_push28:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16683,8 +18220,28 @@ eita_handler_push28:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16764,8 +18321,28 @@ eita_handler_push29:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16798,8 +18375,28 @@ eita_handler_push29:
     addi t4, t4, 5
     sltiu s7, t4, 5
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16825,8 +18422,28 @@ eita_handler_push29:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16852,8 +18469,28 @@ eita_handler_push29:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16933,8 +18570,28 @@ eita_handler_push30:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16967,8 +18624,28 @@ eita_handler_push30:
     addi t4, t4, 6
     sltiu s7, t4, 6
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -16994,8 +18671,28 @@ eita_handler_push30:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17021,8 +18718,28 @@ eita_handler_push30:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17102,8 +18819,28 @@ eita_handler_push31:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17136,8 +18873,28 @@ eita_handler_push31:
     addi t4, t4, 7
     sltiu s7, t4, 7
     add  t5, t5, s7
-    lw   a4, 0(t4)
-    lw   a5, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17163,8 +18920,28 @@ eita_handler_push31:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 8(t4)
-    lw   a3, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17190,8 +18967,28 @@ eita_handler_push31:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 16(t4)
-    lw   a1, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17271,8 +19068,28 @@ eita_handler_push32:
     sltu s7, t4, s1
     add  t5, zero, s7
     add  t5, t5, zero
-    lw   a6, 0(t4)
-    lw   a7, 4(t4)
+    sw   t0, 608(s0)
+    lbu  a6, 0(t4)
+    lbu  t0, 1(t4)
+    slli t0, t0, 8
+    or   a6, a6, t0
+    lbu  t0, 2(t4)
+    slli t0, t0, 16
+    or   a6, a6, t0
+    lbu  t0, 3(t4)
+    slli t0, t0, 24
+    or   a6, a6, t0
+    lbu  a7, 4(t4)
+    lbu  t0, 5(t4)
+    slli t0, t0, 8
+    or   a7, a7, t0
+    lbu  t0, 6(t4)
+    slli t0, t0, 16
+    or   a7, a7, t0
+    lbu  t0, 7(t4)
+    slli t0, t0, 24
+    or   a7, a7, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17298,8 +19115,28 @@ eita_handler_push32:
     mv   a7, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a4, 8(t4)
-    lw   a5, 12(t4)
+    sw   t0, 608(s0)
+    lbu  a4, 8(t4)
+    lbu  t0, 9(t4)
+    slli t0, t0, 8
+    or   a4, a4, t0
+    lbu  t0, 10(t4)
+    slli t0, t0, 16
+    or   a4, a4, t0
+    lbu  t0, 11(t4)
+    slli t0, t0, 24
+    or   a4, a4, t0
+    lbu  a5, 12(t4)
+    lbu  t0, 13(t4)
+    slli t0, t0, 8
+    or   a5, a5, t0
+    lbu  t0, 14(t4)
+    slli t0, t0, 16
+    or   a5, a5, t0
+    lbu  t0, 15(t4)
+    slli t0, t0, 24
+    or   a5, a5, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17325,8 +19162,28 @@ eita_handler_push32:
     mv   a5, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a2, 16(t4)
-    lw   a3, 20(t4)
+    sw   t0, 608(s0)
+    lbu  a2, 16(t4)
+    lbu  t0, 17(t4)
+    slli t0, t0, 8
+    or   a2, a2, t0
+    lbu  t0, 18(t4)
+    slli t0, t0, 16
+    or   a2, a2, t0
+    lbu  t0, 19(t4)
+    slli t0, t0, 24
+    or   a2, a2, t0
+    lbu  a3, 20(t4)
+    lbu  t0, 21(t4)
+    slli t0, t0, 8
+    or   a3, a3, t0
+    lbu  t0, 22(t4)
+    slli t0, t0, 16
+    or   a3, a3, t0
+    lbu  t0, 23(t4)
+    slli t0, t0, 24
+    or   a3, a3, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17352,8 +19209,28 @@ eita_handler_push32:
     mv   a3, t1
     lw   t0, 608(s0)
     lw   t1, 612(s0)
-    lw   a0, 24(t4)
-    lw   a1, 28(t4)
+    sw   t0, 608(s0)
+    lbu  a0, 24(t4)
+    lbu  t0, 25(t4)
+    slli t0, t0, 8
+    or   a0, a0, t0
+    lbu  t0, 26(t4)
+    slli t0, t0, 16
+    or   a0, a0, t0
+    lbu  t0, 27(t4)
+    slli t0, t0, 24
+    or   a0, a0, t0
+    lbu  a1, 28(t4)
+    lbu  t0, 29(t4)
+    slli t0, t0, 8
+    or   a1, a1, t0
+    lbu  t0, 30(t4)
+    slli t0, t0, 16
+    or   a1, a1, t0
+    lbu  t0, 31(t4)
+    slli t0, t0, 24
+    or   a1, a1, t0
+    lw   t0, 608(s0)
     sw   t0, 608(s0)
     sw   t1, 612(s0)
     li   t0, 0xff00ff
@@ -17587,13 +19464,47 @@ eita_handler_log0:
 4:
     lw   t2, 504(s0)
     lw   t3, 508(s0)
-    lw   t4, 8(t2)
-    lw   t5, 12(t2)
+    sw   t0, 608(s0)
+    lbu  t4, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   t4, t4, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   t4, t4, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   t4, t4, t0
+    lbu  t5, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   t5, t5, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   t5, t5, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   t5, t5, t0
+    lw   t0, 608(s0)
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
     add  t6, s3, s2
     lw   s6, -64(t6)
     lw   t6, -60(t6)
@@ -17631,8 +19542,31 @@ eita_handler_log0:
     bnez s7, eita_oog
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 72(t0)
-    lw   t1, 76(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 72(t3)
+    lbu  t2, 73(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 74(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 75(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 76(t3)
+    lbu  t2, 77(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 78(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 79(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
     or   s7, t0, t1
     beqz s7, 7f
     lw   s10, 504(s0)
@@ -17651,8 +19585,8 @@ eita_handler_log0:
     sltu s7, t4, s3
     add  t5, t5, s7
     add  t5, t5, zero
-    lw   t4, 0(t4)
     lw   t5, 4(t4)
+    lw   t4, 0(t4)
     lw   a0, 40(s0)
     lw   a1, 44(s0)
     add  a0, a0, t4
@@ -17670,7 +19604,11 @@ eita_handler_log0:
     lw   a3, 4(t4)
     li   t4, 0
     li   t5, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
 7:
     li   s7, 32
     blt  zero, zero, 5f
@@ -17867,13 +19805,47 @@ eita_handler_log1:
 4:
     lw   t2, 504(s0)
     lw   t3, 508(s0)
-    lw   t4, 8(t2)
-    lw   t5, 12(t2)
+    sw   t0, 608(s0)
+    lbu  t4, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   t4, t4, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   t4, t4, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   t4, t4, t0
+    lbu  t5, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   t5, t5, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   t5, t5, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   t5, t5, t0
+    lw   t0, 608(s0)
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
     add  t6, s3, s2
     lw   s6, -64(t6)
     lw   t6, -60(t6)
@@ -17911,8 +19883,31 @@ eita_handler_log1:
     bnez s7, eita_oog
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 72(t0)
-    lw   t1, 76(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 72(t3)
+    lbu  t2, 73(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 74(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 75(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 76(t3)
+    lbu  t2, 77(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 78(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 79(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
     or   s7, t0, t1
     beqz s7, 7f
     lw   s10, 504(s0)
@@ -17931,8 +19926,8 @@ eita_handler_log1:
     sltu s7, t4, s3
     add  t5, t5, s7
     add  t5, t5, zero
-    lw   t4, 0(t4)
     lw   t5, 4(t4)
+    lw   t4, 0(t4)
     lw   a0, 40(s0)
     lw   a1, 44(s0)
     add  a0, a0, t4
@@ -17950,7 +19945,11 @@ eita_handler_log1:
     lw   a3, 4(t4)
     li   t4, 1
     li   t5, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
 7:
     li   s7, 32
     blt  zero, zero, 5f
@@ -18147,13 +20146,47 @@ eita_handler_log2:
 4:
     lw   t2, 504(s0)
     lw   t3, 508(s0)
-    lw   t4, 8(t2)
-    lw   t5, 12(t2)
+    sw   t0, 608(s0)
+    lbu  t4, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   t4, t4, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   t4, t4, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   t4, t4, t0
+    lbu  t5, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   t5, t5, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   t5, t5, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   t5, t5, t0
+    lw   t0, 608(s0)
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
     add  t6, s3, s2
     lw   s6, -64(t6)
     lw   t6, -60(t6)
@@ -18191,8 +20224,31 @@ eita_handler_log2:
     bnez s7, eita_oog
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 72(t0)
-    lw   t1, 76(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 72(t3)
+    lbu  t2, 73(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 74(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 75(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 76(t3)
+    lbu  t2, 77(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 78(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 79(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
     or   s7, t0, t1
     beqz s7, 7f
     lw   s10, 504(s0)
@@ -18211,8 +20267,8 @@ eita_handler_log2:
     sltu s7, t4, s3
     add  t5, t5, s7
     add  t5, t5, zero
-    lw   t4, 0(t4)
     lw   t5, 4(t4)
+    lw   t4, 0(t4)
     lw   a0, 40(s0)
     lw   a1, 44(s0)
     add  a0, a0, t4
@@ -18230,7 +20286,11 @@ eita_handler_log2:
     lw   a3, 4(t4)
     li   t4, 2
     li   t5, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
 7:
     li   s7, 32
     blt  zero, zero, 5f
@@ -18427,13 +20487,47 @@ eita_handler_log3:
 4:
     lw   t2, 504(s0)
     lw   t3, 508(s0)
-    lw   t4, 8(t2)
-    lw   t5, 12(t2)
+    sw   t0, 608(s0)
+    lbu  t4, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   t4, t4, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   t4, t4, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   t4, t4, t0
+    lbu  t5, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   t5, t5, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   t5, t5, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   t5, t5, t0
+    lw   t0, 608(s0)
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
     add  t6, s3, s2
     lw   s6, -64(t6)
     lw   t6, -60(t6)
@@ -18471,8 +20565,31 @@ eita_handler_log3:
     bnez s7, eita_oog
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 72(t0)
-    lw   t1, 76(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 72(t3)
+    lbu  t2, 73(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 74(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 75(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 76(t3)
+    lbu  t2, 77(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 78(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 79(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
     or   s7, t0, t1
     beqz s7, 7f
     lw   s10, 504(s0)
@@ -18491,8 +20608,8 @@ eita_handler_log3:
     sltu s7, t4, s3
     add  t5, t5, s7
     add  t5, t5, zero
-    lw   t4, 0(t4)
     lw   t5, 4(t4)
+    lw   t4, 0(t4)
     lw   a0, 40(s0)
     lw   a1, 44(s0)
     add  a0, a0, t4
@@ -18510,7 +20627,11 @@ eita_handler_log3:
     lw   a3, 4(t4)
     li   t4, 3
     li   t5, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
 7:
     li   s7, 32
     blt  zero, zero, 5f
@@ -18707,13 +20828,47 @@ eita_handler_log4:
 4:
     lw   t2, 504(s0)
     lw   t3, 508(s0)
-    lw   t4, 8(t2)
-    lw   t5, 12(t2)
+    sw   t0, 608(s0)
+    lbu  t4, 8(t2)
+    lbu  t0, 9(t2)
+    slli t0, t0, 8
+    or   t4, t4, t0
+    lbu  t0, 10(t2)
+    slli t0, t0, 16
+    or   t4, t4, t0
+    lbu  t0, 11(t2)
+    slli t0, t0, 24
+    or   t4, t4, t0
+    lbu  t5, 12(t2)
+    lbu  t0, 13(t2)
+    slli t0, t0, 8
+    or   t5, t5, t0
+    lbu  t0, 14(t2)
+    slli t0, t0, 16
+    or   t5, t5, t0
+    lbu  t0, 15(t2)
+    slli t0, t0, 24
+    or   t5, t5, t0
+    lw   t0, 608(s0)
     addi t4, t4, 1
     sltiu s7, t4, 1
     add  t5, t5, s7
-    sw   t4, 8(t2)
-    sw   t5, 12(t2)
+    sw   t0, 608(s0)
+    sb   t4, 8(t2)
+    srli t0, t4, 8
+    sb   t0, 9(t2)
+    srli t0, t4, 16
+    sb   t0, 10(t2)
+    srli t0, t4, 24
+    sb   t0, 11(t2)
+    sb   t5, 12(t2)
+    srli t0, t5, 8
+    sb   t0, 13(t2)
+    srli t0, t5, 16
+    sb   t0, 14(t2)
+    srli t0, t5, 24
+    sb   t0, 15(t2)
+    lw   t0, 608(s0)
     add  t6, s3, s2
     lw   s6, -64(t6)
     lw   t6, -60(t6)
@@ -18751,8 +20906,31 @@ eita_handler_log4:
     bnez s7, eita_oog
     lw   t0, 496(s0)
     lw   t1, 500(s0)
-    lw   t0, 72(t0)
-    lw   t1, 76(t0)
+    sw   t2, 608(s0)
+    sw   t3, 612(s0)
+    mv   t3, t0
+    lbu  t0, 72(t3)
+    lbu  t2, 73(t3)
+    slli t2, t2, 8
+    or   t0, t0, t2
+    lbu  t2, 74(t3)
+    slli t2, t2, 16
+    or   t0, t0, t2
+    lbu  t2, 75(t3)
+    slli t2, t2, 24
+    or   t0, t0, t2
+    lbu  t1, 76(t3)
+    lbu  t2, 77(t3)
+    slli t2, t2, 8
+    or   t1, t1, t2
+    lbu  t2, 78(t3)
+    slli t2, t2, 16
+    or   t1, t1, t2
+    lbu  t2, 79(t3)
+    slli t2, t2, 24
+    or   t1, t1, t2
+    lw   t3, 612(s0)
+    lw   t2, 608(s0)
     or   s7, t0, t1
     beqz s7, 7f
     lw   s10, 504(s0)
@@ -18771,8 +20949,8 @@ eita_handler_log4:
     sltu s7, t4, s3
     add  t5, t5, s7
     add  t5, t5, zero
-    lw   t4, 0(t4)
     lw   t5, 4(t4)
+    lw   t4, 0(t4)
     lw   a0, 40(s0)
     lw   a1, 44(s0)
     add  a0, a0, t4
@@ -18790,7 +20968,11 @@ eita_handler_log4:
     lw   a3, 4(t4)
     li   t4, 4
     li   t5, 0
+    addi sp, sp, -16
+    sw   ra, 0(sp)
     jalr t0
+    lw   ra, 0(sp)
+    addi sp, sp, 16
 7:
     li   s7, 32
     blt  zero, zero, 5f
