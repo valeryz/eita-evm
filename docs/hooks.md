@@ -252,23 +252,25 @@ log.
 
 ## Developing hooks live from Emacs
 
-`examples/hooks/swank.lisp` starts a Swank (SLIME) or Slynk (SLY) server in the node,
-listening on 127.0.0.1 only:
+`bin/eita` serves a Swank REPL (SLIME's) while it runs `replay`, `engine` or `repl`, when
+`EITA_SWANK_PORT` names a port. It listens on 127.0.0.1 only:
 
 ```sh
-export SWANK_LOADER=/path/to/slime/swank-loader.lisp     # or SLYNK_LOADER=/path/to/sly/slynk/slynk-loader.lisp
-export EITA_SWANK_PORT=4005
-bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita repl                       # or a REPL session, no replay
 ```
 
-with `(load "examples/hooks/swank.lisp")` at the top of `my-hooks.lisp` (or
-`bin/eita repl --load examples/hooks/swank.lisp` for a REPL session). Load the server of the
-SLIME or SLY your Emacs runs: the two sides must be the same version.
+The server is Swank from SLIME 2.32, pinned in `ocicl.csv` and compiled into `bin/eita`; use
+SLIME 2.32 in Emacs (another version connects, after a version warning). A port in use leaves
+the command running without a REPL (`[swank] not started on 127.0.0.1:4005: …`). A connection
+that fails is logged and the server goes on listening.
 
-- **Connect:** `M-x slime-connect` (SLIME) or `M-x sly-connect` (SLY), host `127.0.0.1`,
-  port 4005.
+- **Connect:** `M-x slime-connect`, host `127.0.0.1`, port 4005.
 - **A remote node:** forward the port over SSH, then connect to `127.0.0.1:4005` locally:
   `ssh -L 4005:127.0.0.1:4005 user@node-host`.
+- **SLY** speaks to Slynk, not Swank: load Slynk from your SLY checkout in the hooks file
+  instead, `(load "/path/to/sly/slynk/slynk-loader.lisp") (slynk-loader:init)
+  (setf slynk::*loopback-interface* "127.0.0.1") (slynk:create-server :port 4006 :dont-close t)`.
 
 A session:
 
