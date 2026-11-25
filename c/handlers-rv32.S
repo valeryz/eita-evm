@@ -257,8 +257,8 @@ eita_dispatch_table_frontier:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -517,8 +517,8 @@ eita_dispatch_table_homestead:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -777,8 +777,8 @@ eita_dispatch_table_dao_fork:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -1037,8 +1037,8 @@ eita_dispatch_table_tangerine_whistle:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -1297,8 +1297,8 @@ eita_dispatch_table_spurious_dragon:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -1557,8 +1557,8 @@ eita_dispatch_table_byzantium:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -1817,8 +1817,8 @@ eita_dispatch_table_constantinople:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -2077,8 +2077,8 @@ eita_dispatch_table_petersburg:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -2337,8 +2337,8 @@ eita_dispatch_table_istanbul:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -2597,8 +2597,8 @@ eita_dispatch_table_muir_glacier:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -2857,8 +2857,8 @@ eita_dispatch_table_berlin:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -3117,8 +3117,8 @@ eita_dispatch_table_london:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -3377,8 +3377,8 @@ eita_dispatch_table_arrow_glacier:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -3637,8 +3637,8 @@ eita_dispatch_table_gray_glacier:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -3897,8 +3897,8 @@ eita_dispatch_table_paris:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -4157,8 +4157,8 @@ eita_dispatch_table_shanghai:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -4417,8 +4417,8 @@ eita_dispatch_table:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -4677,8 +4677,8 @@ eita_dispatch_table_osaka:
     .word   eita_handler_mstore8
     .word   eita_handler_sload
     .word   eita_unimplemented
-    .word   eita_unimplemented
-    .word   eita_unimplemented
+    .word   eita_handler_jump
+    .word   eita_handler_jumpi
     .word   eita_handler_pc
     .word   eita_handler_msize
     .word   eita_handler_gas
@@ -13830,6 +13830,169 @@ eita_handler_revert:
     sub  zero, zero, s7
     j    eita_sync_and_ret
 .text
+.globl eita_handler_jump
+.p2align 2
+eita_handler_jump:
+    li   s7, 32
+    bnez zero, .Lx5438
+    bltu s2, s7, eita_stack_underflow
+.Lx5438:
+    or   t2, a2, a4
+    or   t3, a3, a5
+    or   t2, t2, a6
+    or   t3, t3, a7
+    or   s7, t2, t3
+    bnez s7, eita_invalid_jump
+    lw   t2, 72(s0)
+    lw   t3, 76(s0)
+    bltu a1, t3, .Lx5443
+    bne  t3, a1, eita_invalid_jump
+    bgeu a0, t2, eita_invalid_jump
+.Lx5443:
+    lw   t2, 136(s0)
+    lw   t3, 140(s0)
+    add  s7, t2, a0
+    lbu  t2, 0(s7)
+    li   t3, 0
+    li   s7, 1
+    bne  t2, s7, eita_invalid_jump
+    mv   s1, a0
+    mv   zero, a1
+    sltiu s7, s2, 32
+    addi s2, s2, -32
+    sub  zero, zero, s7
+    sltiu s7, s2, 32
+    addi t2, s2, -32
+    sub  t3, zero, s7
+    add  t2, t2, s3
+    sltu s7, t2, s3
+    add  t3, t3, s7
+    add  t3, t3, zero
+    lw   a0, 0(t2)
+    lw   a1, 4(t2)
+    lw   a2, 8(t2)
+    lw   a3, 12(t2)
+    lw   a4, 16(t2)
+    lw   a5, 20(t2)
+    lw   a6, 24(t2)
+    lw   a7, 28(t2)
+    sltiu s7, s2, 64
+    addi t2, s2, -64
+    sub  t3, zero, s7
+    add  t2, t2, s3
+    sltu s7, t2, s3
+    add  t3, t3, s7
+    add  t3, t3, zero
+    sltiu s7, s5, 8
+    addi s5, s5, -8
+    sw   t0, 608(s0)
+    sw   t1, 612(s0)
+    mv   t1, zero
+    sltu t0, zero, s7
+    sub  zero, zero, s7
+    sltu s7, zero, t1
+    sub  zero, zero, t1
+    or   s7, s7, t0
+    lw   t0, 608(s0)
+    lw   t1, 612(s0)
+    bnez s7, eita_oog
+    ret
+.text
+.globl eita_handler_jumpi
+.p2align 2
+eita_handler_jumpi:
+    li   s7, 64
+    bnez zero, .Lx5486
+    bltu s2, s7, eita_stack_underflow
+.Lx5486:
+    add  t6, s3, s2
+    lw   s6, -64(t6)
+    lw   t6, -60(t6)
+    mv   t2, s6
+    mv   t3, t6
+    add  t6, s3, s2
+    lw   s6, -56(t6)
+    lw   t6, -52(t6)
+    or   t2, t2, s6
+    or   t3, t3, t6
+    add  t6, s3, s2
+    lw   s6, -48(t6)
+    lw   t6, -44(t6)
+    mv   t4, s6
+    mv   t5, t6
+    add  t6, s3, s2
+    lw   s6, -40(t6)
+    lw   t6, -36(t6)
+    or   t4, t4, s6
+    or   t5, t5, t6
+    or   t2, t2, t4
+    or   t3, t3, t5
+    or   s7, t2, t3
+    beqz s7, eita_jumpi_fallthrough
+    or   t2, a2, a4
+    or   t3, a3, a5
+    or   t2, t2, a6
+    or   t3, t3, a7
+    or   s7, t2, t3
+    bnez s7, eita_invalid_jump
+    lw   t2, 72(s0)
+    lw   t3, 76(s0)
+    bltu a1, t3, .Lx5495
+    bne  t3, a1, eita_invalid_jump
+    bgeu a0, t2, eita_invalid_jump
+.Lx5495:
+    lw   t2, 136(s0)
+    lw   t3, 140(s0)
+    add  s7, t2, a0
+    lbu  t2, 0(s7)
+    li   t3, 0
+    li   s7, 1
+    bne  t2, s7, eita_invalid_jump
+    mv   s1, a0
+    mv   zero, a1
+eita_jumpi_pop:
+    sltiu s7, s2, 64
+    addi s2, s2, -64
+    sub  zero, zero, s7
+    sltiu s7, s2, 32
+    addi t2, s2, -32
+    sub  t3, zero, s7
+    add  t2, t2, s3
+    sltu s7, t2, s3
+    add  t3, t3, s7
+    add  t3, t3, zero
+    lw   a0, 0(t2)
+    lw   a1, 4(t2)
+    lw   a2, 8(t2)
+    lw   a3, 12(t2)
+    lw   a4, 16(t2)
+    lw   a5, 20(t2)
+    lw   a6, 24(t2)
+    lw   a7, 28(t2)
+    sltiu s7, s2, 64
+    addi t2, s2, -64
+    sub  t3, zero, s7
+    add  t2, t2, s3
+    sltu s7, t2, s3
+    add  t3, t3, s7
+    add  t3, t3, zero
+    sltiu s7, s5, 10
+    addi s5, s5, -10
+    sw   t0, 608(s0)
+    sw   t1, 612(s0)
+    mv   t1, zero
+    sltu t0, zero, s7
+    sub  zero, zero, s7
+    sltu s7, zero, t1
+    sub  zero, zero, t1
+    or   s7, s7, t0
+    lw   t0, 608(s0)
+    lw   t1, 612(s0)
+    bnez s7, eita_oog
+    ret
+eita_jumpi_fallthrough:
+    j    eita_jumpi_pop
+.text
 .globl eita_handler_tstore
 .p2align 2
 eita_handler_tstore:
@@ -13837,9 +14000,9 @@ eita_handler_tstore:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 64
-    bnez zero, .Lx5440
+    bnez zero, .Lx5550
     bltu s2, s7, eita_stack_underflow
-.Lx5440:
+.Lx5550:
     li   t2, 100
     li   t3, 0
     sltu s7, s5, t2
@@ -19620,9 +19783,9 @@ eita_handler_log0:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 64
-    bnez zero, .Lx7028
+    bnez zero, .Lx7138
     bltu s2, s7, eita_stack_underflow
-.Lx7028:
+.Lx7138:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -19689,16 +19852,16 @@ eita_handler_log0:
     add  t1, a1, s7
     sltu s7, t1, s7
     add  t1, t1, t6
-    bgeu t1, t6, .Lk14089
+    bgeu t1, t6, .Lk14309
     addi s7, s7, 1
-.Lk14089:
+.Lk14309:
     bnez s7, eita_oog
     lw   t2, 56(s0)
     lw   t3, 60(s0)
     bltu t3, t1, eita_oog
-    bne  t3, t1, .Lx7047
+    bne  t3, t1, .Lx7157
     bltu t2, t0, eita_oog
-.Lx7047:
+.Lx7157:
     addi t2, t0, 31
     sltiu s7, t2, 31
     add  t3, t1, s7
@@ -19712,10 +19875,10 @@ eita_handler_log0:
     slli s7, t5, 27
     or   t4, t4, s7
     srli t5, t5, 5
-    bltu t5, t3, .Lx7052
+    bltu t5, t3, .Lx7162
     bne  t3, t5, 7f
     bgeu t4, t2, 7f
-.Lx7052:
+.Lx7162:
     mulhu s11, t2, t2
     mul  s10, t2, t2
     mul  s7, t2, t3
@@ -19835,17 +19998,17 @@ eita_handler_log0:
     add  t5, t5, t6
     lw   s10, 24(s0)
     lw   s11, 28(s0)
-    bltu s11, t5, .Lm7073
-    bne  s11, t5, .Lx7073
-    bltu s10, t4, .Lm7073
-.Lx7073:
+    bltu s11, t5, .Lm7183
+    bne  s11, t5, .Lx7183
+    bltu s10, t4, .Lm7183
+.Lx7183:
     mv   s10, s10
     mv   s11, s11
-    j    .Ln7073
-.Lm7073:
+    j    .Ln7183
+.Lm7183:
     mv   s10, t4
     mv   s11, t5
-.Ln7073:
+.Ln7183:
     sw   s10, 24(s0)
     sw   s11, 28(s0)
     sltiu s7, s2, 64
@@ -19934,9 +20097,9 @@ eita_handler_log0:
 7:
     li   s7, 32
     blt  zero, zero, 5f
-    bnez zero, .Lx7095
+    bnez zero, .Lx7205
     bltu s2, s7, 5f
-.Lx7095:
+.Lx7205:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -19962,9 +20125,9 @@ eita_handler_log1:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 96
-    bnez zero, .Lx7192
+    bnez zero, .Lx7302
     bltu s2, s7, eita_stack_underflow
-.Lx7192:
+.Lx7302:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20031,16 +20194,16 @@ eita_handler_log1:
     add  t1, a1, s7
     sltu s7, t1, s7
     add  t1, t1, t6
-    bgeu t1, t6, .Lk14417
+    bgeu t1, t6, .Lk14637
     addi s7, s7, 1
-.Lk14417:
+.Lk14637:
     bnez s7, eita_oog
     lw   t2, 56(s0)
     lw   t3, 60(s0)
     bltu t3, t1, eita_oog
-    bne  t3, t1, .Lx7211
+    bne  t3, t1, .Lx7321
     bltu t2, t0, eita_oog
-.Lx7211:
+.Lx7321:
     addi t2, t0, 31
     sltiu s7, t2, 31
     add  t3, t1, s7
@@ -20054,10 +20217,10 @@ eita_handler_log1:
     slli s7, t5, 27
     or   t4, t4, s7
     srli t5, t5, 5
-    bltu t5, t3, .Lx7216
+    bltu t5, t3, .Lx7326
     bne  t3, t5, 7f
     bgeu t4, t2, 7f
-.Lx7216:
+.Lx7326:
     mulhu s11, t2, t2
     mul  s10, t2, t2
     mul  s7, t2, t3
@@ -20177,17 +20340,17 @@ eita_handler_log1:
     add  t5, t5, t6
     lw   s10, 24(s0)
     lw   s11, 28(s0)
-    bltu s11, t5, .Lm7237
-    bne  s11, t5, .Lx7237
-    bltu s10, t4, .Lm7237
-.Lx7237:
+    bltu s11, t5, .Lm7347
+    bne  s11, t5, .Lx7347
+    bltu s10, t4, .Lm7347
+.Lx7347:
     mv   s10, s10
     mv   s11, s11
-    j    .Ln7237
-.Lm7237:
+    j    .Ln7347
+.Lm7347:
     mv   s10, t4
     mv   s11, t5
-.Ln7237:
+.Ln7347:
     sw   s10, 24(s0)
     sw   s11, 28(s0)
     sltiu s7, s2, 96
@@ -20276,9 +20439,9 @@ eita_handler_log1:
 7:
     li   s7, 32
     blt  zero, zero, 5f
-    bnez zero, .Lx7259
+    bnez zero, .Lx7369
     bltu s2, s7, 5f
-.Lx7259:
+.Lx7369:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20304,9 +20467,9 @@ eita_handler_log2:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 128
-    bnez zero, .Lx7356
+    bnez zero, .Lx7466
     bltu s2, s7, eita_stack_underflow
-.Lx7356:
+.Lx7466:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20373,16 +20536,16 @@ eita_handler_log2:
     add  t1, a1, s7
     sltu s7, t1, s7
     add  t1, t1, t6
-    bgeu t1, t6, .Lk14745
+    bgeu t1, t6, .Lk14965
     addi s7, s7, 1
-.Lk14745:
+.Lk14965:
     bnez s7, eita_oog
     lw   t2, 56(s0)
     lw   t3, 60(s0)
     bltu t3, t1, eita_oog
-    bne  t3, t1, .Lx7375
+    bne  t3, t1, .Lx7485
     bltu t2, t0, eita_oog
-.Lx7375:
+.Lx7485:
     addi t2, t0, 31
     sltiu s7, t2, 31
     add  t3, t1, s7
@@ -20396,10 +20559,10 @@ eita_handler_log2:
     slli s7, t5, 27
     or   t4, t4, s7
     srli t5, t5, 5
-    bltu t5, t3, .Lx7380
+    bltu t5, t3, .Lx7490
     bne  t3, t5, 7f
     bgeu t4, t2, 7f
-.Lx7380:
+.Lx7490:
     mulhu s11, t2, t2
     mul  s10, t2, t2
     mul  s7, t2, t3
@@ -20519,17 +20682,17 @@ eita_handler_log2:
     add  t5, t5, t6
     lw   s10, 24(s0)
     lw   s11, 28(s0)
-    bltu s11, t5, .Lm7401
-    bne  s11, t5, .Lx7401
-    bltu s10, t4, .Lm7401
-.Lx7401:
+    bltu s11, t5, .Lm7511
+    bne  s11, t5, .Lx7511
+    bltu s10, t4, .Lm7511
+.Lx7511:
     mv   s10, s10
     mv   s11, s11
-    j    .Ln7401
-.Lm7401:
+    j    .Ln7511
+.Lm7511:
     mv   s10, t4
     mv   s11, t5
-.Ln7401:
+.Ln7511:
     sw   s10, 24(s0)
     sw   s11, 28(s0)
     sltiu s7, s2, 128
@@ -20618,9 +20781,9 @@ eita_handler_log2:
 7:
     li   s7, 32
     blt  zero, zero, 5f
-    bnez zero, .Lx7423
+    bnez zero, .Lx7533
     bltu s2, s7, 5f
-.Lx7423:
+.Lx7533:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20646,9 +20809,9 @@ eita_handler_log3:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 160
-    bnez zero, .Lx7520
+    bnez zero, .Lx7630
     bltu s2, s7, eita_stack_underflow
-.Lx7520:
+.Lx7630:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20715,16 +20878,16 @@ eita_handler_log3:
     add  t1, a1, s7
     sltu s7, t1, s7
     add  t1, t1, t6
-    bgeu t1, t6, .Lk15073
+    bgeu t1, t6, .Lk15293
     addi s7, s7, 1
-.Lk15073:
+.Lk15293:
     bnez s7, eita_oog
     lw   t2, 56(s0)
     lw   t3, 60(s0)
     bltu t3, t1, eita_oog
-    bne  t3, t1, .Lx7539
+    bne  t3, t1, .Lx7649
     bltu t2, t0, eita_oog
-.Lx7539:
+.Lx7649:
     addi t2, t0, 31
     sltiu s7, t2, 31
     add  t3, t1, s7
@@ -20738,10 +20901,10 @@ eita_handler_log3:
     slli s7, t5, 27
     or   t4, t4, s7
     srli t5, t5, 5
-    bltu t5, t3, .Lx7544
+    bltu t5, t3, .Lx7654
     bne  t3, t5, 7f
     bgeu t4, t2, 7f
-.Lx7544:
+.Lx7654:
     mulhu s11, t2, t2
     mul  s10, t2, t2
     mul  s7, t2, t3
@@ -20861,17 +21024,17 @@ eita_handler_log3:
     add  t5, t5, t6
     lw   s10, 24(s0)
     lw   s11, 28(s0)
-    bltu s11, t5, .Lm7565
-    bne  s11, t5, .Lx7565
-    bltu s10, t4, .Lm7565
-.Lx7565:
+    bltu s11, t5, .Lm7675
+    bne  s11, t5, .Lx7675
+    bltu s10, t4, .Lm7675
+.Lx7675:
     mv   s10, s10
     mv   s11, s11
-    j    .Ln7565
-.Lm7565:
+    j    .Ln7675
+.Lm7675:
     mv   s10, t4
     mv   s11, t5
-.Ln7565:
+.Ln7675:
     sw   s10, 24(s0)
     sw   s11, 28(s0)
     sltiu s7, s2, 160
@@ -20960,9 +21123,9 @@ eita_handler_log3:
 7:
     li   s7, 32
     blt  zero, zero, 5f
-    bnez zero, .Lx7587
+    bnez zero, .Lx7697
     bltu s2, s7, 5f
-.Lx7587:
+.Lx7697:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -20988,9 +21151,9 @@ eita_handler_log4:
     li   t3, 0
     bnez t2, eita_static_violation
     li   s7, 192
-    bnez zero, .Lx7684
+    bnez zero, .Lx7794
     bltu s2, s7, eita_stack_underflow
-.Lx7684:
+.Lx7794:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -21057,16 +21220,16 @@ eita_handler_log4:
     add  t1, a1, s7
     sltu s7, t1, s7
     add  t1, t1, t6
-    bgeu t1, t6, .Lk15401
+    bgeu t1, t6, .Lk15621
     addi s7, s7, 1
-.Lk15401:
+.Lk15621:
     bnez s7, eita_oog
     lw   t2, 56(s0)
     lw   t3, 60(s0)
     bltu t3, t1, eita_oog
-    bne  t3, t1, .Lx7703
+    bne  t3, t1, .Lx7813
     bltu t2, t0, eita_oog
-.Lx7703:
+.Lx7813:
     addi t2, t0, 31
     sltiu s7, t2, 31
     add  t3, t1, s7
@@ -21080,10 +21243,10 @@ eita_handler_log4:
     slli s7, t5, 27
     or   t4, t4, s7
     srli t5, t5, 5
-    bltu t5, t3, .Lx7708
+    bltu t5, t3, .Lx7818
     bne  t3, t5, 7f
     bgeu t4, t2, 7f
-.Lx7708:
+.Lx7818:
     mulhu s11, t2, t2
     mul  s10, t2, t2
     mul  s7, t2, t3
@@ -21203,17 +21366,17 @@ eita_handler_log4:
     add  t5, t5, t6
     lw   s10, 24(s0)
     lw   s11, 28(s0)
-    bltu s11, t5, .Lm7729
-    bne  s11, t5, .Lx7729
-    bltu s10, t4, .Lm7729
-.Lx7729:
+    bltu s11, t5, .Lm7839
+    bne  s11, t5, .Lx7839
+    bltu s10, t4, .Lm7839
+.Lx7839:
     mv   s10, s10
     mv   s11, s11
-    j    .Ln7729
-.Lm7729:
+    j    .Ln7839
+.Lm7839:
     mv   s10, t4
     mv   s11, t5
-.Ln7729:
+.Ln7839:
     sw   s10, 24(s0)
     sw   s11, 28(s0)
     sltiu s7, s2, 192
@@ -21302,9 +21465,9 @@ eita_handler_log4:
 7:
     li   s7, 32
     blt  zero, zero, 5f
-    bnez zero, .Lx7751
+    bnez zero, .Lx7861
     bltu s2, s7, 5f
-.Lx7751:
+.Lx7861:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -21330,9 +21493,9 @@ eita_handler_dup1:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 32
-    bnez zero, .Lx7847
+    bnez zero, .Lx7957
     bltu s2, s7, eita_stack_underflow
-.Lx7847:
+.Lx7957:
     sltiu s7, s2, 32
     addi t2, s2, -32
     sub  t3, zero, s7
@@ -21388,9 +21551,9 @@ eita_handler_dup2:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 64
-    bnez zero, .Lx7881
+    bnez zero, .Lx7991
     bltu s2, s7, eita_stack_underflow
-.Lx7881:
+.Lx7991:
     sltiu s7, s2, 64
     addi t2, s2, -64
     sub  t3, zero, s7
@@ -21446,9 +21609,9 @@ eita_handler_dup3:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 96
-    bnez zero, .Lx7915
+    bnez zero, .Lx8025
     bltu s2, s7, eita_stack_underflow
-.Lx7915:
+.Lx8025:
     sltiu s7, s2, 96
     addi t2, s2, -96
     sub  t3, zero, s7
@@ -21504,9 +21667,9 @@ eita_handler_dup4:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 128
-    bnez zero, .Lx7949
+    bnez zero, .Lx8059
     bltu s2, s7, eita_stack_underflow
-.Lx7949:
+.Lx8059:
     sltiu s7, s2, 128
     addi t2, s2, -128
     sub  t3, zero, s7
@@ -21562,9 +21725,9 @@ eita_handler_dup5:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 160
-    bnez zero, .Lx7983
+    bnez zero, .Lx8093
     bltu s2, s7, eita_stack_underflow
-.Lx7983:
+.Lx8093:
     sltiu s7, s2, 160
     addi t2, s2, -160
     sub  t3, zero, s7
@@ -21620,9 +21783,9 @@ eita_handler_dup6:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 192
-    bnez zero, .Lx8017
+    bnez zero, .Lx8127
     bltu s2, s7, eita_stack_underflow
-.Lx8017:
+.Lx8127:
     sltiu s7, s2, 192
     addi t2, s2, -192
     sub  t3, zero, s7
@@ -21678,9 +21841,9 @@ eita_handler_dup7:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 224
-    bnez zero, .Lx8051
+    bnez zero, .Lx8161
     bltu s2, s7, eita_stack_underflow
-.Lx8051:
+.Lx8161:
     sltiu s7, s2, 224
     addi t2, s2, -224
     sub  t3, zero, s7
@@ -21736,9 +21899,9 @@ eita_handler_dup8:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 256
-    bnez zero, .Lx8085
+    bnez zero, .Lx8195
     bltu s2, s7, eita_stack_underflow
-.Lx8085:
+.Lx8195:
     sltiu s7, s2, 256
     addi t2, s2, -256
     sub  t3, zero, s7
@@ -21794,9 +21957,9 @@ eita_handler_dup9:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 288
-    bnez zero, .Lx8119
+    bnez zero, .Lx8229
     bltu s2, s7, eita_stack_underflow
-.Lx8119:
+.Lx8229:
     sltiu s7, s2, 288
     addi t2, s2, -288
     sub  t3, zero, s7
@@ -21852,9 +22015,9 @@ eita_handler_dup10:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 320
-    bnez zero, .Lx8153
+    bnez zero, .Lx8263
     bltu s2, s7, eita_stack_underflow
-.Lx8153:
+.Lx8263:
     sltiu s7, s2, 320
     addi t2, s2, -320
     sub  t3, zero, s7
@@ -21910,9 +22073,9 @@ eita_handler_dup11:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 352
-    bnez zero, .Lx8187
+    bnez zero, .Lx8297
     bltu s2, s7, eita_stack_underflow
-.Lx8187:
+.Lx8297:
     sltiu s7, s2, 352
     addi t2, s2, -352
     sub  t3, zero, s7
@@ -21968,9 +22131,9 @@ eita_handler_dup12:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 384
-    bnez zero, .Lx8221
+    bnez zero, .Lx8331
     bltu s2, s7, eita_stack_underflow
-.Lx8221:
+.Lx8331:
     sltiu s7, s2, 384
     addi t2, s2, -384
     sub  t3, zero, s7
@@ -22026,9 +22189,9 @@ eita_handler_dup13:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 416
-    bnez zero, .Lx8255
+    bnez zero, .Lx8365
     bltu s2, s7, eita_stack_underflow
-.Lx8255:
+.Lx8365:
     sltiu s7, s2, 416
     addi t2, s2, -416
     sub  t3, zero, s7
@@ -22084,9 +22247,9 @@ eita_handler_dup14:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 448
-    bnez zero, .Lx8289
+    bnez zero, .Lx8399
     bltu s2, s7, eita_stack_underflow
-.Lx8289:
+.Lx8399:
     sltiu s7, s2, 448
     addi t2, s2, -448
     sub  t3, zero, s7
@@ -22142,9 +22305,9 @@ eita_handler_dup15:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 480
-    bnez zero, .Lx8323
+    bnez zero, .Lx8433
     bltu s2, s7, eita_stack_underflow
-.Lx8323:
+.Lx8433:
     sltiu s7, s2, 480
     addi t2, s2, -480
     sub  t3, zero, s7
@@ -22200,9 +22363,9 @@ eita_handler_dup16:
     bnez zero, eita_stack_overflow
     bgeu s2, s7, eita_stack_overflow
     li   s7, 512
-    bnez zero, .Lx8357
+    bnez zero, .Lx8467
     bltu s2, s7, eita_stack_underflow
-.Lx8357:
+.Lx8467:
     sltiu s7, s2, 512
     addi t2, s2, -512
     sub  t3, zero, s7
@@ -22255,9 +22418,9 @@ eita_handler_dup16:
 .p2align 2
 eita_handler_swap1:
     li   s7, 64
-    bnez zero, .Lx8390
+    bnez zero, .Lx8500
     bltu s2, s7, eita_stack_underflow
-.Lx8390:
+.Lx8500:
     sltiu s7, s2, 64
     addi t2, s2, -64
     sub  t3, zero, s7
@@ -22330,9 +22493,9 @@ eita_handler_swap1:
 .p2align 2
 eita_handler_swap2:
     li   s7, 96
-    bnez zero, .Lx8434
+    bnez zero, .Lx8544
     bltu s2, s7, eita_stack_underflow
-.Lx8434:
+.Lx8544:
     sltiu s7, s2, 96
     addi t2, s2, -96
     sub  t3, zero, s7
@@ -22398,9 +22561,9 @@ eita_handler_swap2:
 .p2align 2
 eita_handler_swap3:
     li   s7, 128
-    bnez zero, .Lx8474
+    bnez zero, .Lx8584
     bltu s2, s7, eita_stack_underflow
-.Lx8474:
+.Lx8584:
     sltiu s7, s2, 128
     addi t2, s2, -128
     sub  t3, zero, s7
@@ -22466,9 +22629,9 @@ eita_handler_swap3:
 .p2align 2
 eita_handler_swap4:
     li   s7, 160
-    bnez zero, .Lx8514
+    bnez zero, .Lx8624
     bltu s2, s7, eita_stack_underflow
-.Lx8514:
+.Lx8624:
     sltiu s7, s2, 160
     addi t2, s2, -160
     sub  t3, zero, s7
@@ -22534,9 +22697,9 @@ eita_handler_swap4:
 .p2align 2
 eita_handler_swap5:
     li   s7, 192
-    bnez zero, .Lx8554
+    bnez zero, .Lx8664
     bltu s2, s7, eita_stack_underflow
-.Lx8554:
+.Lx8664:
     sltiu s7, s2, 192
     addi t2, s2, -192
     sub  t3, zero, s7
@@ -22602,9 +22765,9 @@ eita_handler_swap5:
 .p2align 2
 eita_handler_swap6:
     li   s7, 224
-    bnez zero, .Lx8594
+    bnez zero, .Lx8704
     bltu s2, s7, eita_stack_underflow
-.Lx8594:
+.Lx8704:
     sltiu s7, s2, 224
     addi t2, s2, -224
     sub  t3, zero, s7
@@ -22670,9 +22833,9 @@ eita_handler_swap6:
 .p2align 2
 eita_handler_swap7:
     li   s7, 256
-    bnez zero, .Lx8634
+    bnez zero, .Lx8744
     bltu s2, s7, eita_stack_underflow
-.Lx8634:
+.Lx8744:
     sltiu s7, s2, 256
     addi t2, s2, -256
     sub  t3, zero, s7
@@ -22738,9 +22901,9 @@ eita_handler_swap7:
 .p2align 2
 eita_handler_swap8:
     li   s7, 288
-    bnez zero, .Lx8674
+    bnez zero, .Lx8784
     bltu s2, s7, eita_stack_underflow
-.Lx8674:
+.Lx8784:
     sltiu s7, s2, 288
     addi t2, s2, -288
     sub  t3, zero, s7
@@ -22806,9 +22969,9 @@ eita_handler_swap8:
 .p2align 2
 eita_handler_swap9:
     li   s7, 320
-    bnez zero, .Lx8714
+    bnez zero, .Lx8824
     bltu s2, s7, eita_stack_underflow
-.Lx8714:
+.Lx8824:
     sltiu s7, s2, 320
     addi t2, s2, -320
     sub  t3, zero, s7
@@ -22874,9 +23037,9 @@ eita_handler_swap9:
 .p2align 2
 eita_handler_swap10:
     li   s7, 352
-    bnez zero, .Lx8754
+    bnez zero, .Lx8864
     bltu s2, s7, eita_stack_underflow
-.Lx8754:
+.Lx8864:
     sltiu s7, s2, 352
     addi t2, s2, -352
     sub  t3, zero, s7
@@ -22942,9 +23105,9 @@ eita_handler_swap10:
 .p2align 2
 eita_handler_swap11:
     li   s7, 384
-    bnez zero, .Lx8794
+    bnez zero, .Lx8904
     bltu s2, s7, eita_stack_underflow
-.Lx8794:
+.Lx8904:
     sltiu s7, s2, 384
     addi t2, s2, -384
     sub  t3, zero, s7
@@ -23010,9 +23173,9 @@ eita_handler_swap11:
 .p2align 2
 eita_handler_swap12:
     li   s7, 416
-    bnez zero, .Lx8834
+    bnez zero, .Lx8944
     bltu s2, s7, eita_stack_underflow
-.Lx8834:
+.Lx8944:
     sltiu s7, s2, 416
     addi t2, s2, -416
     sub  t3, zero, s7
@@ -23078,9 +23241,9 @@ eita_handler_swap12:
 .p2align 2
 eita_handler_swap13:
     li   s7, 448
-    bnez zero, .Lx8874
+    bnez zero, .Lx8984
     bltu s2, s7, eita_stack_underflow
-.Lx8874:
+.Lx8984:
     sltiu s7, s2, 448
     addi t2, s2, -448
     sub  t3, zero, s7
@@ -23146,9 +23309,9 @@ eita_handler_swap13:
 .p2align 2
 eita_handler_swap14:
     li   s7, 480
-    bnez zero, .Lx8914
+    bnez zero, .Lx9024
     bltu s2, s7, eita_stack_underflow
-.Lx8914:
+.Lx9024:
     sltiu s7, s2, 480
     addi t2, s2, -480
     sub  t3, zero, s7
@@ -23214,9 +23377,9 @@ eita_handler_swap14:
 .p2align 2
 eita_handler_swap15:
     li   s7, 512
-    bnez zero, .Lx8954
+    bnez zero, .Lx9064
     bltu s2, s7, eita_stack_underflow
-.Lx8954:
+.Lx9064:
     sltiu s7, s2, 512
     addi t2, s2, -512
     sub  t3, zero, s7
@@ -23282,9 +23445,9 @@ eita_handler_swap15:
 .p2align 2
 eita_handler_swap16:
     li   s7, 544
-    bnez zero, .Lx8994
+    bnez zero, .Lx9104
     bltu s2, s7, eita_stack_underflow
-.Lx8994:
+.Lx9104:
     sltiu s7, s2, 544
     addi t2, s2, -544
     sub  t3, zero, s7

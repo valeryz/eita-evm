@@ -103,15 +103,16 @@ void qemu_report_trap(uint32_t mcause, uint32_t mepc, uint32_t mtval) {
 
 uint32_t eita_selftest(uint64_t *gas_add_out);
 
-static const char *const CHECKS[7] = {
-    "ADD", "ADD-carry", "SUB-borrow", "MUL", "DIV", "MUL-wide", "gas(ADD)==24"
+static const char *const CHECKS[9] = {
+    "ADD", "ADD-carry", "SUB-borrow", "MUL", "DIV", "MUL-wide", "gas(ADD)==24",
+    "JUMPI-loop", "JUMP"
 };
 
 void qemu_main(void) {
     puts_("eita: rv32 engine self-test (qemu-system-riscv32 virt)\n");
     uint64_t gas = 0;
     uint32_t bad = eita_selftest(&gas);
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 9; i++) {
         puts_("eita:   ");
         int n = 0;
         for (const char *q = CHECKS[i]; *q; q++) { putc_(*q); n++; }

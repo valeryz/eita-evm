@@ -44,6 +44,24 @@ static EvmCallbacks g_cb;      /* all-null: none of these programs calls a host 
    never journal, so nothing reads it — the alignment is here so that a test
    someone adds later does not inherit a latent fault. */
 static uint8_t      g_arena[ARENA_BYTES] __attribute__((aligned(8)));
+/* The valid-JUMPDEST map (evm_state.h: `jumpdests[pc] == 1` iff code[pc] is a
+   JUMPDEST that is not inside a PUSH immediate). The HOST computes this; the
+   handlers only index it. A NULL map is not a missing optimisation — the jump
+   handlers load it unconditionally, so the first JUMP faults on a near-null
+   address, which is exactly what this test did before it supplied one. */
+static uint8_t      g_jumpdests[CODE_BYTES];
+
+/* EELS `get_valid_jump_destinations`: a JUMPDEST counts only outside a PUSH
+   immediate, so the scan has to skip each PUSH's data rather than look at
+   every byte. */
+static void build_jumpdests(const uint8_t *code, uint32_t len, uint8_t *out) {
+    for (uint32_t pc = 0; pc < len; ) {
+        uint8_t op = code[pc];
+        if (op == 0x5b) out[pc] = 1;
+        if (op >= 0x60 && op <= 0x7f) pc += 1u + (uint32_t)(op - 0x5f);   /* PUSH1..32 */
+        else pc += 1;
+    }
+}
 
 /* Run CODE; report the 32-byte RETURN value and the gas it used. */
 static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],
@@ -54,8 +72,10 @@ static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],
     memset(g_mem, 0, sizeof g_mem);
     memset(g_code, 0, sizeof g_code);
     memset(&g_cb, 0, sizeof g_cb);
+    memset(g_jumpdests, 0, sizeof g_jumpdests);
     if (len > CODE_BYTES) return -1;
     memcpy(g_code, code, len);
+    build_jumpdests(g_code, len, g_jumpdests);
 
     g_st.gas_left = gas0;
     g_st.stack = g_stack;
@@ -63,6 +83,7 @@ static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],
     g_st.memory_cap = MEM_BYTES;
     g_st.code = g_code;
     g_st.code_size = len;
+    g_st.jumpdests = g_jumpdests;
     g_st.cb = &g_cb;
     g_st.cb_ctx = g_arena;
 
@@ -105,6 +126,30 @@ static const uint8_t p_subb[]    = { 0x60, 0x01, 0x60, 0x00, 0x03, TAIL };
 static const uint8_t p_mul[]     = { 0x60, 0x07, 0x60, 0x09, 0x02, TAIL };
 /* PUSH1 3 PUSH1 100 DIV          → 33  (Knuth D, and the one 128/64 divide) */
 static const uint8_t p_div[]     = { 0x60, 0x03, 0x60, 0x64, 0x04, TAIL };
+/* A JUMPI loop: counter 3, decremented to 0, then return 42.
+ *   PUSH1 3 | JUMPDEST | PUSH1 1 SWAP1 SUB | DUP1 PUSH1 2 JUMPI | PUSH1 42 TAIL
+ * Exercises JUMPDEST validity, JUMPI taken AND not-taken, and the jumpdest
+ * bitmap read — which is the whole of `eita_handler_jumpi`. Until 2026-11-25
+ * neither jump handler lowered for rv32 (one missing compare-and-branch
+ * fusion), so no bytecode containing a loop could run at all; this is here so
+ * that cannot regress unnoticed. */
+static const uint8_t p_loop[]    = {
+    0x60, 0x03,              /* 0: PUSH1 3                  */
+    0x5b,                    /* 2: JUMPDEST  <- the target   */
+    0x60, 0x01, 0x90, 0x03,  /* 3: PUSH1 1 SWAP1 SUB         */
+    0x80, 0x60, 0x02, 0x57,  /* 7: DUP1 PUSH1 2 JUMPI        */
+    0x60, 0x2a, TAIL };      /* 11: PUSH1 42, store, return  */
+
+/* An unconditional JUMP over an INVALID opcode, then return 7. If the jump
+ * does not land exactly on the JUMPDEST at 4, this executes 0xfe and reverts
+ * — so a wrong target cannot read as a pass. */
+static const uint8_t p_jump[]    = {
+    0x60, 0x04,              /* 0: PUSH1 4                   */
+    0x56,                    /* 2: JUMP                      */
+    0xfe,                    /* 3: INVALID   <- jumped over  */
+    0x5b,                    /* 4: JUMPDEST                  */
+    0x60, 0x07, TAIL };      /* 5: PUSH1 7, store, return    */
+
 /* PUSH32 2^64 PUSH32 2^64 MUL    → 2^128  (a wide product, limb-crossing) */
 static const uint8_t p_mulw[]    = { 0x7f,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0,
@@ -135,6 +180,9 @@ uint32_t eita_selftest(uint64_t *gas_add_out) {
     if (run_prog(p_mul,  sizeof p_mul,  out, &gas) != 0 || !is_word(out, 63)) bad |= 1u << 3;
     if (run_prog(p_div,  sizeof p_div,  out, &gas) != 0 || !is_word(out, 33)) bad |= 1u << 4;
 
+    if (run_prog(p_loop, sizeof p_loop, out, &gas) != 0 || !is_word(out, 42)) bad |= 1u << 7;
+    if (run_prog(p_jump, sizeof p_jump, out, &gas) != 0 || !is_word(out, 7))  bad |= 1u << 8;
+
     /* 2^64 * 2^64 = 2^128: byte 15 of the big-endian word, nothing else. */
     if (run_prog(p_mulw, sizeof p_mulw, out, &gas) != 0) bad |= 1u << 5;
     else {
@@ -151,8 +199,9 @@ int main(void) {
     uint64_t gas = 0;
     uint32_t bad = eita_selftest(&gas);
     static const char *names[] = { "ADD", "ADD-carry", "SUB-borrow", "MUL",
-                                   "DIV", "MUL-wide", "gas(ADD)=24" };
-    for (int i = 0; i < 7; i++)
+                                   "DIV", "MUL-wide", "gas(ADD)=24",
+                                   "JUMPI-loop", "JUMP" };
+    for (int i = 0; i < 9; i++)
         printf("  %-11s %s\n", names[i], (bad & (1u << i)) ? "FAIL" : "ok");
     printf("---\nselftest: %s (mask 0x%02x), ADD program gas_used = %llu\n",
            bad ? "FAIL" : "PASS", bad, (unsigned long long)gas);

@@ -714,6 +714,28 @@ def emitBody (n : Nat) : AInstr → String
 
 
 
+/-- A **32-bit** compare against an immediate, fused into a branch.
+
+    `cmpImmWHex` compares `w<r>` — the low half only — so unlike
+    `cmpImmBranch` the high half plays no part. The jump-destination check is
+    the reason this exists: `JUMP` and `JUMPI` read `jumpdests[pc]` with
+    `ldrbReg` (which zero-extends into the low half) and branch on
+    `!= 1`. Without this fusion both handlers emitted a marker and were
+    refused, which meant no bytecode containing a loop could run at all.
+
+    Only equality conditions: a 32-bit `cmp` followed by `b.ne`/`b.eq` is an
+    equality test and needs no flags. An ordering condition would, and gets a
+    marker rather than a guess. `imm = 0` skips materialising it, which also
+    leaves `carry` untouched. -/
+def cmpImmWBranch (r : Reg) (imm : Nat) (c : BCond) (lbl : String) : String :=
+  let L := lo r
+  match c, imm with
+  | .ne, 0 => ln s!"bnez {L}, {lbl}"
+  | .eq, 0 => ln s!"beqz {L}, {lbl}"
+  | .ne, _ => ln s!"li   {carry}, {imm}" ++ ln s!"bne  {L}, {carry}, {lbl}"
+  | .eq, _ => ln s!"li   {carry}, {imm}" ++ ln s!"beq  {L}, {carry}, {lbl}"
+  | _, _ => s!"    /* «unlowered: 32-bit compare-immediate with an ordering branch» */\n"
+
 /-- Compare against an immediate and then SELECT, fused: rv32 has no
     conditional move, so the two arms sit either side of a branch. The equality
     test is `hi = 0 ∧ lo = imm` for a 64-bit value against an immediate below
@@ -962,6 +984,10 @@ def emitFused : List Reg → Bool → Nat → List AInstr → String
       cmpImmSelect n r i true (moveArm d b) (moveArm d a) ++ emitFused (dropAligned A d) m n.succ rest
   | A, m, n, .cmpImm r i :: .csinvEqZr d a :: rest =>
       cmpImmSelect n r i true (moveArm d a) (onesArm d) ++ emitFused (dropAligned A d) m n.succ rest
+  | A, m, n, .cmpImmWHex r i :: .bSym c sym :: rest =>
+      cmpImmWBranch r i c sym ++ emitFused A m n.succ rest
+  | A, m, n, .cmpImmWHex r i :: .bcLbl c l :: rest =>
+      cmpImmWBranch r i c l ++ emitFused A m n.succ rest
   | A, m, n, .cmpImmWHex r i :: .cset d .eq :: rest =>
       cmpImmSelect n r i false (setArm d 1) (setArm d 0) ++ emitFused (dropAligned A d) m n.succ rest
   | A, m, n, .cmpImmWHex r i :: .cselNe d a b :: rest =>
@@ -1205,7 +1231,7 @@ theorem no_carry_clobber_hazards_in_gadgets :
 /-! ## Handler coverage, as a ratchet
 
 The gadget set is covered completely. Of the 150 handler programs the threaded
-interpreter emits, **143 lower completely and assemble**. The 7 that do not:
+interpreter emits, **145 lower completely and assemble**. The 5 that do not:
 
 * **`sstore`** — the five fork gas schedules exist only as emitted ARM64/x86
   assembly, and rv32 can lower their bodies but not their ARGUMENTS: they are
@@ -1216,9 +1242,16 @@ interpreter emits, **143 lower completely and assemble**. The 7 that do not:
 * **`slt`, `sgt`** — u256 comparison chains whose subtract reads two NOS limbs
   at once. One load pair serves one limb, so these need the folding treatment
   the bitwise ops got.
-* **`clz`, `exp`, `jump`, `jumpi`** — single forms: `clzReg` (rv32imac has no
-  `clz`, so the same open-coded treatment `rev` got), `madd`, and a multiply
+* **`clz`, `exp`** — `clzReg`: rv32imac has no `clz`, so it needs the same
+  open-coded treatment `rev` got. `exp` additionally needs a 64-bit multiply
   into its own operand.
+* **`sstore`** also needs `madd`, separately from its gas schedules above.
+
+`jump` and `jumpi` used to be here, for one missing fusion: `cmpImmWHex`
+followed by `bSym`, which is how both read `jumpdests[pc]` and branch on
+`!= 1`. No bytecode containing a loop could run without them, which is a good
+illustration of why the uncovered set is pinned by name — "137 of 150" sounded
+like a tail, and two of the thirteen were control flow.
 
 The six on the host-callback path (`sload`, `balance`, `selfbalance`,
 `extcodesize`, `extcodehash`, `blockhash`) used to be here. See
@@ -1235,7 +1268,7 @@ def handlerTotal : Nat := rv32Streams.length
 /-- Where the port stands. Raise this as the remaining forms land; it may not
     fall. -/
 
-example : 143 ≤ handlersCovered := by native_decide
+example : 145 ≤ handlersCovered := by native_decide
 example : handlerTotal = 150 := by native_decide
 
 /-- And exactly which handlers do not lower, by name, so neither the set nor
@@ -1246,7 +1279,7 @@ def uncovered : List String :=
 
 
 theorem uncovered_handlers :
-    uncovered = ["clz", "sstore", "slt", "sgt", "exp", "jump", "jumpi"] := by native_decide
+    uncovered = ["clz", "sstore", "slt", "sgt", "exp"] := by native_decide
 
 /-! ## Size, measured -/
 
