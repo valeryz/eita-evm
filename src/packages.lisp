@@ -101,7 +101,7 @@
    layered snapshot world, anchors and state-root checks.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.input #:eita.chain)
   (:export
-           #:*anchor-queue* #:*cold-storage-map-hook* #:*fault-account-hook*
+           #:*anchor-queue* #:*fault-account-hook*
            #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
            #:*chain-head* #:at-tip-p
@@ -109,7 +109,7 @@
            #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
            #:acct-nonce #:acct-set-flag! #:acct-slots #:acct-slots-map #:acct-table-intern-words #:anchor!
            #:anchor-compositions #:anchor-due-p #:balance-clear! #:balance-delta! #:balance-of
-           #:bytes->hex-string #:code-clear! #:code-of #:copy-world*
+           #:bytes->hex-string #:code-clear! #:code-of #:cold-storage-wipe! #:copy-world*
            #:drop-stale-rootouts! #:fault-account! #:fault-slot! #:finish-anchors!
            #:genesis-base! #:hot-over-budget-p #:layer-due-p #:load-genesis-alloc #:make-world
            #:map-accts #:mpt-post-block-hook #:mpt-stop-worker #:nonce-clear! #:nonce-of
@@ -123,9 +123,9 @@
   (:use #:cl)
   (:export
            #:*foreign-layer* #:+empty-code-hash+ #:acct-fields #:advise-sequential #:component-of
-           #:component-path #:compose-address #:compose-range #:composition-string #:hardware-threads
+           #:component-path #:compose-accounts-2 #:compose-address #:compose-range #:composition-string #:hardware-threads
            #:int->octets #:key-range #:layer-account #:layer-map-slots #:layer-path #:layer-slot
-           #:layer-tmp-path #:lookup-account #:make-merge #:make-obuf #:make-run #:make-writer
+           #:layer-tmp-path #:lookup-account #:lookup-account-h #:make-merge #:make-obuf #:make-run #:make-writer
            #:mapping-sap #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap
            #:octets->int #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be
            #:snap #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash

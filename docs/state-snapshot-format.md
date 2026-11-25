@@ -4,11 +4,13 @@ The persisted state of a replay: immutable, sorted, fixed-width files that a pro
 read-only, laid out so that one block's state root can be recomputed from the subtries its
 writes touch.
 
-**Status.** This document specifies format version 2. The engine today reads and writes the
-legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); version 2's writer, reader,
-fences and `compose-range` (§3, §6; `src/state/snapshot.lisp`) are not yet on its paths. A
-converter turns a verified v1 state into v2 (§10, "The converter"), after which v1 is read
-only by the converter. Lean definitions and
+**Status.** This document specifies format version 2. A chain replayed from genesis runs on
+the legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); a chain started from an
+import (§10, "Import from reth") runs on version 2: its base, its layers, their compaction and
+the anchors' root check (docs/layered-snapshots.md, "A stack over a version 2 base"). The
+frontier and the root worker (§7, §8) are not built yet: a version 2 stack is root-checked at
+anchors, as a version 1 stack is. A converter turns a verified v1 state into v2 (§10, "The
+converter"), after which v1 is read only by the converter. Lean definitions and
 proofs, and the Veil models of the protocols, exist for the whole of v2 (§11). The Veil models
 cite the code they describe with `@planned` where that code is not yet written
 (`verify/protocols/CheckCode.lean` maps each such name to the section below that specifies it).
@@ -113,7 +115,9 @@ fault's check. The raw slot number is not stored: the fact log's `storage_diff` 
 and a lookup by raw slot (`view-slot`, the execution fault) hashes it first. An imported base
 (§10, "Import from reth") may not know an address: its field is then 20 zero bytes, which
 the address 0x00…00 itself never has with its own `hkey`; the record a layer writes for that
-account, once the replay touches it, carries the address.
+account, once the replay touches it, carries the address. The replay never reads the field
+(it faults an account by the address the EVM touched); it is for exports and metrics, which
+must treat zero as unknown.
 
 ### code.dat and code.idx
 
@@ -190,9 +194,10 @@ range of `accounts.dat`, and every subtrie of a contract's storage trie one cont
 
 **Storage wipe.** When a contract is created on an address that already has storage (EELS
 `destroy_storage`), or destroyed before Cancun, the cold slots cannot be enumerated by raw key.
-The wipe is a journaled WIPED flag on the address: the cold tier reads 0 under it
-(`snap-fault-slot`), slots in RAM are journaled one by one, and observers get one
-`storage_wipe` event. The effect equals EELS `destroy_storage` on the view.
+The wipe is a WIPED flag on the address, set by the creation and cleared by its revert (bit 1
+of journal entry 10): the cold tier reads 0 under it (`snap-fault-slot`), and slots in RAM are
+journaled one by one. Observers see the slots the transaction touched, as for SELFDESTRUCT. The
+effect equals EELS `destroy_storage` on the view. Both formats wipe this way.
 
 ## 5. Layers
 
@@ -517,6 +522,10 @@ eita-reth-export --datadir DIR --chain-id N | eita import-reth --state STATE-DIR
 - **The root gate.** Only when that root equals header H's `stateRoot` does the manifest gain
   `:root-checked t` and the directory become `snap-H/`. On a mismatch it stays in
   `.tmp-snap-H/`, which nothing reads, and the command exits 1.
+- **Replaying from it.** `eita replay --state STATE-DIR --resume H --from H+1 …` runs on the
+  base: it is not yet an anchor, so the replay checks its root once more before the first
+  block and records the anchor, and the stack above it is version 2
+  (docs/layered-snapshots.md, "A stack over a version 2 base").
 
 ### The converter (v1 to v2)
 
@@ -583,5 +592,3 @@ Differences from v2:
   compacted base is root-checked after it is written, before it replaces the old one.
 - **Minor compaction.** Over 16 disk layers, a run of eight is composed into one
   (`docs/layered-snapshots.md`).
-- **Raw-slot wipes.** `storage-wipe-journaled!` journals every non-zero slot of a wiped
-  contract, cold ones included (enumerated by raw key).

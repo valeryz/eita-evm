@@ -87,13 +87,36 @@
 (setf eita.state.snapshot:*foreign-layer* #'ram-layer-op)
 
 ;;; ---------------------------------------------------------------- faults
+;;;
+;;; The world is keyed by address and slot, whatever the stack's format. Over a version 2
+;;; base (an import: docs/state-snapshot-format.md §10) the disk layers are version 2 too,
+;;; and a fault asks them by hashed key: keccak(addr), keccak(slot), hashed here on first
+;;; need (a RAM layer that answers needs none) through two small direct-mapped caches, so
+;;; an account and the run of its slots a contract touches hash the address once. The
+;;; address field of an imported record (zero: unknown) is never read: the address is the
+;;; one the EVM touched.
+
+(defun key-hash (n width)
+  "keccak of N as WIDTH big-endian bytes (32 octets; any thread)."
+  (keccak256-bytes (eita.state.snapshot::int->octets n width)))
+
+(defvar *hkey-cache* (make-array 4096 :initial-element nil) "address -> keccak (replay thread).")
+(defvar *hslot-cache* (make-array 65536 :initial-element nil) "slot -> keccak (replay thread).")
+
+(defun cached-key-hash (cache n width)
+  (let* ((i (logand (u256-word n 0) (1- (length cache)))) (e (svref cache i)))
+    (if (and e (eql (car e) n))
+        (cdr e)
+        (let ((h (key-hash n width))) (setf (svref cache i) (cons n h)) h))))
+(defun addr-hkey (addr) (cached-key-hash *hkey-cache* addr 20))
+(defun slot-hslot (slot) (cached-key-hash *hslot-cache* slot 32))
 
 (defun snap-fault-account (addr)
   "The fault hook: ADDR's fields from the stack (fault-account! called it on the account's
    first touch)."
   (incf (getf *snap-stats* :acct-faults))
   (multiple-value-bind (found nonce balance codehash exists-empty code)
-      (eita.state.snapshot:view-account *layers* *base* addr) ; @veil snap-fault-account/view
+      (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr)) #'slot-hslot) ; @veil snap-fault-account/view
     (when found
       (with-acct (tb a) *current-world* addr
         (when (plusp nonce) (setf (acct-nonce tb a) nonce))
@@ -113,22 +136,17 @@
 (defun snap-fault-slot (addr slot)
   "A slot is faulted iff its key is present in ADDR's packed table (fault-slot! calls
    this for an absent key only): the value read from the stack is installed even when it
-   is 0, and stays present when set to 0."
+   is 0, and stays present when set to 0. Under the WIPED bit (the account's storage was
+   removed since the freeze: SELFDESTRUCT, an EIP-161 sweep, a creation's storage wipe)
+   the stack below is not read."
   (with-acct (tb a) *current-world* addr
     (incf (getf *snap-stats* :slot-faults))
-    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+) 0 (eita.state.snapshot:view-slot *layers* *base* addr slot))))) ; @veil snap-fault-slot/view
+    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+)
+                                  0
+                                  (eita.state.snapshot:view-slot *layers* *base* addr slot ; @veil snap-fault-slot/view
+                                                                 (lambda () (addr-hkey addr)) (lambda () (slot-hslot slot)))))))
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
-
-(defun snap-cold-storage-map (addr fn)
-  "FN (slot value) for every nonzero slot of ADDR below the hot set that the hot set has
-   not faulted (and so not overridden), unless ADDR's storage was wiped since the freeze."
-  (with-acct (tb a) *current-world* addr
-   (unless (acct-flag-p tb a +acct-wiped+)
-    (eita.state.snapshot:view-map-account-storage ; @veil snap-cold-storage-map/view
-     *layers* *base* addr (lambda (slot v)
-                            (unless (acct-slot-present-p tb a slot)
-                              (funcall fn slot v)))))))
 
 (defun clear-hot! (world)
   "An empty hot set (fresh tables: the old ones may be a frozen layer now)."
@@ -145,8 +163,7 @@
   (setf *keep-zero-slots* t
         *fault-account-hook* #'snap-fault-account
         *fault-slot-hook* #'snap-fault-slot
-        *storage-wipe-hook* #'snap-wipe
-        *cold-storage-map-hook* #'snap-cold-storage-map)
+        *storage-wipe-hook* #'snap-wipe)
   ;; give a dropped hot set back to the OS now (2 GB -> 48 MB measured on x86-64 Linux)
   (sb-ext:gc :full t))
 
@@ -165,10 +182,12 @@
 (defun write-ram-tables (l below-layers below-base &key full)
   "Write the RAM layer L: FULL, the base snap-N of a world that is all in RAM (genesis);
    else the layer layer-P-N over the stack BELOW-LAYERS (disk, newest first) on
-   BELOW-BASE. Every address a layer mentions gets its fields (FieldsCover): from RAM when
-   faulted, else from the stack below. Codes the stack below already holds are not
-   repeated. Publishes it and returns the open snap."
+   BELOW-BASE, in BELOW-BASE's format (a version 2 base: hashed keys, `write-layer-2`).
+   Every address a layer mentions gets its fields (FieldsCover): from RAM when faulted,
+   else from the stack below. Codes the stack below already holds are not repeated.
+   Publishes it and returns the open snap."
   (let* ((dir (snapshot-dir)) (n (ram-layer-block l)) (p (ram-layer-parent l)) (tb (ram-layer-accts l))
+         (v2 (and (not full) below-base (= 2 (eita.state.snapshot:snap-version below-base))))
          (tmp (if full (eita.state.snapshot:snap-tmp-path dir n) (eita.state.snapshot:layer-tmp-path dir p n)))
          (final (if full (eita.state.snapshot:snap-path dir n) (eita.state.snapshot:layer-path dir p n)))
          (recs '()) (codes (make-hash-table :test 'eql)))
@@ -182,32 +201,57 @@
                            (or (acct-flag-p tb r (logior +acct-faulted+ +acct-wiped+)) (acct-slots tb r)))
                    (push r recs)))
                (ram-layer-accts l))
-    (let ((m (eita.state.snapshot:make-merge tmp *chain-id* n (ram-layer-root l) nil :parent (and (not full) p))))
-      (dolist (r (sort recs #'< :key (lambda (r) (acct-addr tb r))))
-        (let* ((a (acct-addr tb r))
-               (code (acct-code-entry tb r))
-               (fields
-                 (if (or full (acct-flag-p tb r +acct-faulted+))
-                     (let ((h (fresh-code-hash code)))
-                       (when (and code (plusp (length code)) (not (gethash h codes))
-                                  (or full (not (eita.state.snapshot:view-code below-layers below-base h))))
-                         (setf (gethash h codes) code))
-                       (list (acct-nonce tb r) (acct-balance tb r) h (acct-flag-p tb r +acct-marked+)))
-                     ;; storage touched, account never faulted: its fields as they are below
-                     (multiple-value-bind (found nonce balance codehash flag)
-                         (eita.state.snapshot:view-account below-layers below-base a)
-                       (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil)))))
-               (slots (let ((kv '()))
-                        (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r)
-                        (sort kv #'< :key #'car))))
-          (eita.state.snapshot:merge-account m a :fields fields :slots slots :wiped (acct-flag-p tb r +acct-wiped+))))
-      (eita.state.snapshot:merge-finish m (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))
-                              :provenance (format nil "eita ~:[layer ~D-~D~;base ~*~D~], code ~A"
-                                                  full p n (engine-code-version)))
-      ;; the subscribers' state at N is durable before the layer at N is (I5 with layers)
-      (when (ram-layer-ready l) (funcall (ram-layer-ready l)))
-      (eita.state.snapshot:snap-publish dir n tmp :final final) ; @veil write-ram-tables/publish
-      (eita.state.snapshot:snap-open final)))) ; @veil write-ram-tables/open
+    (flet ((fields (r)
+             (let ((a (acct-addr tb r)) (code (acct-code-entry tb r)))
+               (if (or full (acct-flag-p tb r +acct-faulted+))
+                   (let ((h (fresh-code-hash code)))
+                     (when (and code (plusp (length code)) (not (gethash h codes))
+                                (or full (not (eita.state.snapshot:view-code below-layers below-base h))))
+                       (setf (gethash h codes) code))
+                     (list (acct-nonce tb r) (acct-balance tb r) h (acct-flag-p tb r +acct-marked+)))
+                   ;; storage touched, account never faulted: its fields as they are below
+                   (multiple-value-bind (found nonce balance codehash flag)
+                       (eita.state.snapshot:view-account below-layers below-base a (and v2 (lambda () (key-hash a 20)))
+                                                         (lambda (k) (key-hash k 32)))
+                     (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil))))))
+           (slots (r)
+             (let ((kv '())) (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r) kv)))
+      (let ((provenance (format nil "eita ~:[layer ~D-~D~;base ~*~D~], code ~A" full p n (engine-code-version))))
+        (if v2
+            (write-layer-2 tmp n (ram-layer-root l) p tb recs #'fields #'slots codes provenance)
+            (let ((m (eita.state.snapshot:make-merge tmp *chain-id* n (ram-layer-root l) nil :parent (and (not full) p))))
+              (dolist (r (sort recs #'< :key (lambda (r) (acct-addr tb r))))
+                (eita.state.snapshot:merge-account m (acct-addr tb r) :fields (fields r)
+                                                     :slots (sort (slots r) #'< :key #'car)
+                                                     :wiped (acct-flag-p tb r +acct-wiped+)))
+              (eita.state.snapshot:merge-finish m (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))
+                                                :provenance provenance)))))
+    ;; the subscribers' state at N is durable before the layer at N is (I5 with layers)
+    (when (ram-layer-ready l) (funcall (ram-layer-ready l)))
+    (eita.state.snapshot:snap-publish dir n tmp :final final) ; @veil write-ram-tables/publish
+    (eita.state.snapshot:snap-open final))) ; @veil write-ram-tables/open
+
+(defun write-layer-2 (tmp n root p tb recs fields slots codes provenance)
+  "The version 2 layer of the RAM table TB at TMP: the accounts RECS (ids) in keccak(addr)
+   order, each one's slots (SLOTS of the id: (slot . value), tombstones too) in
+   keccak(slot) order before its record; FIELDS of the id: (nonce balance codehash mark).
+   Hashed here, on the writer's thread. The record carries the address (the world's)."
+  (let ((w (eita.state.snapshot:make-writer tmp *chain-id* n root :parent p :expect (list (length recs) 0))))
+    (dolist (e (sort (mapcar (lambda (r) (let ((h (key-hash (acct-addr tb r) 20))) (list (eita.state.snapshot:octets->int h) h r)))
+                             recs)
+                     #'< :key #'first))
+      (destructuring-bind (hkey r) (rest e)
+        (dolist (kv (sort (mapcar (lambda (kv) (let ((h (key-hash (car kv) 32))) (list (eita.state.snapshot:octets->int h) h (cdr kv))))
+                                  (funcall slots r))
+                          #'< :key #'first))
+          (eita.state.snapshot:writer-slot w hkey (second kv) (third kv)))
+        (destructuring-bind (nonce balance codehash mark) (funcall fields r)
+          (eita.state.snapshot:writer-account w hkey (acct-addr tb r)
+                                              (logior (if mark eita.state.snapshot::+flag-exists-empty+ 0)
+                                                      (if (acct-flag-p tb r +acct-wiped+) eita.state.snapshot::+flag-wiped+ 0))
+                                              nonce balance codehash))))
+    (eita.state.snapshot:writer-finish w (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))
+                                       :provenance provenance)))
 
 ;;; ---------------------------------------------------------------- the writer thread
 
