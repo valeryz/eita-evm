@@ -110,7 +110,10 @@ accounts.dat: 128 B, sorted by hkey          storage.dat: 96 B, sorted by (haddr
 
 The address stays in the account record for exports and metrics and for the execution
 fault's check. The raw slot number is not stored: the fact log's `storage_diff` rows carry it,
-and a lookup by raw slot (`view-slot`, the execution fault) hashes it first.
+and a lookup by raw slot (`view-slot`, the execution fault) hashes it first. An imported base
+(§10, "Import from reth") may not know an address: its field is then 20 zero bytes, which
+the address 0x00…00 itself never has with its own `hkey`; the record a layer writes for that
+account, once the replay touches it, carries the address.
 
 ### code.dat and code.idx
 
@@ -155,6 +158,7 @@ the file into memory); nothing is built at open.
  :counts (:accounts n :slots n :codes n)
  :files (("accounts.dat" size fnv) ("accounts.fnc" size fnv) …)   ; sorted by name
  :provenance "…" :created "…"
+ :root-checked t                     ; an import whose recomputed root matched (§10)
  :content-hash "…")                  ; FNV-1a 64 over the files' names, sizes and hashes
 ```
 
@@ -482,6 +486,37 @@ GC keeps what kept points name, so it keeps their frontiers (`gc_keeps_resume_co
 never deletes a frontier above the newest anchor (it may be in flight), and it pins the worker's
 current frontier, the worker's view and its checkpoint's output. Retained anchors hard-link
 `frontier-N/` as they do their other components.
+
+### Import from reth
+
+A chain can start from another client's state instead of from genesis. reth keeps the current
+state in its hashed tables, `HashedAccounts` (keccak(addr) to account) and `HashedStorages`
+(keccak(addr), keccak(slot) to value); its "storage v2" layout, the one Base's published
+snapshots use, keeps no other current state (it writes no plain-address tables). Those tables
+are already in this format's key order, so the import is one forward walk of each, with no sort
+and no trie:
+
+```
+eita-reth-export --datadir DIR --chain-id N | eita import-reth --state STATE-DIR -
+```
+
+- `rust/reth-export` opens the reth datadir read-only, takes the block H the state belongs to
+  (the Finish stage checkpoint, or its `partial_state_trie` when the state lags), its header's
+  hash and `stateRoot`, and streams the records: per account its slots, then the account, then
+  every code. The account records carry no address (above). It checks S2, S3 and S5 and
+  re-hashes every code. It refuses a database whose state is persisted only partly past some
+  block (the Finish checkpoint's `partial_state_trie`, left by a node stopped mid-persistence):
+  starting the node on it once, without a consensus client, unwinds it to a consistent block.
+  Its reth crates are pinned to the revision Base's node is built from; `cargo build --release`
+  in `rust/reth-export` takes about 2 GB of target directory and 7 minutes with 4 jobs (Zen 3).
+- `eita import-reth` (`src/state/import.lisp`) feeds the records through the v2 writer (S2, S4,
+  S5, fences in the same pass) into `.tmp-snap-H/`, re-hashes every code, then recomputes the
+  state root from the written records (`snapshot-root`: a stack trie over each 16th of the key
+  space, every storage root first, no key hashing, no sort, two stack tries per thread). reth's
+  trie tables and stored roots are never read.
+- **The root gate.** Only when that root equals header H's `stateRoot` does the manifest gain
+  `:root-checked t` and the directory become `snap-H/`. On a mismatch it stays in
+  `.tmp-snap-H/`, which nothing reads, and the command exits 1.
 
 ### The converter (v1 to v2)
 

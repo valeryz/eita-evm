@@ -23,6 +23,7 @@ c/libeita_pq.dylib
 c/libeita_pq.so
 rust/pq/target/
 rust/engine-api/target/
+rust/reth-export/target/
 scripts/__pycache__/
 scripts/generated/__pycache__/
 ocicl/
