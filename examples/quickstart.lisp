@@ -28,7 +28,7 @@
               :code "0x6018600c60003960186000f3600054600101806000558060005260206000a160206000f3"))
 (format t "counter deployed at ~A, ~D bytes of code~%" (hex *counter*) (length (code *w* *counter*)))
 
-;; 3. Call it in a transaction (state changes), then with CALL (on a copy: nothing changes).
+;; 3. Call it in a transaction (state changes), then with CALL (in an overlay: nothing changes).
 (let ((r (transact *w* :from *alice* :to *counter*)))
   (format t "tx:   status ~D, gas ~D, output ~A~%" (getf r :status) (getf r :gas-used) (hex (getf r :output)))
   (dolist (l (getf r :logs))
