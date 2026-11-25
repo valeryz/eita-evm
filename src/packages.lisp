@@ -156,10 +156,12 @@
            #:rlp-list #:rlp-list* #:rlp-uint #:storage-root #:trie-root))
 
 (defpackage #:eita.state.root
-  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`).")
+  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`), and
+   the root-gated import of another client's state (`eita import-reth`).")
   (:use #:cl #:cffi)
   (:export
-           #:assemble #:dense-above-p #:frontier-subref #:main #:make-stack-trie #:snapshot-root
+           #:assemble #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
+           #:make-stack-trie #:snapshot-root
            #:st-finish #:st-push #:st-reset #:st-root-bytes))
 
 (defpackage #:eita.input
@@ -234,6 +236,8 @@
    #:set-fork #:fork #:hex #:addr #:*block*
    ;; replaying a chain (src/chains/replay.lisp)
    #:replay
+   ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
+   #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*

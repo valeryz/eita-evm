@@ -8,6 +8,10 @@
 ;;;;      written as a binary snapshot and checked with 1 and 4 threads — the parallel
 ;;;;      top-nibble path —, with 2048 buckets (the large-state layout), and a set whose
 ;;;;      hashed keys share the top nibble (the single-trie path).
+;;;;      The same sets as version 2 bases (hashed key order, `make-writer`, the address
+;;;;      field zero as an import writes it): the streaming hashed-order root.
+;;;;      And `import-reth` over such a set streamed as rust/reth-export streams it: published
+;;;;      with :root-checked under the right header root, quarantined under a wrong one.
 ;;;;   3. giant-root == storage-root: random storages (0..70,000 slots, so both the 256-way
 ;;;;      split and the degenerate single-trie path) read in place at an offset, alone
 ;;;;      and with a random layer composition laid over them (rewrites, tombstones, new
@@ -127,13 +131,30 @@
           (eita.state.snapshot:merge-account m addr :fields (list nonce balance ch empty) :slots storage))))
     (eita.state.snapshot:merge-finish m codes)))
 
+(defun write-snapshot-2 (dir accounts)
+  "ACCOUNTS as a version 2 base (`make-writer`), by hashed key, with the address field zero
+   as an import from reth's hashed tables writes it."
+  (let ((w (eita.state.snapshot:make-writer dir 1 7 "0x00")) (codes '()))
+    (flet ((h (n width) (eita.mpt::%keccak (eita.mpt::int->be-bytes-fixed n width))))
+      (dolist (a (sort (mapcar (lambda (a) (cons (h (first a) 20) a)) accounts) #'key< :key #'car))
+        (destructuring-bind (hkey addr nonce balance storage code empty) a
+          (declare (ignore addr))
+          (dolist (kv (sort (mapcar (lambda (kv) (cons (h (car kv) 32) (cdr kv))) storage) #'key< :key #'car))
+            (eita.state.snapshot:writer-slot w hkey (car kv) (cdr kv)))
+          (let ((ch (if code (eita.state.snapshot:octets->int (eita.mpt::%keccak code)) eita.state.snapshot:+empty-code-hash+)))
+            (when code (push (cons ch code) codes))
+            (eita.state.snapshot:writer-account w hkey 0 (if empty 1 0) nonce balance ch)))))
+    (eita.state.snapshot:writer-finish w codes)))
+
+(defvar *v2* nil "Write the snapshots in format version 2 (hashed key order).")
+
 (defun oracle-snapshot (name accounts threads &key buckets)
   (let* ((parent (format nil "/tmp/eita-test-snapshot-root-~D/" (sb-posix:getpid)))
          (dir (concatenate 'string parent "snap-7/"))
          (want (eita.mpt:bytes->hex
                 (eita.mpt:account-state-root
                  (mapcar (lambda (a) (list (first a) (second a) (third a) (fourth a) (fifth a))) accounts)))))
-    (write-snapshot dir accounts)
+    (funcall (if *v2* #'write-snapshot-2 #'write-snapshot) dir accounts)
     (dolist (th threads)
       (multiple-value-bind (got expected na ns) (snapshot-root dir :threads th :buckets buckets)
         (declare (ignore expected))
@@ -231,9 +252,67 @@
     (setf eita.state.root::*big* 0)      ; global: the pool threads read it
     (unwind-protect (oracle-snapshots) (setf eita.state.root::*big* big))))
 
+(defun oracle-snapshots-2 ()
+  "The snapshot oracles over version 2 bases: the hashed-order root (`snapshot-root-2`)."
+  (format t "~&--- version 2 snapshots~%")
+  (let ((*v2* t)) (oracle-snapshots)))
+
+(defun write-export-stream (path accounts root)
+  "ACCOUNTS as rust/reth-export would stream them, header stateRoot ROOT (hex)."
+  (with-open-file (o path :direction :output :element-type '(unsigned-byte 8) :if-exists :supersede)
+    (flet ((int (n w) (write-sequence (eita.mpt::int->be-bytes-fixed n w) o))
+           (tag (c) (write-byte (char-code c) o))
+           (h (n w) (eita.mpt::%keccak (eita.mpt::int->be-bytes-fixed n w))))
+      (write-sequence (map 'vector #'char-code "EITARETH") o)
+      (int 1 4) (int 1 8) (int 7 8) (int 0 32) (int (parse-integer root :radix 16) 32)
+      (int (length accounts) 8) (int 0 8) (int 4 2) (write-sequence (map 'vector #'char-code "test") o)
+      (let ((codes '()) (ns 0))
+        (dolist (a (sort (mapcar (lambda (a) (cons (h (first a) 20) a)) accounts) #'key< :key #'car))
+          (destructuring-bind (hkey addr nonce balance storage code empty) a
+            (declare (ignore addr))
+            (dolist (kv (sort (mapcar (lambda (kv) (cons (h (car kv) 32) (cdr kv))) storage) #'key< :key #'car))
+              (tag #\S) (write-sequence hkey o) (write-sequence (car kv) o) (int (cdr kv) 32) (incf ns))
+            (let ((ch (if code (eita.mpt::%keccak code) (eita.mpt::int->be-bytes-fixed eita.state.snapshot:+empty-code-hash+ 32))))
+              (when code (pushnew (cons ch code) codes :key #'car :test #'equalp))
+              (tag #\A) (write-sequence hkey o) (int 0 20) (int (if empty 1 0) 4) (int nonce 8) (int balance 32)
+              (write-sequence ch o))))
+        (dolist (c (setf codes (sort codes #'key< :key #'car)))
+          (tag #\C) (write-sequence (car c) o) (int (length (cdr c)) 4) (write-sequence (cdr c) o))
+        (tag #\E) (int (length accounts) 8) (int ns 8) (int (length codes) 8)))))
+
+(defun oracle-import ()
+  "`import-reth` over a stream of random accounts: published and root-checked when the header
+   root is the state's, quarantined in .tmp-snap-7/ when it is not."
+  (format t "~&--- import-reth~%")
+  (let* ((parent (format nil "/tmp/eita-test-import-~D/" (sb-posix:getpid)))
+         (stream (concatenate 'string parent "s.stream"))
+         (accounts (loop repeat 700 collect (random-account)))
+         (want (eita.mpt:bytes->hex (eita.mpt:account-state-root
+                                     (mapcar (lambda (a) (list (first a) (second a) (third a) (fourth a) (fifth a))) accounts)))))
+    (ensure-directories-exist parent)
+    (unwind-protect
+         (progn
+           (write-export-stream stream accounts want)
+           (let ((dir (with-open-file (in stream :element-type '(unsigned-byte 8)) (import-reth parent in :threads 4))))
+             (check dir "import: a matching root was not published")
+             (check (and dir (getf (eita.state.snapshot:read-manifest dir) :root-checked)) "import: no :root-checked")
+             (check (and dir (= (length (remove-duplicates (remove nil (mapcar #'fifth accounts)) :test #'equalp))
+                                (getf (getf (eita.state.snapshot:read-manifest dir) :counts) :codes)))
+                    "import: code count"))
+           (sb-ext:run-program "rm" (list "-rf" (concatenate 'string parent "snap-7")) :search t)
+           (write-export-stream stream accounts (concatenate 'string (if (char= (char want 0) #\0) "1" "0") (subseq want 1)))
+           (check (null (with-open-file (in stream :element-type '(unsigned-byte 8)) (import-reth parent in :threads 4)))
+                  "import: a wrong root was published")
+           (check (and (probe-file (concatenate 'string parent ".tmp-snap-7/"))
+                       (not (probe-file (concatenate 'string parent "snap-7/"))))
+                  "import: a mismatch is not quarantined"))
+      (sb-ext:run-program "rm" (list "-rf" parent) :search t))))
+
 (defun main ()
   (oracle-stack-trie)
   (oracle-snapshots)
+  (oracle-snapshots-2)
+  (oracle-import)
   (oracle-giant)
   (oracle-snapshots-giant)
   (format t "~%==============================~%")

@@ -33,5 +33,7 @@
            (expect "mainnet: a pre-Merge block is not" (not (v4-p 1000 1746612311))))
       (if saved (sb-posix:setenv "EITA_GENESIS" saved 1) (sb-posix:unsetenv "EITA_GENESIS"))
       (setf eita.engine::*genesis* nil)
-      (when spec (eita.chain::install-chain-spec! spec))))
+      ;; the chain spec as before; none: the Ethereum defaults (a later suite runs fixtures)
+      (eita.chain::install-chain-spec! (or spec (eita.chain::make-chain-spec)))
+      (setf eita.chain::*chain-spec* spec)))
   (unless ok (eita.test:finish :code 1)))

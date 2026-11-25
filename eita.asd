@@ -62,12 +62,14 @@
                (:file "state/snapshot-world")
                ;; the chain-neutral block pipeline and driver
                (:file "chains/block-system")
+               (:file "evm/hooks")            ; eita:subscribe: handlers fed verified blocks
                (:file "chains/chain-spec")
                (:file "chains/driver")
                (:file "state/mpt")
                (:file "chains/receipts")
                (:file "state/worlds")
                (:file "state/root")
+               (:file "state/import")         ; eita import-reth: a reth node's state as a base
                ;; the API
                (:file "eita"))
   :in-order-to ((test-op (test-op "eita/test"))))

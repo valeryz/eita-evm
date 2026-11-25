@@ -1129,38 +1129,46 @@
 
 (defun write-codes (dir chain-id block base codes version)
   "code.dat and code.idx in DIR: BASE's codes (in hash order; BASE NIL: none) merged with
-   CODES, an alist of (codehash . octets) in any order, duplicates ignored (octets may be a
-   function of no arguments returning them). Returns (values file-entries count)."
-  (let* ((new (sort (remove-duplicates (copy-list codes) :key #'car :test #'=) #'< :key #'car))
+   CODES: an alist of (codehash . octets) in any order, duplicates ignored (octets may be a
+   function of no arguments returning them), or a function of no arguments returning the
+   next (codehash . octets) in strictly ascending hash order, NIL at the end (the importer's
+   stream). Returns (values file-entries count)."
+  (let* ((next (if (functionp codes)
+                   (let ((last -1))
+                     (lambda () (let ((c (funcall codes)))
+                                  (when c
+                                    (unless (> (car c) last) (error "write-codes: code ~X out of order" (car c)))
+                                    (setf last (car c)))
+                                  c)))
+                   (let ((l (sort (remove-duplicates (copy-list codes) :key #'car :test #'=) #'< :key #'car)))
+                     (lambda () (pop l)))))
+         (head (funcall next))
          (o (make-out (merge-pathnames "code.dat" dir)))
-         (idx (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+         (oi (make-out (merge-pathnames "code.idx" dir)))
          (n 0) (hdr (make-array 36 :element-type '(unsigned-byte 8))))
     (flet ((note (hash)
-             (loop for b across (int->octets hash 32) do (vector-push-extend b idx))
-             (loop for b across (int->octets (out-bytes-total o) 8) do (vector-push-extend b idx))
+             (out-int oi hash 32) (out-int oi (out-bytes-total o) 8)
              (incf n))
            (pad ()
              (let ((r (mod (out-bytes-total o) 8)))
                (unless (zerop r) (out-octets o (make-array (- 8 r) :element-type '(unsigned-byte 8) :initial-element 0))))))
       (flet ((put-new (hash bytes)
-               (when (functionp bytes) (setf bytes (funcall bytes)))   ; supplied lazily (importer)
+               (when (functionp bytes) (setf bytes (funcall bytes)))   ; supplied lazily
                (note hash)
                (put-be hdr 0 hash 32) (put-be hdr 32 (length bytes) 4)
                (out-octets o hdr) (out-octets o (coerce bytes '(simple-array (unsigned-byte 8) (*)))) (pad)))
         (when base
           (snap-map-codes base
                           (lambda (hash off len sap)
-                            (loop while (and new (< (car (first new)) hash))
-                                  do (let ((c (pop new))) (put-new (car c) (cdr c))))
-                            (when (and new (= (car (first new)) hash)) (pop new))
+                            (loop while (and head (< (car head) hash))
+                                  do (put-new (car head) (cdr head)) (setf head (funcall next)))
+                            (when (and head (= (car head) hash)) (setf head (funcall next)))
                             (note hash)
                             (out-sap o sap (- off 36) (+ 36 len)) (pad))))
-        (dolist (c new) (put-new (car c) (cdr c)))))
-    (let ((code (out-close o 3 n 0 0 chain-id block version))
-          (oi (make-out (merge-pathnames "code.idx" dir))))
-      (out-octets oi (coerce idx '(simple-array (unsigned-byte 8) (*))))
-      (values (list (list* "code.dat" code) (list* "code.idx" (out-close oi 6 n 0 0 chain-id block version)))
-              n))))
+        (loop while head do (put-new (car head) (cdr head)) (setf head (funcall next)))))
+    (values (list (list* "code.dat" (out-close o 3 n 0 0 chain-id block version))
+                  (list* "code.idx" (out-close oi 6 n 0 0 chain-id block version)))
+            n)))
 
 (defun finish-manifest (dir head counts files provenance)
   "Write DIR's MANIFEST.sexp: HEAD (the leading fields), COUNTS, FILES (name bytes fnv),
