@@ -62,6 +62,7 @@
     ("layers" "layers.lisp")
     ("frontier" "frontier.lisp")
     ("world-slots" "world-slots.lisp")
+    ("native-revert" "native-revert.lisp")
     ("p256verify" "p256verify.lisp")
     ("op-l1-fee" "op-l1-fee.lisp")
     ("op-native" "op-native.lisp"

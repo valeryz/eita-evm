@@ -128,8 +128,8 @@
   (w :pointer) (id :uint64) (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64))
 (defcfun ("eita_ws_drop" %ws-drop) :void (w :pointer) (id :uint64))
 (defcfun ("eita_ws_copy" %ws-copy) :void (dst :pointer) (id :uint64) (src :pointer))
-;; SLOAD/SSTORE (c/storage_host.h): a revert restores the SSTORE entries it can natively first.
-(defcfun ("eita_sh_revert_storage" %sh-revert-storage) :void (arena :pointer) (target :uint64))
+;; SLOAD/SSTORE (c/storage_host.h): a revert restores every SSTORE entry above the first un-create natively first (the count).
+(defcfun ("eita_sh_revert_storage" %sh-revert-storage) :uint64 (arena :pointer) (target :uint64))
 ;; The observers' first-touch log (one owner: the native effects and observe-slot-touch!).
 (defcfun ("eita_sh_touch_l" %sh-touch) :void (id :uint64) (a0 :uint64) (a1 :uint64) (a2 :uint64)
   (k0 :uint64) (k1 :uint64) (k2 :uint64) (k3 :uint64) (v0 :uint64) (v1 :uint64) (v2 :uint64) (v3 :uint64))

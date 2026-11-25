@@ -307,10 +307,11 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 | `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
 | `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as `refund-add!`); returns the cost |
 | `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
-| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
+| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry restored into the slot table (the id from the cache, or from learn on a miss) and retyped 255 (skipped by the host loop and `eita_ts_revert`); returns the count; stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
 **Checked by** the fixtures (every SSTORE/refund/revert directory), the tier differential (JIT vs interpreter on
-the one path) and the replay.
+the one path), `c/test_storage_host.c` (the native revert alone restores a slice whose accounts
+collide in the cache) and the replay.
 
 ### Lisp accessors and hook tiers — tested
 

@@ -10,8 +10,28 @@ static void cache_check(eita_sh *h) {
   if (h->cache_serial != h->ws->serial) { memset(h->cache, 0, sizeof h->cache); h->cache_serial = h->ws->serial; }
 }
 
-/* Bind the frame account and the key for the effect: the account's id from the cache, or
-   learned from Lisp (and cached) the first time the address is seen under this world. */
+/* The id of the account at ADDR (its low 160 bits only) under the current world: from the
+   cache, or learned from the host (and cached) when the cache does not hold the address.
+   The host's learn is the authority, the cache only spares the call: learning an address
+   that already has an id returns that id and changes nothing, and interning a new one may
+   not move this world. */
+static uint64_t account_id(eita_sh *h, const u256_t *addr) {
+  /* the low 160 bits, as the cache stores them and learn must see them */
+  const uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2] & 0xFFFFFFFFu;
+  const u256_t a = {{a0, a1, a2, 0}};
+  cache_check(h);
+  const uint64_t i = a0 % EITA_SH_CACHE;
+  if (!(h->cache[i].id1 && h->cache[i].a0 == a0 && h->cache[i].a1 == a1 && h->cache[i].a2 == a2)) {
+    if (!h->learn) { fputs("eita_sh: account id needed with no learn callback\n", stderr); abort(); }
+    h->learns++;
+    uint64_t id = h->learn(&a);
+    cache_check(h);
+    h->cache[i].a0 = a0; h->cache[i].a1 = a1; h->cache[i].a2 = a2; h->cache[i].id1 = id + 1;
+  }
+  return h->cache[i].id1 - 1;
+}
+
+/* Bind the frame account and the key for the effect. */
 static void bind(eita_sh *h, void *ctx, const u256_t *addr, const u256_t *slot) {
   if (!h->ws) { fputs("eita_sh: SLOAD/SSTORE with no world\n", stderr); abort(); }
   /* the address as read-addr reads it: the low 160 bits */
@@ -22,15 +42,7 @@ static void bind(eita_sh *h, void *ctx, const u256_t *addr, const u256_t *slot) 
   h->watched = 0;
   for (uint64_t w = 0; w < h->watch_n; w++)
     if (h->watch[w].limb[0] == a0 && h->watch[w].limb[1] == a1 && h->watch[w].limb[2] == a2) h->watched = 1;
-  cache_check(h);
-  const uint64_t i = a0 % EITA_SH_CACHE;
-  if (!(h->cache[i].id1 && h->cache[i].a0 == a0 && h->cache[i].a1 == a1 && h->cache[i].a2 == a2)) {
-    h->learns++;
-    uint64_t id = h->learn(&h->addr);              /* interning may not move this world */
-    cache_check(h);
-    h->cache[i].a0 = a0; h->cache[i].a1 = a1; h->cache[i].a2 = a2; h->cache[i].id1 = id + 1;
-  }
-  h->id = h->cache[i].id1 - 1;
+  h->id = account_id(h, &h->addr);
 }
 
 static const uint64_t zero4[4];
@@ -87,28 +99,25 @@ void eita_sh_watch_clear(void) { eita_sh_g.watch_n = 0; }
 uint64_t eita_sh_touch_count(void) { return eita_sh_g.touch_n; }
 const struct eita_touch *eita_sh_touch_at(uint64_t i) { return &eita_sh_g.touch_log[i]; }
 
-static int lookup(eita_sh *h, const u256_t *addr, uint64_t *id) {
-  uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2] & 0xFFFFFFFFu;
-  const uint64_t i = a0 % EITA_SH_CACHE;
-  if (!(h->cache[i].id1 && h->cache[i].a0 == a0 && h->cache[i].a1 == a1 && h->cache[i].a2 == a2)) return 0;
-  *id = h->cache[i].id1 - 1;
-  return 1;
-}
-
-void eita_sh_revert_storage(TxArena *ar, uint64_t target) {
+uint64_t eita_sh_revert_storage(TxArena *ar, uint64_t target) {
   eita_sh *h = &eita_sh_g;
-  if ((h->flags & EITA_SH_VIEW) || !h->ws) return;
-  cache_check(h);
+  uint64_t restored = 0;
+  if ((h->flags & EITA_SH_VIEW) || !h->ws) return 0;
   for (uint64_t n = ar->journal_count; n > target; n--) {
     JournalEntry *j = &ar->journal_data[n - 1];
-    uint64_t id;
-    if (j->entry_type == 10) return;
-    if (j->entry_type != 0 || !lookup(h, &j->addr, &id)) continue;
+    if (j->entry_type == 10) break;
+    if (j->entry_type != 0) continue;
+    /* the entry's account was bound when it was written, so it has an id: on a cache miss
+       (another address evicted it) the host's learn returns that id */
+    const u256_t a = {{j->addr.limb[0], j->addr.limb[1], j->addr.limb[2] & 0xFFFFFFFFu, 0}};
+    const uint64_t id = account_id(h, &a);
     const uint64_t *k = j->key.limb, *v = j->old_val.limb;
     if (!h->keep_zero && limb_is_zero(v)) eita_ws_remove(h->ws, id, k[0], k[1], k[2], k[3]);
     else eita_ws_put(h->ws, id, k[0], k[1], k[2], k[3], v[0], v[1], v[2], v[3]);
     j->entry_type = EITA_J_SSTORE_DONE;
+    restored++;
   }
+  return restored;
 }
 
 uint64_t eita_cb_sload(void *ctx, const u256_t *addr, const u256_t *slot, u256_t *out) {
