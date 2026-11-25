@@ -157,10 +157,11 @@
 
 (defpackage #:eita.state.root
   (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`), and
-   the root-gated import of another client's state (`eita import-reth`).")
+   the root-gated import of another client's state (`eita import-reth`) and of a version 1 state
+   (`eita convert-snapshot`).")
   (:use #:cl #:cffi)
   (:export
-           #:assemble #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
+           #:assemble #:convert-snapshot #:convert-stack #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
            #:make-stack-trie #:snapshot-root
            #:st-finish #:st-push #:st-reset #:st-root-bytes))
 

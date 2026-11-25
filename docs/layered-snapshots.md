@@ -11,7 +11,8 @@ stack), `src/state/recovery.lisp` (resume point, GC). File format and the terms 
 [state-snapshot-format.md](state-snapshot-format.md); this document describes the running
 system. Its files are in the format of the stack's base: that document's legacy format (its
 Appendix A) for a chain replayed from genesis, version 2 for a chain started from an import
-(§3, "A stack over a version 2 base").
+or converted from version 1 (`eita convert-snapshot`, state-snapshot-format.md §10) (§3, "A
+stack over a version 2 base").
 
 ## 1. The stack
 
@@ -130,8 +131,8 @@ with every thread (split by the hashed keys' top byte; 6 B a slot off the heap).
 
 ### A stack over a version 2 base
 
-A chain started from an import (`eita import-reth`, state-snapshot-format.md §10) has a
-version 2 base: records keyed by `keccak(addr)` and `keccak(slot)`, and possibly no
+A chain started from an import (`eita import-reth`, state-snapshot-format.md §10) or
+converted from version 1 (`eita convert-snapshot`, same section) has a version 2 base: records keyed by `keccak(addr)` and `keccak(slot)`, and possibly no
 addresses (reth's hashed tables hold none: an imported record's address field is zero). One
 rule decides the format of everything on disk: **a stack has its base's format**. Over a
 version 2 base the writer writes version 2 layers, compaction composes version 2 sources and

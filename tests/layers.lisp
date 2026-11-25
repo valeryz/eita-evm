@@ -190,7 +190,66 @@
                           (eita.state.root:snapshot-root (snap-path *dir* 100) :threads 2
                                                         :layers (mapcar #'snap-dir (reverse layers)))
                           want)
-                (setf eita.state.root::*big* big)))))))))
+                (setf eita.state.root::*big* big)))
+            ;; the converter (state/convert.lisp): the v1 stack as a v2 base, every storage a
+            ;; giant in even rounds; its records are the model's, its root the v1 stack's
+            (let ((big eita.state.root::*big*) (tmp (snap-tmp-path (format nil "~Av2/" *dir*) blk)))
+              (setf eita.state.root::*big* (if (evenp r) 0 big))
+              (unwind-protect (eita.state.root:convert-stack base layers tmp (format nil "~Aconv/" *dir*) :threads (1+ (rnd 3)))
+                (setf eita.state.root::*big* big))
+              (let ((v2 (open-snap tmp)))
+                (check-base-2 (list r :convert) v2 acc sto)
+                (check-fences (list r :convert) v2)
+                (check (list r :convert-view) (view-mismatches '() v2 acc sto) 0)
+                (check (list r :convert-root) (eita.state.root:snapshot-root tmp :threads 2) want)))))))))
+
+(defun convert-gate ()
+  "`convert-snapshot` from a state directory, over many chunks (12,000 accounts, a layer
+   across them): it takes the composition the anchor names, publishes the v2 base and its
+   anchor when the root is the header's, and quarantines it when it is not."
+  (mapc #'snap-close *open*)
+  (setf *open* '())
+  (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
+  (let ((acc (make-hash-table)) (sto (make-hash-table :test 'equal)) (d '()))
+    (dotimes (i 12000)
+      (let ((addr (* 7919 (1+ i))))
+        (setf (gethash addr acc) (if (zerop (mod i 11)) (list 0 0 +ec+ t) (list (rnd 3) (1+ (rnd 9)) +ec+ nil)))
+        (dotimes (k (if (zerop (mod i 5)) (rnd 40) 0)) (setf (gethash (cons addr (rnd 100)) sto) (1+ (rnd 1000))))))
+    (dotimes (i 400)                    ; the layer: changes, wipes, new accounts across the range
+      (let ((addr (if (evenp i) (* 7919 (1+ (rnd 12000))) (+ 3 (* 7919 (rnd 12000))))))
+        (push (list addr (list (rnd 3) (rnd 3) +ec+ (zerop (rnd 3))) (zerop (rnd 7))
+                    (sort (remove-duplicates (loop repeat (rnd 6) collect (cons (rnd 100) (rnd 3))) :key #'car) #'< :key #'car))
+              d)))
+    (setf d (sort (remove-duplicates d :key #'first) #'< :key #'first))
+    (let* ((base (write-base 100 acc sto)) (layer (write-layer 100 200 d))
+           (root (eita.state.root:snapshot-root (snap-path *dir* 100) :threads 2 :layers (list (layer-path *dir* 100 200))))
+           (comps (mapcar #'component-of (list base layer)))
+           (out (format nil "~Aout/" *dir*)) (bad (format nil "~Abad/" *dir*)))
+      (with-open-file (a (merge-pathnames "anchors.sexp" *dir*) :direction :output :if-exists :supersede)
+        (let ((*print-pretty* nil)) (prin1 (list 200 (concatenate 'string "0x" root) root t (composition-string comps)) a)) (terpri a))
+      ;; the layer's manifest given the header root (the content hash covers the files only)
+      (let ((m (read-manifest (layer-path *dir* 100 200))))
+        (setf (getf m :state-root) (concatenate 'string "0x" root))
+        (with-open-file (f (merge-pathnames "MANIFEST.sexp" (layer-path *dir* 100 200)) :direction :output :if-exists :supersede)
+          (let ((*print-pretty* nil) (*print-case* :downcase)) (prin1 m f) (terpri f))))
+      (let ((got (let ((big eita.state.root::*big*))   ; storages over 20 slots as giants (global: the pool reads it)
+                   (setf eita.state.root::*big* 20)
+                   (unwind-protect (eita.state.root:convert-snapshot *dir* out :threads 3)
+                     (setf eita.state.root::*big* big)))))
+        (check :convert-published (and got (probe-file (snap-path out 200)) t) t)
+        (when got
+          (let ((v2 (open-snap (snap-path out 200))))
+            (check :convert-root (eita.state.root:snapshot-root (snap-path out 200) :threads 2) root)
+            (check :convert-version (snap-version v2) 2)
+            (check :convert-anchor (eita.state.recovery:read-anchors out)
+                   (list (list 200 t (getf (snap-manifest v2) :content-hash)))))))
+      ;; and a header root it does not have: quarantined, no anchor
+      (with-open-file (a (merge-pathnames "anchors.sexp" *dir*) :direction :output :if-exists :supersede)
+        (prin1 (list 100 "0x00" "00" t (composition-string (list (component-of base)))) a) (terpri a))
+      (check :convert-gate (eita.state.root:convert-snapshot *dir* bad :threads 2) nil)
+      (check :convert-quarantined (and (probe-file (snap-tmp-path bad 100)) (not (probe-file (snap-path bad 100)))
+                                       (not (probe-file (merge-pathnames "anchors.sexp" bad))) t)
+             t))))
 
 (defun gc-spares-frozen-layer ()
   "A frozen RAM layer whose layer-P-N/ the writer has published but not yet swapped into the
@@ -713,6 +772,7 @@
   (loop for (mutant n) on *mutants-caught* by #'cddr
         do (check (list :mutant-caught mutant) (plusp n) t))
   (format t "v2 mutants caught (rounds): ~{~(~A~) ~D~^, ~}~%" *mutants-caught*)
+  (convert-gate)
   (fences-at-scale)
   (writer-refuses)
   (gc-spares-frozen-layer)
