@@ -260,7 +260,7 @@
              (w (eita.state::make-world))
              ;; a world of its own: none of the replay's snapshot hooks
              (eita.state::*fault-account-hook* nil) (eita.state::*fault-slot-hook* nil)
-             (eita.state::*storage-wipe-hook* nil) (eita.state::*cold-storage-map-hook* nil)
+             (eita.state::*storage-wipe-hook* nil)
              (eita.state::*keep-zero-slots* nil))
         (eita.state::load-genesis-alloc w path)
         (flet ((field (k default)       ; keys as geth reads them (Go's JSON: any case)

@@ -296,6 +296,34 @@
           collect (progn (format t "~&INVALID accepted ~A: expected ~A~%" (getf test :name) expect)
                          (list :invalid-accepted expect))))
 
+(defun canonical-blocks (test)
+  "TEST's canonical chain. Reorg fixtures (RPC_API_Test, bcForkStressTest, bcMultiChainTest,
+   ...) carry side-chain blocks; the canonical chain is the parentHash walk back from
+   lastblockhash (a linear replay of every block double-applies the orphaned ones). All
+   blocks when the walk is not possible (no lastblockhash, a hash not found, or a walk that
+   does not reach genesis: a break midway would silently drop the chain's prefix)."
+  (let ((all (getf test :blocks)) (lbh (getf test :lastblockhash)))
+    (or (when (and lbh (plusp lbh))
+          (let ((by-hash (make-hash-table :test 'eql)) (chain '()))
+            (dolist (b all)
+              (let ((h (blk-hash b))) (when (and h (plusp h)) (setf (gethash h by-hash) b))))
+            (loop for h = lbh then (blk-parent-hash (first chain))
+                  for b = (gethash h by-hash)
+                  while b
+                  do (push b chain))
+            (when (and chain (eql (blk-parent-hash (first chain)) (getf test :genesis-hash)))
+              chain)))
+        all)))
+
+(defun install-block-hashes! (test blocks)
+  "The BLOCKHASH lookup: genesis and each of BLOCKS."
+  (setf *block-hashes* (make-hash-table :test 'eql))
+  (let ((gh (getf test :genesis-hash)) (gn (getf test :genesis-number)))
+    (when gh (setf (gethash (or gn 0) *block-hashes*) gh)))
+  (dolist (blk blocks)
+    (let ((h (blk-hash blk)) (n (blk-number blk)))
+      (when (and h n) (setf (gethash n *block-hashes*) h)))))
+
 (defun run-test (test)
   (let ((network (getf test :network)))
     ;; Skip transition networks ("HomesteadToDaoAt5", ...) — single-fork
@@ -305,43 +333,9 @@
     (set-fork! network))
   (let ((world (make-world))
         (*current-world* nil)
-        ;; Canonical-chain selection: reorg fixtures (RPC_API_Test,
-        ;; bcForkStressTest, bcMultiChainTest, ...) carry side-chain
-        ;; blocks; the canonical chain is the parentHash-walk back from
-        ;; lastblockhash. A linear replay of every block double-applies
-        ;; the orphaned ones. Falls back to all blocks when the walk
-        ;; isn't possible (no lastblockhash, or hash not found).
-        (blocks (let ((all (getf test :blocks))
-                      (lbh (getf test :lastblockhash)))
-                  (or (when (and lbh (plusp lbh))
-                        (let ((by-hash (make-hash-table :test 'eql)))
-                          (dolist (b all)
-                            (let ((h (blk-hash b)))
-                              (when (and h (plusp h))
-                                (setf (gethash h by-hash) b))))
-                          (let ((chain '()))
-                            (loop for h = lbh then (blk-parent-hash (first chain))
-                                  for b = (gethash h by-hash)
-                                  while b
-                                  do (push b chain))
-                            ;; Only trust a walk that anchors at genesis;
-                            ;; a break midway (block missing its hash)
-                            ;; would silently drop the chain's prefix.
-                            (when (and chain
-                                       (eql (blk-parent-hash (first chain))
-                                            (getf test :genesis-hash)))
-                              chain))))
-                      (getf test :blocks)))))
+        (blocks (canonical-blocks test)))
     (populate-world world (getf test :pre))
-    ;; Populate BLOCKHASH lookup: genesis + each canonical block.
-    (setf *block-hashes* (make-hash-table :test 'eql))
-    (let ((gh (getf test :genesis-hash))
-          (gn (getf test :genesis-number)))
-      (when gh (setf (gethash (or gn 0) *block-hashes*) gh)))
-    (dolist (blk blocks)
-      (let ((h (blk-hash blk))
-            (n (blk-number blk)))
-        (when (and h n) (setf (gethash n *block-hashes*) h))))
+    (install-block-hashes! test blocks)
     ;; The canonical chain is parent-linked from genesis, so a block its header gates refuse
     ;; fails the test; then the post-state, then the invalid blocks on it.
     (when (getf test :partial-pre)

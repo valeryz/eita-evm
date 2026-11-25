@@ -88,6 +88,8 @@
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("diff-tiers" "diff-tiers.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
+    ("snapshot-tiers" "snapshot-tiers.lisp"
+     :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("native-storage-hooks" "native-storage-hooks.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("gates" "gates.lisp"

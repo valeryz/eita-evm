@@ -36,7 +36,7 @@ effect layer to world state:
 | `code-of`, `(setf code-of)`, `code-clear!` | code (absent = `#()`) | `:code` |
 | `storage-of`, `(setf storage-of)` | one slot | `:storage` (slot = the slot) |
 | `account-marked-p`, `account-mark!`, `account-unmark!` | the existence set (empty-but-present accounts) | `:present` |
-| `storage-wipe-journaled!` | EELS `destroy_storage` at a creation: every nonzero slot (RAM + cold tier) to 0, one journaled storage write each | `:storage` per slot |
+| `storage-wipe-journaled!` | EELS `destroy_storage` at a creation: every slot RAM holds journaled (a nonzero one written 0), the cold tier removed by the account's WIPED bit (cleared on the creation's revert) | `:storage` per RAM slot |
 | `account-delete!` | EELS `destroy_account` (SELFDESTRUCT at tx end, EIP-161 sweep, the zero-fee coinbase rule); owns the incremental root check's whole-account re-read | `:account` |
 | `balance-delta!` | balance += amount as a commutative delta (the settlement credits, OP's fee vaults); reads nothing; a zero delta is no access | `:delta` — `(:delta :balance block tx addr 0 amount)`, no read, no write |
 | `account-uncreate!` | journal entry 10 (undo a CREATE) | `:account` |
@@ -129,7 +129,7 @@ callback returns and its transfer facts. The storage primitives print as C (the 
 | `retData r` | rdata := r.out | `(setf %rd …)`; `toDefunChild` returns `(values %gas %out %rd)` | the wrapper installs it as returndata |
 | `frameRow …` | identity | `with-observed-frame` around the init frame | observers only |
 | `collides a` | `Create.collides` (nonce, code — EIP-684) | two view reads | — |
-| `wipeStorage a` | `state.destroyStorage a` | `(storage-wipe-journaled! a)` | = `destroyStorage` on the view (the cold tier's slots through `*cold-storage-map-hook*`); journaled per slot |
+| `wipeStorage a` | `state.destroyStorage a` | `(storage-wipe-journaled! a)` | = `destroyStorage` on the view (the cold tier by the WIPED bit, `cold-storage-wipe!`); RAM slots journaled per slot |
 | `nonceMax a`, `wlt a b`, `iteG`, `GExp.var/sub/formulaF` | as named (`sub` truncates) | `(= nonce 2^64-1)`, `<`, `(max 0 (- a b))`, `(name arg *fork-ord*)` | — |
 | `chainVeto s d w` | `false` (no chain rule: outside the Ethereum theorem) | `(eq :revert (chain-frame-init s d w))` | NIL on Ethereum (no hook installed) |
 | `letA x p a b s` | x := if p then a else b | `(let ((x (if p a b))) …)` | — |

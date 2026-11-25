@@ -276,21 +276,29 @@
 
 ;;; EELS destroy_storage at a creation (EIP-7610 is not applied: execution-specs #3417 dropped
 ;;; the storage leg of the collision rule, #3508 made every fork's tracker honour the wipe).
+(defvar *create-wiped* nil
+  "The address whose WIPED bit the last `storage-wipe-journaled!` set, until the
+   `journal-created!` that follows it records that in the creation's entry.")
+
 (defun storage-wipe-journaled! (addr)
-  "EffectIR `wipeStorage`: every nonzero slot of ADDR, in RAM or in the cold tier, set to 0
-   through the storage view with one journal entry each (type 0), so a failed creation
-   restores them and observers and the read stream see each write. Contract: = the
-   spec's `State.destroyStorage` on the view."
-  (let ((w *current-world*) (keys '()))
-    (with-acct (tb a) w addr (acct-slots-map (lambda (k v) (unless (zerop v) (push k keys))) tb a))
-    (when *cold-storage-map-hook*
-      (funcall *cold-storage-map-hook* addr (lambda (k v) (unless (zerop v) (push k keys)))))
-    (dolist (k keys)
-      (fault-slot! addr k)
-      (let ((v (storage-of w addr k)))
-        (unless (zerop v)
-          (journal-push! (current-arena) 0 addr k v)
-          (setf (storage-of w addr k) 0))))))
+  "EffectIR `wipeStorage`: ADDR's storage emptied. Contract: = the spec's
+   `State.destroyStorage` on the view. Every slot RAM holds gets a journal entry (type 0)
+   with its value, zeros too, and a nonzero one is set to 0 through the storage view (so
+   observers and the read stream see the write); the slots below RAM go at once by the
+   account's WIPED bit (`cold-storage-wipe!`: a version 2 snapshot holds no raw slot to
+   enumerate). On a failed creation the journal unwinds the creation's entry (type 10,
+   `journal-created!`, pushed next: it drops the account's slot table and the bit this
+   set) before these, which put back every slot RAM held, zeros included (a zero in RAM
+   may hide a nonzero value below)."
+  (let ((w *current-world*) (kvs '()))
+    (with-acct (tb a) w addr (acct-slots-map (lambda (k v) (push (cons k v) kvs)) tb a))
+    (loop for (k . v) in kvs
+          do (if (zerop v)
+                 (journal-push! (current-arena) 0 addr k 0)
+                 (progn (fault-slot! addr k)
+                        (journal-push! (current-arena) 0 addr k (storage-of w addr k))
+                        (setf (storage-of w addr k) 0))))
+    (setf *create-wiped* (and (cold-storage-wipe! w addr) addr))))
 
 ;;; CREATE / CREATE2 — the effect is DERIVED: spec-create-effect (src/generated/host.lisp,
 ;;; Evm.CL.EffectCreate, proved equal to every fork's CREATE in Evm.CL.EffectCreateProof).

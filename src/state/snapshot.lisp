@@ -11,7 +11,8 @@
 ;;;; page-aligned and the reader can mmap it. Everything big-endian; keys sort by memcmp.
 ;;;;
 ;;;; Two key orders share the files' shape. Version 1 (raw: 96 B accounts keyed by addr,
-;;;; 88 B slots keyed by addr ‖ slot) is what the engine runs on: its writer is a MERGE, a
+;;;; 88 B slots keyed by addr ‖ slot) is what a chain replayed from genesis runs on (a stack
+;;;; has its base's format; an import's is version 2): its writer is a MERGE, a
 ;;;; sorted stream of changes laid over an older snapshot, copying unchanged records byte
 ;;;; for byte, and its reader builds the files' FENCE (a radix index) when it opens them.
 ;;;; Version 2 (hashed: 128 B accounts keyed by keccak(addr), 96 B slots keyed by
@@ -706,37 +707,66 @@
         (:code (snap-code l (first args))))
       (apply *foreign-layer* op l args)))
 
-(defun lookup-account (layers base addr)
+;;; A stack over a version 2 base (an import) has version 2 disk layers too, keyed by
+;;; hashed key; its RAM layers are keyed by address and slot, as the world is. So the walk
+;;; below asks the RAM layers by address and, at the first version 2 snap, hands the rest
+;;; of the stack to the hashed reader (`lookup-account-h`, `view-slot-h`,
+;;; `view-map-storage-h`). HKEY and HSLOT, keccak(ADDR) and keccak(SLOT) as 32 octets, are
+;;; the caller's (this file computes no hashes): octets, or a function returning them,
+;;; called only when the walk reaches a version 2 snap.
+
+(declaim (inline v2-snap-p))
+(defun v2-snap-p (s) (and (snap-p s) (= 2 (snap-version s))))
+(defun force-key (k) (if (functionp k) (funcall k) k))
+
+(defun lookup-account (layers base addr &optional hkey)
   "Lean `lookupAcct`: (values present nonce balance codehash mark code) from the newest
    layer that mentions ADDR, else from BASE (whose mark is its exists-empty flag)."
-  (dolist (l layers (if base (snap-account base addr) (values nil 0 0 +empty-code-hash+ nil)))
-    (multiple-value-bind (present nonce balance codehash mark code) (layer-op :account l addr)
-      (when present (return (values t nonce balance codehash mark code))))))
+  (loop for tail on layers
+        for l = (car tail)
+        do (when (v2-snap-p l)
+             (return-from lookup-account
+               (multiple-value-bind (present nonce balance codehash mark) (lookup-account-h tail base (force-key hkey))
+                 (values present nonce balance codehash mark nil))))
+           (multiple-value-bind (present nonce balance codehash mark code) (layer-op :account l addr)
+             (when present (return-from lookup-account (values t nonce balance codehash mark code)))))
+  (cond ((null base) (values nil 0 0 +empty-code-hash+ nil))
+        ((v2-snap-p base)
+         (multiple-value-bind (present nonce balance codehash mark) (lookup-account-h '() base (force-key hkey))
+           (values present nonce balance codehash mark nil)))
+        (t (snap-account base addr))))
 
 (defun s1-included-p (nonce balance codehash has-storage mark)
   "The inclusion rule S1 (Lean `mat`): an account is in the state iff it is non-empty, has
    storage, or carries the existence mark. Its stored flag is then `empty`."
   (or (plusp nonce) (plusp balance) (/= codehash +empty-code-hash+) has-storage mark))
 
-(defun view-account (layers base addr)
+(defun view-account (layers base addr &optional hkey hslot-of)
   "Lean `view` at ADDR (the merged state, materialized): (values found nonce balance
    codehash exists-empty code), the shape of `snap-account` (CODE: see `lookup-account`).
    An address no layer mentions and
    BASE lacks has no storage either (every layer carries the fields of the addresses
-   whose storage it touches, and BASE is materialized), so it is absent."
-  (multiple-value-bind (present nonce balance codehash mark code) (lookup-account layers base addr)
+   whose storage it touches, and BASE is materialized), so it is absent. HKEY, HSLOT-OF:
+   see `view-has-storage-p`."
+  (multiple-value-bind (present nonce balance codehash mark code) (lookup-account layers base addr hkey)
     (let ((empty (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
       (cond ((not present) (values nil 0 0 +empty-code-hash+ nil))
             ((not empty) (values t nonce balance codehash nil code))
-            ((or mark (view-has-storage-p layers base addr)) (values t 0 0 codehash t))
+            ((or mark (view-has-storage-p layers base addr hkey hslot-of)) (values t 0 0 codehash t))
             (t (values nil 0 0 +empty-code-hash+ nil))))))
 
-(defun view-slot (layers base addr slot)
+(defun view-slot (layers base addr slot &optional hkey hslot)
   "Lean `lookupSlot`: the newest layer that sets SLOT decides; one that wiped ADDR's
    storage answers 0; else BASE."
-  (dolist (l layers (if base (snap-slot base addr slot) 0))
-    (multiple-value-bind (present value wiped) (layer-op :slot l addr slot)
-      (cond (present (return value)) (wiped (return 0))))))
+  (loop for tail on layers
+        for l = (car tail)
+        do (when (v2-snap-p l)
+             (return-from view-slot (view-slot-h tail base (force-key hkey) (force-key hslot))))
+           (multiple-value-bind (present value wiped) (layer-op :slot l addr slot)
+             (cond (present (return-from view-slot value)) (wiped (return-from view-slot 0)))))
+  (cond ((null base) 0)
+        ((v2-snap-p base) (view-slot-h '() base (force-key hkey) (force-key hslot)))
+        (t (snap-slot base addr slot))))
 
 (defun view-code (layers base hash)
   "The code whose keccak is HASH from any layer or BASE (codes are content-addressed)."
@@ -745,7 +775,8 @@
       (and (= hash +empty-code-hash+) (make-array 0 :element-type '(unsigned-byte 8)))))
 
 (defun view-map-account-storage (layers base addr fn)
-  "FN (slot value) for every NONZERO slot of ADDR in the view, each slot once."
+  "FN (slot value) for every NONZERO slot of ADDR in the view, each slot once (a version 1
+   stack: raw slots)."
   (let ((seen (make-hash-table)))
     (flet ((visit (k v)
              (unless (gethash k seen)
@@ -756,10 +787,32 @@
           (return-from view-map-account-storage nil)))
       (when base (snap-map-account-storage base addr #'visit)))))
 
-(defun view-has-storage-p (layers base addr)
-  (view-map-account-storage layers base addr (lambda (k v) (declare (ignore k v))
-                                               (return-from view-has-storage-p t)))
-  nil)
+(defun view-has-storage-p (layers base addr &optional hkey hslot-of)
+  "Does ADDR hold a nonzero slot in the view? The slots of the layers above the first
+   version 2 snap (raw) override that snap's and the ones below (hashed): HSLOT-OF, a
+   function from a slot to keccak(slot) (32 octets), relates the two."
+  (let ((above (make-hash-table)))
+    (flet ((note (k v) (unless (nth-value 1 (gethash k above)) (setf (gethash k above) v)))
+           (above-p () (loop for v being the hash-values of above thereis (plusp v))))
+      (flet ((below-h (tail b)
+               (let ((hidden (make-hash-table)))
+                 (loop for k being the hash-keys of above
+                       do (setf (gethash (octets->int (funcall hslot-of k)) hidden) t))
+                 (view-map-storage-h tail b (force-key hkey)
+                                     (lambda (hs v) (declare (ignore v))
+                                       (unless (gethash (octets->int hs) hidden) (return-from view-has-storage-p t))))
+                 nil)))
+        (loop for tail on layers
+              for l = (car tail)
+              do (when (v2-snap-p l) (return-from view-has-storage-p (or (above-p) (below-h tail base))))
+                 (when (layer-op :map-slots l addr #'note) (return-from view-has-storage-p (above-p))))
+        (or (above-p)
+            (cond ((null base) nil)
+                  ((v2-snap-p base) (below-h '() base))
+                  (t (snap-map-account-storage base addr (lambda (k v) (declare (ignore v))
+                                                          (unless (nth-value 1 (gethash k above))
+                                                            (return-from view-has-storage-p t))))
+                     nil)))))))
 
 ;;; ---------------------------------------------------------------- layers: composing
 ;;;
@@ -1233,11 +1286,10 @@
 (defun write-composed (tmpdir chain-id block root layers base &key parent provenance)
   "Compaction, written to TMPDIR (not published). LAYERS: layer snaps, newest first.
    PARENT NIL (major): the base at BLOCK = BASE with LAYERS applied (Lean `view`: S1 on
-   the merged state); PARENT P (minor, v1 only): one layer over block P = LAYERS composed
+   the merged state); PARENT P (minor): one layer over block P = LAYERS composed
    (Lean `composeAll`). A v2 stack goes to `write-composed-2`. Returns the manifest."
   (when (= 2 (snap-version (or base (first layers))))
-    (when parent (error "write-composed: no minor compaction of a v2 stack"))
-    (return-from write-composed (write-composed-2 tmpdir chain-id block root layers base provenance)))
+    (return-from write-composed (write-composed-2 tmpdir chain-id block root layers (and (null parent) base) provenance parent)))
   (let ((m (make-merge tmpdir chain-id block root (and (null parent) base) :parent parent))
         (out (make-obuf)))
     (unwind-protect
@@ -1504,60 +1556,99 @@
                    :drop-zero 64)
     v))
 
+(defun lookup-account-h (layers base hkey)
+  "Lean `lookupAcct` by hashed key HKEY (32 octets): (values present nonce balance codehash
+   mark addr) of the newest record of the account in LAYERS (newest first) or BASE, whose
+   mark is its exists-empty flag; ADDR, the record's address field (0 where an import did
+   not know it)."
+  (let ((key (octets->int hkey)))
+    (dolist (s (if base (append layers (list base)) layers) (values nil 0 0 +empty-code-hash+ nil 0))
+      (when (maybe-holds-p s key)
+        (let ((i (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec-2+ hkey 32)))
+          (when i
+            (let* ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec-2+))))
+              (return (values t (sap-be sap (+ off 56) 8) (sap-be sap (+ off 64) 32) (sap-be sap (+ off 96) 32)
+                              (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4)) (sap-be sap (+ off 32) 20))))))))))
+
 (defun view-account-h (layers base hkey)
   "Lean `view` at HKEY (32 octets): (values found addr nonce balance codehash
    exists-empty), S1 applied to the newest record of the account."
-  (let ((key (octets->int hkey)) (rec nil))
-    (compose-range (loop for s in (if base (append layers (list base)) layers)
-                         when (maybe-holds-p s key) collect (snap-run s :accounts hkey :key))
-                   (lambda (sap off)
-                     (setf rec (list (sap-be sap (+ off 32) 20) (sap-be sap (+ off 56) 8) (sap-be sap (+ off 64) 32)
-                                     (sap-be sap (+ off 96) 32) (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4))))))
-    (destructuring-bind (&optional addr nonce balance codehash mark) rec
-      (let ((empty (and rec (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
-        (cond ((null rec) (values nil 0 0 0 +empty-code-hash+ nil))
-              ((not empty) (values t addr nonce balance codehash nil))
-              ((or mark (view-has-storage-h layers base hkey)) (values t addr 0 0 codehash t))
-              (t (values nil 0 0 0 +empty-code-hash+ nil)))))))
+  (multiple-value-bind (present nonce balance codehash mark addr) (lookup-account-h layers base hkey)
+    (let ((empty (and present (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
+      (cond ((not present) (values nil 0 0 0 +empty-code-hash+ nil))
+            ((not empty) (values t addr nonce balance codehash nil))
+            ((or mark (view-has-storage-h layers base hkey)) (values t addr 0 0 codehash t))
+            (t (values nil 0 0 0 +empty-code-hash+ nil))))))
 
 (defun view-has-storage-h (layers base hkey)
   (view-map-storage-h layers base hkey (lambda (k v) (declare (ignore k v)) (return-from view-has-storage-h t)))
   nil)
 
-(defun write-composed-2 (tmpdir chain-id block root layers base provenance)
-  "Major compaction of a v2 stack into a base at TMPDIR (not published): one pass of
-   `compose-range` over the accounts of LAYERS (newest first) and BASE, each account's
-   slots composed over its slot sources (tombstones dropped) and written before it, S1
-   deciding which accounts the base keeps. BASE's slots are read by a cursor (they come in
-   the accounts' order), the layers' through their fences. Returns the manifest."
+(defun compose-accounts-2 (layers base lo hi slot-fn acct-fn &key keep-zero release)
+  "The one pass over a version 2 stack, LAYERS (snaps, newest first) over BASE (or NIL),
+   for the accounts whose hashed key is in [LO, HI) (32 octets; NIL: unbounded), in key
+   order: per account any source holds, first its slots composed over their sources
+   (`slot-runs`: newest wins, up to the first source that wiped the account) to
+   (SLOT-FN sap off), ascending by hslot, tombstones dropped unless KEEP-ZERO; then
+   (ACCT-FN sap off nslots wiped): the newest record of the account, the count of slots
+   passed to SLOT-FN, and whether a composed layer wiped the account. BASE's slots are read
+   by a cursor (they come in the accounts' order, S5 checked), the layers' through their
+   fences. RELEASE: drop BASE's pages behind the cursors (a scan of the whole file)."
+  (multiple-value-bind (blo bhi)
+      (flet ((k64 (k) (and k (concatenate '(simple-array (unsigned-byte 8) (*)) k (make-array 32 :element-type '(unsigned-byte 8) :initial-element 0)))))
+        (values (k64 lo) (k64 hi)))
+    (let* ((brun (and base (snap-run base :storage blo bhi)))
+           (bsap (and base (mapping-sap (snap-slot-map base))))
+           (bi (if brun (run-i brun) 0)) (bn (if brun (run-j brun) 0))
+           (arel (and release base (+ +header+ (* +acct-rec-2+ (run-i (snap-run base :accounts lo hi))))))
+           (srel (+ +header+ (* bi +slot-rec-2+)))
+           (hkey (make-array 32 :element-type '(unsigned-byte 8))))
+      (declare (type fixnum bi bn srel))
+      (flet ((base-at-p (j) (zerop (cmp-key hkey bsap (+ +header+ (* j +slot-rec-2+)) 32))))
+        (compose-range
+         (mapcar (lambda (s) (snap-run s :accounts lo hi)) (if base (append layers (list base)) layers))
+         (lambda (sap off)
+           (dotimes (i 32) (setf (aref hkey i) (sb-sys:sap-ref-8 sap (+ off i))))
+           (when (and (< bi bn) (plusp (cmp-key hkey bsap (+ +header+ (* bi +slot-rec-2+)) 32)))
+             (error "~A: slot record ~D belongs to no account (S5)" (snap-dir base) bi))
+           (let ((bj bi))
+             (declare (type fixnum bj))
+             (loop while (and (< bj bn) (base-at-p bj)) do (incf bj))
+             (let* ((runs (multiple-value-bind (slo shi) (storage-range hkey)
+                            (let ((rs (slot-runs layers nil hkey slo shi)))
+                              (if (or (some #'run-stop rs) (= bj bi)) rs
+                                  (append rs (list (make-run bsap bi bj +slot-rec-2+ 64)))))))
+                    (n (compose-range runs slot-fn :drop-zero (and (not keep-zero) 64))))
+               (setf bi bj)
+               (when (and release (>= (- (+ +header+ (* bi +slot-rec-2+)) srel) +release-step+))
+                 (release-range (snap-slot-map base) srel (setf srel (+ +header+ (* bi +slot-rec-2+)))))
+               (when (and arel (sb-sys:sap= sap (mapping-sap (snap-acct base))) (>= (- off arel) +release-step+))
+                 (release-range (snap-acct base) arel (setf arel off)))
+               (funcall acct-fn sap off n (some #'run-stop runs))))))
+        (when (< bi bn) (error "~A: ~D slot records belong to no account (S5)" (snap-dir base) (- bn bi)))))))
+
+(defun write-composed-2 (tmpdir chain-id block root layers base provenance &optional parent)
+  "Compaction of a version 2 stack into TMPDIR (not published), one `compose-accounts-2`
+   pass. PARENT NIL (major): the base at BLOCK = BASE with LAYERS applied, tombstones
+   dropped, S1 deciding which accounts it keeps. PARENT P (minor; BASE NIL): one layer over
+   block P = LAYERS composed (Lean `composeAll`): every record kept, tombstones too, each
+   account's existence mark from its newest record and WIPED if any composed layer wiped
+   it. Returns the manifest."
   (let* ((srcs (append layers (and base (list base))))
-         (w (make-writer tmpdir chain-id block root
-                         :expect (list (reduce #'+ srcs :key #'snap-n-accounts) (reduce #'+ srcs :key #'snap-n-slots))))
-         (bsap (and base (mapping-sap (snap-slot-map base)))) (bn (if base (snap-n-slots base) 0)) (bi 0)
-         (hkey (make-array 32 :element-type '(unsigned-byte 8))))
-    (declare (type fixnum bi bn))
-    (flet ((base-at-p (j)               ; BASE's slot J belongs to HKEY
-             (zerop (cmp-key hkey bsap (+ +header+ (* j +slot-rec-2+)) 32))))
-      (compose-range
-       (mapcar (lambda (s) (snap-run s :accounts nil nil)) srcs)
-       (lambda (sap off)
-         (dotimes (i 32) (setf (aref hkey i) (sb-sys:sap-ref-8 sap (+ off i))))
-         (when (and (< bi bn) (plusp (cmp-key hkey bsap (+ +header+ (* bi +slot-rec-2+)) 32)))
-           (error "~A: slot record ~D belongs to no account (S5)" (snap-dir base) bi))
-         (let ((bj bi))
-           (declare (type fixnum bj))
-           (loop while (and (< bj bn) (base-at-p bj)) do (incf bj))
-           (let* ((runs (multiple-value-bind (lo hi) (storage-range hkey)
-                          (append (slot-runs layers nil hkey lo hi)
-                                  (and (> bj bi) (list (make-run bsap bi bj +slot-rec-2+ 64))))))
-                  (nslots (compose-range runs (lambda (s o) (writer-record w :storage s o)) :drop-zero 64))
-                  (nonce (sap-be sap (+ off 56) 8)) (balance (sap-be sap (+ off 64) 32))
-                  (codehash (sap-be sap (+ off 96) 32))
-                  (empty (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
-             (setf bi bj)
-             (when (s1-included-p nonce balance codehash (plusp nslots)
-                                  (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4)))
-               (writer-record w :accounts sap off :flags (if empty +flag-exists-empty+ 0)))))))
-      (when (< bi bn) (error "~A: ~D slot records belong to no account (S5)" (snap-dir base) (- bn bi))))
+         (w (make-writer tmpdir chain-id block root :parent parent
+                         :expect (list (reduce #'+ srcs :key #'snap-n-accounts) (reduce #'+ srcs :key #'snap-n-slots)))))
+    (compose-accounts-2
+     layers base nil nil
+     (lambda (s o) (writer-record w :storage s o))
+     (lambda (sap off nslots wiped)
+       (let ((mark (logtest +flag-exists-empty+ (sap-be sap (+ off 52) 4))))
+         (if parent
+             (writer-record w :accounts sap off :flags (logior (if mark +flag-exists-empty+ 0) (if wiped +flag-wiped+ 0)))
+             (let* ((nonce (sap-be sap (+ off 56) 8)) (balance (sap-be sap (+ off 64) 32))
+                    (codehash (sap-be sap (+ off 96) 32))
+                    (empty (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
+               (when (s1-included-p nonce balance codehash (plusp nslots) mark)
+                 (writer-record w :accounts sap off :flags (if empty +flag-exists-empty+ 0)))))))
+     :keep-zero parent :release (null parent))
     (when base (release-all (snap-acct base)) (release-all (snap-slot-map base)))
     (writer-finish w (layer-codes layers) :base base :provenance provenance)))
