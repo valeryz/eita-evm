@@ -107,6 +107,7 @@
       (eita.fixtures::install-block-hashes! test blocks)
       (let ((eita.fixtures::*recent-headers* (and (getf test :genesis-header) (list (getf test :genesis-header))))
             (eita.fixtures::*partial-pre-state* t)      ; the root is checked below
+            (eita.chain::*receipts-mode* :on-mismatch)  ; fixture blocks carry no receipts: never fetch them
             (last nil))
         (flet ((fail (&rest why) (return-from run-tier (values (list* :fail why) (reverse *rows*) (reverse roots)))))
           (dolist (blk blocks)
