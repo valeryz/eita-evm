@@ -16,12 +16,15 @@ static void cache_check(eita_sh *h) {
    that already has an id returns that id and changes nothing, and interning a new one may
    not move this world. */
 static uint64_t account_id(eita_sh *h, const u256_t *addr) {
-  const uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2];
+  /* the low 160 bits, as the cache stores them and learn must see them */
+  const uint64_t a0 = addr->limb[0], a1 = addr->limb[1], a2 = addr->limb[2] & 0xFFFFFFFFu;
+  const u256_t a = {{a0, a1, a2, 0}};
   cache_check(h);
   const uint64_t i = a0 % EITA_SH_CACHE;
   if (!(h->cache[i].id1 && h->cache[i].a0 == a0 && h->cache[i].a1 == a1 && h->cache[i].a2 == a2)) {
+    if (!h->learn) { fputs("eita_sh: account id needed with no learn callback\n", stderr); abort(); }
     h->learns++;
-    uint64_t id = h->learn(addr);
+    uint64_t id = h->learn(&a);
     cache_check(h);
     h->cache[i].a0 = a0; h->cache[i].a1 = a1; h->cache[i].a2 = a2; h->cache[i].id1 = id + 1;
   }

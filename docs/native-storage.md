@@ -94,6 +94,11 @@ host) still restores every slot; it stops at the first un-create entry (type 10)
 loop replays in order. While the read stream is on, the Lisp restore runs instead, so each restoring
 write is streamed.
 
+The native SSTORE handler (`_eita_handler_sstore`) also journals a type-0 entry of its own after
+every SSTORE, so a slice holds **two type-0 entries per SSTORE**; the newer one restores the value
+just written and is a no-op on revert. A host sizing its journal arena therefore needs two entries per
+SSTORE, not one; an under-sized arena refuses the transaction rather than answering wrongly.
+
 ## 5. Data paths and hooks
 
 A key absent from a lazy world's table calls out once (`cb-storage-fault`): the Lisp fault-in
