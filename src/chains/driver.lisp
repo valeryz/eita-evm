@@ -230,6 +230,8 @@
             (anchor! world n (blk-state-root blk) :anchor anchor)))
         ;; finished background work into the stack; collect / start root checks
         (root-check-poll! n))
+      ;; subscriptions' :executed handlers: the world after N at hand (eita:simulate)
+      (when eita.evm::*hooks* (eita.evm::hooks-executed! n block-ctx))
       (gc-guard!)
       (progress! n header-gas))))
 

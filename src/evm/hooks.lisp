@@ -22,17 +22,23 @@
 (defvar *hooks-last* nil "The newest block delivered.")
 (defvar *hooks-tx* nil "Replay thread: the user tx whose tx-end ran, awaiting its tx-result.")
 (defvar *hooks-log-index* 0 "Replay thread: the block's next user-tx log index (logIndex).")
+(defvar *hooks-executed* nil
+  "Replay thread: (header . records, newest first) of the block running, kept while some
+   subscription has an :executed handler.")
+(defvar *sim-block* nil
+  "The context `eita:sim-tx` runs in: the newest block's, numbered one above it.")
 
 (defparameter +transfer-kinds+ #(:tx :call :create :selfdestruct :chain))
 
-(defun eita:subscribe (name &rest handlers &key start block tx log transfer state-change checkpoint rollback finalize)
+(defun eita:subscribe (name &rest handlers &key start block tx log transfer state-change checkpoint rollback finalize executed)
   "Subscribe NAME (a string or symbol; one with the same name is replaced, and the
    replacement continues where it left off) with HANDLERS, each a function: START (n), its
    first block is N; BLOCK (block) a verified block, after its TX, LOG, TRANSFER and
    STATE-CHANGE handlers; CHECKPOINT (n) persist the state through block N now; ROLLBACK
-   (n) the chain is rolled back to block N; FINALIZE () the run ends. The records are
-   plists (docs/hooks.md). Returns NAME."
-  (declare (ignore start block tx log transfer state-change checkpoint rollback finalize))
+   (n) the chain is rolled back to block N; FINALIZE () the run ends; EXECUTED (block) on the
+   replay thread as soon as the block ran, before its verdict, the world after it at hand
+   (`eita:simulate`). The records are plists (docs/hooks.md). Returns NAME."
+  (declare (ignore start block tx log transfer state-change checkpoint rollback finalize executed))
   (let ((new (make-subscription name (loop for (k f) on handlers by #'cddr when f append (list k f)))))
     (sb-thread:with-recursive-lock (*fold-lock*)
       (let ((old (find name *hooks* :key #'subscription-name :test #'equal)))
@@ -91,23 +97,45 @@
    :block (lambda (blk fork-ord)
             (declare (ignore fork-ord))
             (setf *hooks-log-index* 0 *hooks-tx* nil)
-            (fw-push (list :hooks-block
-                           (list :number (eita.input:blk-number blk) :hash (eita.input:blk-hash blk) :parent-hash (eita.input:blk-parent-hash blk)
-                                 :timestamp (eita.input:blk-timestamp blk) :coinbase (eita.input:blk-miner blk)
-                                 :base-fee (or (eita.input:blk-base-fee blk) 0) :gas-limit (eita.input:blk-gas-limit blk)
-                                 :gas-used (eita.input:blk-gas-used blk)))))
+            (let ((header (list :number (eita.input:blk-number blk) :hash (eita.input:blk-hash blk) :parent-hash (eita.input:blk-parent-hash blk)
+                                :timestamp (eita.input:blk-timestamp blk) :coinbase (eita.input:blk-miner blk)
+                                :base-fee (or (eita.input:blk-base-fee blk) 0) :gas-limit (eita.input:blk-gas-limit blk)
+                                :gas-used (eita.input:blk-gas-used blk) :received-ms (eita.input::blk-received-ms blk))))
+              (setf *hooks-executed* (and (hooks-with-p :executed) (list header)))
+              (fw-push (list :hooks-block header))))
    :tx-end (lambda (block tx success)
              (let ((r (hooks-tx-record block tx success)))
-               (if (integerp (getf r :index)) (setf *hooks-tx* r) (fw-push (list :hooks-tx r)))))
+               (if (integerp (getf r :index)) (setf *hooks-tx* r) (hooks-record! r))))
    :tx-result (lambda (n idx tx gas-used status egp)
                 (let ((r (if (and *hooks-tx* (eql (getf *hooks-tx* :index) idx))
                              *hooks-tx*
                              (list :block n :index idx :logs '() :transfers '() :changes '()))))
                   (setf *hooks-tx* nil)
-                  (fw-push (list :hooks-tx
-                                 (list* :hash (tx-hash tx) :type (tx-type tx) :from (tx-sender tx) :to (tx-to tx)
+                  (hooks-record! (list* :hash (tx-hash tx) :type (tx-type tx) :from (tx-sender tx) :to (tx-to tx)
                                         :value (tx-value tx) :nonce (tx-nonce tx) :gas-limit (tx-gas-limit tx)
-                                        :gas-used gas-used :status status :gas-price egp r)))))))
+                                        :gas-used gas-used :status status :gas-price egp r))))))
+
+(defun hooks-with-p (kind)
+  (some (lambda (s) (and (getf (subscription-handlers s) kind) (not (subscription-error s)))) *hooks*))
+
+(defun hooks-record! (r)
+  "Replay thread: a tx record to the stream (the hooks thread's), and to the block's
+   :executed delivery when one is due."
+  (when *hooks-executed* (push r (cdr *hooks-executed*)))
+  (fw-push (list :hooks-tx r)))
+
+(defun hooks-executed! (n block-ctx)
+  "Replay thread, block N just ran (its layer point made, its verdict pending): each
+   :executed handler with the block's record, and with `eita:sim-tx` at the next block's
+   context. Not under the fold lock: the replay never waits for the hooks thread."
+  (let ((e *hooks-executed*))
+    (setf *hooks-executed* nil)
+    (when (and e (eql (getf (car e) :number) n))
+      (let ((block (append (car e) (list :txs (remove-if-not (lambda (r) (integerp (getf r :index))) (reverse (cdr e))))))
+            (*sim-block* (list* :number (1+ n) block-ctx)))
+        (dolist (s *hooks*)
+          (when (getf (subscription-handlers s) :executed)
+            (hook-call s :executed block)))))))
 
 (defun combine-observers (a b)
   "An observer calling A's hooks, then B's."

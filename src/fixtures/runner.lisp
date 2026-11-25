@@ -192,7 +192,8 @@
                      (receipts-push! (tx-type tx) status gas *last-tx-logs*)
                      (observe tx-result n idx tx gas status egp)))
           ;; the driver's: the ommers tied to sha3Uncles before they pay, then the post-block effects
-          (run-post-block! world n blk total-gas coinbase block-ctx))
+          (run-post-block! world n blk total-gas coinbase block-ctx)
+          (when eita.evm::*hooks* (eita.evm::hooks-executed! n block-ctx)))   ; as the driver's, after the block
       (block-invalid (e) (return-from run-block-checked (cons (invalid-kind e) (princ-to-string e))))
       (error (e) (return-from run-block-checked (cons :error (remove #\Newline (princ-to-string e))))))
     (let ((bad (verify-block-header blk total-gas)))

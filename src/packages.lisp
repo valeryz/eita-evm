@@ -239,6 +239,8 @@
    #:replay
    ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
    #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
+   ;; what-if transactions on the state after a block, in an overlay (src/evm/simulate.lisp)
+   #:simulate #:sim-tx #:sim-read #:sim-set #:sim-slots-read
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*
