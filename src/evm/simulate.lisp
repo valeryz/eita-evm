@@ -146,11 +146,14 @@
                   v)))))
 
 (defun eita:sim-slots-read (fn)
-  "Call FN in the current simulation and return (values FN's value the (addr . slot) pairs
-   whose storage it read for the first time in the overlay, oldest first): how to find where a
-   contract keeps a value (a token balance's slot, whatever its layout)."
+  "Call FN in the current simulation and return (values FN's value READS): what it read for
+   the first time in the overlay, oldest first, each (addr . slot) for a storage slot or
+   (addr . :account) for an account's balance, nonce and code. In a fresh overlay every
+   first read is a fault, so this is FN's read set: where a contract keeps a value
+   (whatever its layout), and which state changes can change FN's result."
   (sim-check)
-  (let* ((inner eita.state::*fault-slot-hook*) (seen '())
-         (v (let ((eita.state::*fault-slot-hook* (lambda (addr slot) (push (cons addr slot) seen) (funcall inner addr slot))))
+  (let* ((slot-hook eita.state::*fault-slot-hook*) (acct-hook eita.state::*fault-account-hook*) (seen '())
+         (v (let ((eita.state::*fault-slot-hook* (lambda (addr slot) (push (cons addr slot) seen) (funcall slot-hook addr slot)))
+                  (eita.state::*fault-account-hook* (lambda (addr) (push (cons addr :account) seen) (funcall acct-hook addr))))
               (funcall fn))))
     (values v (nreverse seen))))

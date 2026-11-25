@@ -338,7 +338,7 @@ committed:
 | `(eita:sim-tx &key from to data value gas tip fund block)` | a transaction on the replay's own transaction path, at the next block's context; FUND tops the sender up |
 | `(eita:sim-read kind addr &optional slot)` | `:balance`, `:nonce`, `:code`, `:storage` in the overlay |
 | `(eita:sim-set kind addr …)` | `(:balance addr v)`, `:nonce`, `:code`, `(:storage addr slot v)`: a state override |
-| `(eita:sim-slots-read fn)` | FN's value and the storage slots it read first: where a contract keeps a value |
+| `(eita:sim-slots-read fn)` | FN's value and its read set: the storage slots `(addr . slot)` and accounts `(addr . :account)` it read first (in a fresh overlay every first read is a fault) |
 
 **How.** The overlay is the layered world's own tier mechanism: the world's account table is
 replaced by an empty one whose fault hooks read the replaced table first, then the colder tiers
