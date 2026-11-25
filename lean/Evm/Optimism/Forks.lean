@@ -23,11 +23,11 @@
     Jovian    2025-12-02   operator-fee fix, DA footprint in blobGasUsed,
                             minimum base fee (extraData v1)
     Azul      2026-05-28   ~Osaka, Base only
-    Beryl     2026-06-25   Base only: the B20 precompiles (base/base crates/common/precompiles)
-    Cobalt    2026-09-30   Base only
-    Denim     2026-11-05   Base only: 200 ms blocks, millisecond "BaseTime" timestamps
-    (Beryl, Cobalt and Denim are listed so the schedule is complete; the replay refuses
-    their blocks: their rules are not specified here yet.)
+    Beryl     2026-06-25   Base only: the B-20 native precompiles (Beryl/)
+    Cobalt    2026-09-30   Base only: their second versions; tx-context and nonce-manager
+                            precompiles (Cobalt/)
+    Denim     2026-11-05   Base only: 200 ms blocks, the BaseTime predeploy and metadata
+                            deposit; the precompiles' third versions (Denim/)
 
   Activation timestamps below are Base mainnet's (chain id 8453), from the
   superchain-registry `superchain/configs/mainnet/base.toml` (@5b055be, the

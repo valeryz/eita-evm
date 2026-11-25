@@ -94,8 +94,9 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 
 - **The spec** (`lean/Evm/`): every fork from Frontier to Osaka as a delta over its
   predecessor (a fork's directory holds only what changed), EELS-faithful — EELS is the
-  reference, not the Yellow Paper. Chain specs on top: OP Stack (Bedrock … Isthmus) and
-  Arc (its native-coin and post-quantum precompiles and system rules).
+  reference, not the Yellow Paper. Chain specs on top: OP Stack (Bedrock … Jovian; Base's
+  Azul, Beryl, Cobalt and Denim) and Arc (its native-coin and post-quantum precompiles and
+  system rules).
 - **The proofs**: the IR compiler's soundness against the spec; the emitted handlers'
   denotations (ARM64 and x86-64 instruction semantics in Lean); the effect layer against
   each fork's `processTransaction`, `SELFDESTRUCT`, system calls and block rewards; the
@@ -140,7 +141,8 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   down (`scripts/verify-coverage.sh`).
 - **Trusted, not proved**: the SBCL host code around the emitted functions (world tables,
   journal, frame plumbing), the C runtime and the precompile libraries (secp256k1, mcl,
-  blst, OpenSSL), the Lean compiler and SBCL. The battery and mainnet replay are the
+  blst, OpenSSL; base/base's native-precompile logic for Base from Beryl), the Lean compiler
+  and SBCL. The battery and mainnet replay are the
   evidence there, not a proof.
 - **Not checked**: the proof-of-work seal (ethash); RLP-level block defects (the decoder
   reads JSON-RPC block objects, not raw RLP).
@@ -157,7 +159,8 @@ Prerequisites:
   digest in `ocicl.csv`; `build.sh` installs exactly those.
 - **C libraries**: libsecp256k1, OpenSSL (libcrypto), zlib, and
   [mcl](https://github.com/herumi/mcl) built with `MCL_FP_BIT=384`.
-- **Rust** (cargo) for `rust/pq`, the SLH-DSA shim for Arc's post-quantum precompile.
+- **Rust** (cargo) for `rust/pq`, the SLH-DSA shim for Arc's post-quantum precompile, and
+  `rust/base`, the shim over Base's native precompiles (base/base, fetched by cargo).
 - `vendor/blst` is a git submodule: clone with `--recurse-submodules`.
 
 macOS (Apple Silicon):

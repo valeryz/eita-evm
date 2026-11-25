@@ -47,6 +47,7 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `bls12381.cpp` (415) | precompiles 0x0b–0x11, EIP-2537 BLS12-381; and the Lean oracle `lean_bls_oracle_*` (the same blst calls) | blst (vendored) |
 | `p256verify.c` (124) | secp256r1 verify (RIP-7212 / EIP-7951) | OpenSSL libcrypto |
 | `rust/pq` (separate `libeita_pq`) | Arc's post-quantum precompile: SLH-DSA-SHA2-128s verify | the `slh-dsa` crate at the version arc-node pins |
+| `rust/base` (separate `libeita_base`) | Base's native precompiles from Beryl: the B-20 factory and tokens, the policy and activation registries, from Cobalt the transaction-context and nonce-manager precompiles. Their logic is not restated: it is base/base's `base-common-precompiles` at the release Base runs, linked with base/base's own `Cargo.lock`; the shim forwards and holds no rule. Which addresses they are, the call boundary and the price of every world operation they perform are Lean (`Evm.Optimism.Beryl.Spec.NativePrecompiles`), emitted into `src/chains/op.lisp`'s host | base/base `crates/common/precompiles` @ v1.5.6 |
 
 **How they are checked:** the ethereum/tests precompile fixtures on both tiers, the EIP test
 vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), `lake exe
@@ -184,6 +185,7 @@ the modules the challenge imports are trusted not to run hostile code at build t
 | GMP (libgmp10, linked dynamically) | MODEXP for moduli ≤ 64 bytes | LGPL-3 / GPL-2 |
 | zlib | compressed block files | zlib |
 | `slh-dsa` (Rust) | Arc's SLH-DSA precompile | Apache-2.0 OR MIT |
+| `base-common-precompiles` and its dependencies (Rust, base/base) | Base's native precompiles | MIT |
 
 Other trusted pieces outside C, for completeness: the SBCL runtime and compiler, the Lean kernel
 and the emitters' printers (the emitted text is what runs), and the Common Lisp host code that is

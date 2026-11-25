@@ -21,7 +21,10 @@ c/libkeccak_batch.dylib
 c/libkeccak_batch.so
 c/libeita_pq.dylib
 c/libeita_pq.so
+c/libeita_base.dylib
+c/libeita_base.so
 rust/pq/target/
+rust/base/target/
 rust/engine-api/target/
 scripts/__pycache__/
 scripts/generated/__pycache__/

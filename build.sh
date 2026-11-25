@@ -85,7 +85,7 @@ rm -f /tmp/eita-build-$$.log
 [ -x bin/eita ] || { echo "ERROR: bin/eita was not built" >&2; exit 1; }
 ## The native artifacts beside the executable: bin/ moves as a whole (src/native/libraries.lisp
 ## looks next to the executable first).
-for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" lean/.lake/build/bin/emitJIT \
+for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" c/libeita_base."$LIBEXT" lean/.lake/build/bin/emitJIT \
          rust/engine-api/target/release/eita-engine-api; do
   [ -f "$f" ] && cp -p "$f" bin/
 done

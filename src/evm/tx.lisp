@@ -199,7 +199,7 @@
     (multiple-value-bind (used output success)
         (unwind-protect (funcall *chain-precompile-hook* to 0 sender p n gas nil value)
           (when (plusp n) (foreign-free p)))
-      (declare (ignore output))
+      (setf *last-tx-output* (or output #()))    ; the top frame's return data, as run-tx-frame!'s
       (unless success
         (revert-journal-to (current-arena) snap)
         (observe-revert! snap-facts))

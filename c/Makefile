@@ -94,8 +94,9 @@ C_OBJS   := $(addprefix $(BUILD)/, $(notdir $(C_SRCS:.c=.o)))
 CXX_OBJS := $(addprefix $(BUILD)/, $(notdir $(CXX_SRCS:.cpp=.o)))
 
 PQLIB  := libeita_pq.$(LIBEXT)
+BASELIB := libeita_base.$(LIBEXT)
 
-all: $(LIB) $(KBATCH) $(PQLIB)
+all: $(LIB) $(KBATCH) $(PQLIB) $(BASELIB)
 
 ## Arc's PQ precompile (0x1800…0004) verifies SLH-DSA-SHA2-128s. arc-node does it
 ## with the `slh-dsa` crate, and FIPS 205 SLH-DSA is NOT SPHINCS+ round-3.1 (the
@@ -107,6 +108,14 @@ all: $(LIB) $(KBATCH) $(PQLIB)
 $(PQLIB): ../rust/pq/src/lib.rs ../rust/pq/Cargo.toml
 	cd ../rust/pq && cargo build --release
 	cp ../rust/pq/target/release/$(PQLIB) $@
+
+## Base's native precompiles (from Beryl: the B-20 tokens, their factory, the policy and
+## activation registries; from Cobalt the transaction-context and nonce-manager ones) are
+## base/base's own code, linked at the release Base runs: rust/base is a C-ABI shim over it
+## whose every world operation is the engine's (src/chains/op.lisp, op-native-host).
+$(BASELIB): ../rust/base/src/lib.rs ../rust/base/Cargo.toml ../rust/base/Cargo.lock
+	cd ../rust/base && cargo build --release --locked
+	cp ../rust/base/target/release/$(BASELIB) $@
 
 # Self-contained (it carries its own keccak core) and -fvisibility=hidden, so the only
 # symbols it exports are its two batch entry points. Without that it also exported
