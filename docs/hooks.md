@@ -63,6 +63,7 @@ The handlers, each a function (or a symbol naming one):
 | `:log` | a log record | each committed log |
 | `:state-change` | a change record | each net state change |
 | `:block` | a block record | after the block's other handlers |
+| `:executed` | a block record | on the replay thread as soon as the block ran, before its verdict: the world after it is at hand (`eita:simulate`) |
 | `:checkpoint` | `n` | the node is about to make block N a layer point: persist through N now |
 | `:rollback` | `n` | a reorg rolled the chain back to block N |
 | `:finalize` | | the run ends |
@@ -71,7 +72,7 @@ The records are property lists:
 
 | record | fields |
 |---|---|
-| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :txs` (the tx records) |
+| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :received-ms` (when the block source learned of the block, ms since the epoch, or NIL) `:txs` (the tx records) |
 | tx | `:block :index :hash :type :from :to` (NIL: a creation) `:value :nonce :gas-limit :gas-used :status` (1 success, 0 revert or halt) `:gas-price` (effective) `:logs :transfers :changes` |
 | log | `:block :tx :index` (the block's logIndex) `:address :topics` (integers) `:data` (octets) |
 | transfer | `:block :tx :kind` (`:tx` the transaction's value, `:call`, `:create`, `:selfdestruct`, `:chain` a chain's own move) `:depth :from :to :value` |
@@ -314,6 +315,43 @@ The rules:
   per tracked key) and do not keep records past their block.
 - **Handlers name functions by symbol** (`'on-block`): one indirection per call, and live
   redefinition.
+
+## Simulation: what-if transactions on a block's state
+
+An `:executed` handler runs on the replay thread right after its block, with the world as the
+block left it. Inside `eita:simulate` it can run transactions on that state that are never
+committed:
+
+```lisp
+(eita:subscribe "quote" :executed
+  (lambda (blk)
+    (eita:simulate
+      (lambda ()
+        (eita:sim-set :code executor runtime-octets)           ; an eth_call state override
+        (eita:sim-tx :from searcher :to executor :data calldata :gas 1000000 :tip 1000000000)))))
+;; => (:status 1 :gas-used 131204 :egp … :output #(…) :logs ((address topics data) …))
+```
+
+| function | what |
+|---|---|
+| `(eita:simulate fn)` | call FN in an overlay on the state after the newest block; everything it changes is dropped when it returns |
+| `(eita:sim-tx &key from to data value gas tip fund block)` | a transaction on the replay's own transaction path, at the next block's context; FUND tops the sender up |
+| `(eita:sim-read kind addr &optional slot)` | `:balance`, `:nonce`, `:code`, `:storage` in the overlay |
+| `(eita:sim-set kind addr …)` | `(:balance addr v)`, `:nonce`, `:code`, `(:storage addr slot v)`: a state override |
+| `(eita:sim-slots-read fn)` | FN's value and the storage slots it read first: where a contract keeps a value |
+
+**How.** The overlay is the layered world's own tier mechanism: the world's account table is
+replaced by an empty one whose fault hooks read the replaced table first, then the colder tiers
+(layers and base, or a lazy world's RPC); the empty table is dropped on return. Inside it the
+observers, the read stream, the read-set recorder and the incremental root check are off, so a
+simulation reaches neither the world, nor the fact log, nor a layer, nor a read set (the `hooks`
+suite runs the mainnet block with simulations and compares the runner's output and the state).
+The transactions are the replay's: the same derived effect, fees and chain hooks as a block's.
+
+**Cost.** A transaction in a simulation costs what the same transaction costs in a block, plus
+faulting the state it reads into the overlay. The replay waits for `:executed` handlers: at the
+tip it is waiting for the next block anyway; behind it, an `:executed` handler slows the replay,
+so do nothing there you do not need behind the tip (`eita.state:at-tip-p`).
 
 ## Querying history
 

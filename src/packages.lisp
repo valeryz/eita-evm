@@ -238,6 +238,8 @@
    #:replay
    ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
    #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
+   ;; what-if transactions on the state after a block, in an overlay (src/evm/simulate.lisp)
+   #:simulate #:sim-tx #:sim-read #:sim-set #:sim-slots-read
    ;; the same handlers fed past blocks from a fact log (src/factlog/backfill.lisp)
    #:backfill
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,

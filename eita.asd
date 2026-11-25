@@ -66,6 +66,7 @@
                (:file "evm/hooks")            ; eita:subscribe: handlers fed verified blocks
                (:file "chains/chain-spec")
                (:file "chains/driver")
+               (:file "evm/simulate")         ; eita:simulate: what-if txs in an overlay (an :executed handler's)
                (:file "state/mpt")
                (:file "chains/receipts")
                (:file "state/worlds")
