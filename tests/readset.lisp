@@ -20,10 +20,14 @@
 (defvar *changed* (make-hash-table :test 'equal) "block -> list of (:acct addr) / (:slot addr slot)")
 (defvar *seen* 0 "Summary items the observer read (it must have been active).")
 
+(defvar *accesses* '() "The read stream's access records, newest first (the test's subscriber).")
+
 (defun reading-observer ()
-  "An observer that walks everything tx-end exposes, as a data writer would."
+  "An observer that walks everything tx-end exposes, as a data writer would, and takes the
+   read stream on a subscriber of its own."
   (make-observer
    :name "readset-test"
+   :attach (lambda () (attach-subscriber! "readset-test" #'identity :on-access (lambda (&rest a) (push a *accesses*))))
    :tx-end (lambda (block tx success)
              (declare (ignore tx))
              (eita.evm::do-account-changes (a n0 n1 b0 b1 h0 h1)
@@ -38,11 +42,12 @@
                  (:log (incf *seen*) (list i a topics data)))))))
 
 (defun run-fixtures (paths on)
-  "The runner over PATHS; ON: the reading observer and the read stream; (values output batch)."
+  "The runner over PATHS; ON: the reading observer and the read stream; (values output
+   accesses), the accesses as lists (op kind block tx addr slot a b) in stream order."
+  (setf *accesses* '())                 ; global: the subscriber's thread pushes onto it
   (let* ((eita.state:*observer* (and on (reading-observer)))
          (eita.evm::*observe-calls* on)
          (eita.evm::*capture-reads* on)
-         (eita.evm::*fw-batch* (eita.evm::make-fw-batch 4096))
          (fns '(eita.evm::run-evm-tx eita.chain::run-pre-block! eita.chain::run-post-block!))
          (origs (mapcar #'fdefinition fns))
          (out (unwind-protect
@@ -59,13 +64,7 @@
                 (mapc (lambda (f o) (setf (fdefinition f) o)) fns origs))))
     (values (format nil "~{~A~^~%~}" (remove-if (lambda (l) (eql 0 (search "jit: " l)))
                                                 (uiop:split-string out :separator '(#\Newline))))
-            eita.evm::*fw-batch*)))
-
-(defun accesses (batch)
-  "The batch's access records as lists (op kind block tx addr slot a b)."
-  (let ((out '()))
-    (eita.evm::fw-walk batch #'identity :on-access (lambda (&rest a) (push a out)))
-    (nreverse out)))
+            (reverse *accesses*))))
 
 (defun code-hash (code) (let ((h 0)) (loop for x across (eita.core:keccak256-bytes code) do (setf h (logior (ash h 8) x))) h))
 
@@ -147,12 +146,13 @@
            (unless (plusp *seen*) (fail "the observer saw nothing (not installed?)"))
            ;; the recorder, fed the mainnet block's events as its subscriber thread would be
            (clrhash *changed*)
-           (let ((batch (nth-value 1 (run-fixtures (list mainnet) t))))
+           (let ((acc (nth-value 1 (run-fixtures (list mainnet) t))))
              (multiple-value-bind (on-event on-access finish) (eita.evm::make-readset-recorder dir)
-               (eita.evm::fw-walk batch on-event :on-access on-access) (funcall finish))
+               (declare (ignore on-event))
+               (dolist (a acc) (apply on-access a)) (funcall finish))
              (multiple-value-bind (got n k) (decoded dir)
               (setf ntx n nkeys k)
-              (let ((want (expected (accesses batch))))
+              (let ((want (expected acc)))
                ;; 1. decoded = recomputed, tx by tx
                (unless (= (hash-table-count want) (hash-table-count got))
                  (fail "~D txs in the stream, ~D recorded" (hash-table-count want) (hash-table-count got)))
@@ -177,7 +177,7 @@
                        (loop for p in (directory (concatenate 'string dir "*.rset")) sum (with-open-file (s p) (file-length s))))
                ;; 4. reads, writes and deltas; the block fed again as B, B+1, B+2 under a bound of
                ;;    one key (a segment a block) decodes to the same sets
-               (let ((cut (concatenate 'string dir "cut/")) (acc (accesses batch)) (eita.evm::*readset-segment-keys* 1))
+               (let ((cut (concatenate 'string dir "cut/")) (eita.evm::*readset-segment-keys* 1))
                  (unless (subsetp '(:read :write :delta) (mapcar #'car acc)) (fail "no reads, writes or deltas streamed"))
                  (multiple-value-bind (on-event on-access finish) (eita.evm::make-readset-recorder cut)
                    (declare (ignore on-event))

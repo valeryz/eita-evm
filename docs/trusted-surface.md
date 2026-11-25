@@ -47,6 +47,7 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `bls12381.cpp` (415) | precompiles 0x0b–0x11, EIP-2537 BLS12-381; and the Lean oracle `lean_bls_oracle_*` (the same blst calls) | blst (vendored) |
 | `p256verify.c` (124) | secp256r1 verify (RIP-7212 / EIP-7951) | OpenSSL libcrypto |
 | `rust/pq` (separate `libeita_pq`) | Arc's post-quantum precompile: SLH-DSA-SHA2-128s verify | the `slh-dsa` crate at the version arc-node pins |
+| `rust/base` (separate `libeita_base`) | Base's native precompiles from Beryl: the B-20 factory and tokens, the policy and activation registries, from Cobalt the transaction-context and nonce-manager precompiles. Their logic is not restated: it is base/base's `base-common-precompiles` at the release Base runs, linked with base/base's own `Cargo.lock`; the shim forwards and holds no rule. Which addresses they are, the call boundary and the price of every world operation they perform are Lean (`Evm.Optimism.Beryl.Spec.NativePrecompiles`), emitted into `src/chains/op.lisp`'s host | base/base `crates/common/precompiles` @ v1.5.6 |
 
 **How they are checked:** the ethereum/tests precompile fixtures on both tiers, the EIP test
 vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), `lake exe
@@ -184,6 +185,7 @@ the modules the challenge imports are trusted not to run hostile code at build t
 | GMP (libgmp10, linked dynamically) | MODEXP for moduli ≤ 64 bytes | LGPL-3 / GPL-2 |
 | zlib | compressed block files | zlib |
 | `slh-dsa` (Rust) | Arc's SLH-DSA precompile | Apache-2.0 OR MIT |
+| `base-common-precompiles` and its dependencies (Rust, base/base) | Base's native precompiles | MIT |
 
 Other trusted pieces outside C, for completeness: the SBCL runtime and compiler, the Lean kernel
 and the emitters' printers (the emitted text is what runs), and the Common Lisp host code that is
@@ -305,10 +307,11 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 | `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
 | `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as `refund-add!`); returns the cost |
 | `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
-| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
+| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry restored into the slot table (the id from the cache, or from learn on a miss) and retyped 255 (skipped by the host loop and `eita_ts_revert`); returns the count; stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
 **Checked by** the fixtures (every SSTORE/refund/revert directory), the tier differential (JIT vs interpreter on
-the one path) and the replay.
+the one path), `c/test_storage_host.c` (the native revert alone restores a slice whose accounts
+collide in the cache) and the replay.
 
 ### Lisp accessors and hook tiers — tested
 

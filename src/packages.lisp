@@ -83,6 +83,11 @@
            #:spec-hoodi-fork-ord #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
            #:spec-times-fork-ord
            #:spec-op-deposit-fails #:spec-op-eth-analog-ord #:spec-op-l1-fee
+           #:spec-op-native-kind #:spec-op-native-sload-gas #:spec-op-native-account-gas
+           #:spec-op-native-sstore-gas #:spec-op-native-sstore-refund-add #:spec-op-native-sstore-refund-sub
+           #:spec-op-native-sstore-sentry #:spec-op-native-transient-gas #:spec-op-native-log-gas
+           #:spec-op-native-keccak-gas #:spec-op-native-code-deposit-gas #:spec-op-native-new-code-gas
+           #:spec-op-denim-block-ms #:spec-op-denim-p
            #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
            #:stream-finalize! #:stream-rollback! #:touch! #:tx #:tx-access-list #:tx-auth-count
@@ -231,6 +236,8 @@
    #:set-fork #:fork #:hex #:addr #:*block*
    ;; replaying a chain (src/chains/replay.lisp)
    #:replay
+   ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
+   #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*

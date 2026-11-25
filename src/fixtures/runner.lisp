@@ -163,6 +163,8 @@
     (when bad (return-from run-block-checked (cons bad (format nil "header ~A: EELS validate_header refuses it" bad)))))
   (unless (= (blk-header-hash blk) (blk-hash blk))
     (return-from run-block-checked (cons "hash" "the header does not hash to its hash")))
+  (stream-block-begin! (blk-number blk))   ; observers: as the driver's run-block (an invalid block never commits)
+  (observe block blk *fork-ord*)
   (let* ((n (blk-number blk))
          (coinbase (blk-miner blk))
          (total-gas 0)
@@ -185,9 +187,10 @@
         (let ((*current-world* world))
           (run-pre-block! world n blk coinbase block-ctx)
           (loop for tx in (blk-txs blk) for idx from 0
-                do (multiple-value-bind (gas status) (run-evm-tx world tx block-ctx coinbase n idx)
+                do (multiple-value-bind (gas status egp) (run-evm-tx world tx block-ctx coinbase n idx)
                      (incf total-gas gas)
-                     (receipts-push! (tx-type tx) status gas *last-tx-logs*)))
+                     (receipts-push! (tx-type tx) status gas *last-tx-logs*)
+                     (observe tx-result n idx tx gas status egp)))
           ;; the driver's: the ommers tied to sha3Uncles before they pay, then the post-block effects
           (run-post-block! world n blk total-gas coinbase block-ctx))
       (block-invalid (e) (return-from run-block-checked (cons (invalid-kind e) (princ-to-string e))))
@@ -345,15 +348,20 @@
     (let ((*recent-headers* (and (getf test :genesis-header) (list (getf test :genesis-header))))
           (head (getf test :genesis-hash))
           (*partial-pre-state* (getf test :partial-pre)))
-      (dolist (blk blocks)
-        (let ((why (run-block-checked world blk)))
-          (when why (return-from run-test (list :fail (list (list :block (blk-number blk) (car why) (cdr why)))))))
-        (setf head (blk-hash blk)))
-      (let ((mismatches (or (compare-post world (getf test :post))
-                            (run-invalid-blocks test world head))))
-        (if (null mismatches)
-            (list :pass)
-            (list :fail mismatches))))))
+      ;; a test is a run of the event stream: a valid block commits, the end finalizes
+      (unwind-protect
+           (progn
+             (dolist (blk blocks)
+               (let ((why (run-block-checked world blk)))
+                 (when why (return-from run-test (list :fail (list (list :block (blk-number blk) (car why) (cdr why)))))))
+               (stream-commit! (blk-number blk))
+               (setf head (blk-hash blk)))
+             (let ((mismatches (or (compare-post world (getf test :post))
+                                   (run-invalid-blocks test world head))))
+               (if (null mismatches)
+                   (list :pass)
+                   (list :fail mismatches))))
+        (stream-finalize!)))))
 
 (defun collect-json-files (path)
   "PATH's .json files: PATH itself, or a directory's (not its subdirectories — run-battery.sh

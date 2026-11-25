@@ -21,7 +21,8 @@
   "Replay CHAIN (\"ethereum\", \"hoodi\", \"devnet\" (GENESIS: its genesis.json), \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
    \"world\") from block FROM to TO (default FROM; :tip follows the head, when the source can).
    BLOCKS: a directory of block files (docs/block-input.md); SOURCE: a Lisp file installing a
-   block source; OBSERVER: a Lisp file installing an observer; STATE: the state directory
+   block source; OBSERVER: a Lisp file loaded before the first block (subscriptions,
+   docs/hooks.md, or an observer); STATE: the state directory
    (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default
    true, every chain) runs from the genesis alloc (GENESIS overrides the chain's) or
    from the anchored snapshot at RESUME; without it the source serves state lazily."

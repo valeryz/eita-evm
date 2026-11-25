@@ -109,7 +109,7 @@
 (defvar *capture-reads* nil "True while some subscriber wants read events.")
 (defstartup *readset-dir* (nonempty-env "EITA_READSET_DIR")
   "The read-set recorder's directory (evm/readset.lisp, docs/readset-format.md); NIL: off.")
-(declaim (ftype function readset-attach!))
+(declaim (ftype function readset-attach! hooks-boundary! hooks-end-run!))
 (defvar *fw-batch* (make-fw-batch 4096) "This block's records (replay thread only).")
 
 (declaim (inline fw-reserve))
@@ -170,14 +170,18 @@
 (defvar *last-verdict* nil "The verdict of the newest block handed to the verifier (replay thread).")
 (defvar *verifier-notes* '() "Reports for the replay thread (closures), newest first.")
 
+(defun verdict-passed-p (v)
+  "Wait for the verdict V (NIL: none to wait for); true iff it passed."
+  (or (null v)
+      (sb-thread:with-mutex (*verdict-lock*)
+        (loop while (eq (verdict-ok v) :pending) do (sb-thread:condition-wait *verdict-cv* *verdict-lock*))
+        (verdict-ok v))))
+
 (defun require-verified (v)
   "Wait for the verdict V (NIL: none to wait for); signal unless it passed."
-  (when v
-    (sb-thread:with-mutex (*verdict-lock*)
-      (loop while (eq (verdict-ok v) :pending) do (sb-thread:condition-wait *verdict-cv* *verdict-lock*)))
-    (unless (verdict-ok v)
-      (error "block ~D is not verified (it or a block before it did not reproduce its header): nothing durable may claim it"
-             (verdict-block v)))))
+  (unless (verdict-passed-p v)
+    (error "block ~D is not verified (it or a block before it did not reproduce its header): nothing durable may claim it"
+           (verdict-block v))))
 
 (defun verifier-note! (report)
   (sb-thread:with-mutex (*verdict-lock*) (push report *verifier-notes*)))
@@ -247,7 +251,9 @@
   (check-subscribers))
 
 (defun stream-block-begin! (block)
-  "Block BLOCK begins (an observer's subscribers see (:block-begin block))."
+  "Block BLOCK begins (an observer's subscribers see (:block-begin block)); subscriptions
+   (evm/hooks.lisp) take effect here."
+  (hooks-boundary!)
   (when *observer* (fw-push (list :block-begin block))))
 (defun stream-commit! (n &key force durable)
   "Block N's events to the subscribers (the verifier's too); with an observer, (:commit …)
@@ -290,7 +296,8 @@
           (format t "~&[stream] the replay waited ~,1F s on subscriber ~A~%" (/ w internal-time-units-per-second) (subscriber-name sub))))
       (pipe-put (subscriber-pipe sub) (list (list :stop)))
       (sb-thread:join-thread (subscriber-thread sub) :default nil))
-    (setf *subscribers* '() *capture-reads* nil *last-verdict* nil *verifier-notes* '())))
+    (setf *subscribers* '() *capture-reads* nil *last-verdict* nil *verifier-notes* '())
+    (hooks-end-run!)))
 
 ;; Per-tx state. Pre-images for the net changes; pending transfers and logs. All flat vectors
 ;; of field values (no list per touch, event or frame); the hash tables only deduplicate.

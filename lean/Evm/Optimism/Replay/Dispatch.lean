@@ -75,7 +75,9 @@ def applyBlockFor
     -- modules (`Replay.Emit.operatorFeeExpr`).
     .error "Jovian: the Lean block driver does not implement Jovian's rules"
   | .beryl | .cobalt | .denim =>
-    .error "Beryl, Cobalt, Denim: Base's rules after Azul are not specified here"
+    -- Their native precompiles' logic is base/base's linked code (Beryl.Spec.
+    -- NativePrecompiles), outside this interpreter; the CL replay runs these forks.
+    .error "Beryl, Cobalt, Denim: the Lean block driver does not run Base's native precompiles"
   | .azul =>
     Evm.Optimism.Azul.applyBlock state blockHashes coinbase number
       gasLimit timestamp baseFeePerGas prevRandao txs operatorParams

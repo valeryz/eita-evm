@@ -123,6 +123,7 @@ import Evm.Optimism.Fjord.Fork
 import Evm.Optimism.Fjord.P256VerifyImpl
 import Evm.Optimism.Granite.Fork
 import Evm.Optimism.Isthmus.Fork
+import Evm.Optimism.Denim.Fork
 import Evm.Optimism.Replay.Dispatch
 import Evm.Optimism.Isthmus.Spec.Soundness
 import Evm.Optimism.Fjord.Spec.Soundness

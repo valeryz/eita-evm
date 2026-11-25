@@ -94,8 +94,9 @@ C_OBJS   := $(addprefix $(BUILD)/, $(notdir $(C_SRCS:.c=.o)))
 CXX_OBJS := $(addprefix $(BUILD)/, $(notdir $(CXX_SRCS:.cpp=.o)))
 
 PQLIB  := libeita_pq.$(LIBEXT)
+BASELIB := libeita_base.$(LIBEXT)
 
-all: $(LIB) $(KBATCH) $(PQLIB)
+all: $(LIB) $(KBATCH) $(PQLIB) $(BASELIB)
 
 ## Arc's PQ precompile (0x1800…0004) verifies SLH-DSA-SHA2-128s. arc-node does it
 ## with the `slh-dsa` crate, and FIPS 205 SLH-DSA is NOT SPHINCS+ round-3.1 (the
@@ -107,6 +108,14 @@ all: $(LIB) $(KBATCH) $(PQLIB)
 $(PQLIB): ../rust/pq/src/lib.rs ../rust/pq/Cargo.toml
 	cd ../rust/pq && cargo build --release
 	cp ../rust/pq/target/release/$(PQLIB) $@
+
+## Base's native precompiles (from Beryl: the B-20 tokens, their factory, the policy and
+## activation registries; from Cobalt the transaction-context and nonce-manager ones) are
+## base/base's own code, linked at the release Base runs: rust/base is a C-ABI shim over it
+## whose every world operation is the engine's (src/chains/op.lisp, op-native-host).
+$(BASELIB): ../rust/base/src/lib.rs ../rust/base/Cargo.toml ../rust/base/Cargo.lock
+	cd ../rust/base && cargo build --release --locked
+	cp ../rust/base/target/release/$(BASELIB) $@
 
 # Self-contained (it carries its own keccak core) and -fvisibility=hidden, so the only
 # symbols it exports are its two batch entry points. Without that it also exported
@@ -159,10 +168,11 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
+	$(BUILD)/test_storage_host
 
 $(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -182,6 +192,15 @@ test_world_slots_model: $(BUILD)/test_world_slots
 	$(BUILD)/test_world_slots $(BUILD)/ws-vectors.txt
 $(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -o $@ test_world_slots.c world_slots.c
+
+# The native revert alone restores a slice whose accounts collide in the address -> id cache.
+test_storage_host: $(BUILD)/test_storage_host
+	$(BUILD)/test_storage_host
+$(BUILD)/test_storage_host: test_storage_host.c storage_host.c storage_host.h generated/storage_effect.c world_slots.c \
+                            world_slots_emit.c tx_state.c eita_compute.c $(ASM) | $(BUILD)
+	$(CC) $(ARCHFLAG) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DEITA_NO_LEAN_WRAPPER \
+	  -I. -I$(LEAN_C) -o $@ test_storage_host.c storage_host.c generated/storage_effect.c world_slots.c \
+	  tx_state.c eita_compute.c $(LEAN_C)/keccak.c $(ASM)
 
 $(BUILD)/test_tx_state: test_tx_state.c tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(ARCHFLAG) -O1 -o $@ test_tx_state.c tx_state.c
@@ -229,4 +248,4 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation
+.PHONY: all clean test test_compute test_storage_host test_modexp test_bls12381 test_point_evaluation

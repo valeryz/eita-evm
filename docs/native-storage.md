@@ -78,19 +78,26 @@ fails on drift of either file, and `scripts/check-derived-gas.py` checks that th
 The callbacks vtable's SLOAD and SSTORE slots are `eita_cb_sload` / `eita_cb_sstore`
 (`c/storage_host.c`), the opcodes' one execution path. Each binds the frame account and key, runs
 the emitted effect, and calls the Lisp hook only when one is on (§5). The frame account's id comes
-from a 64-entry cache keyed by the slot tables' serial; an address not in it is learned once from
-Lisp (`cb-storage-learn`). Lisp sets the host's world, TxState, fork and flags at every frame
+from a 64-entry cache keyed by the slot tables' serial; an address not in it is learned from
+Lisp (`cb-storage-learn`), which returns the existing id of a known address. Lisp sets the host's world, TxState, fork and flags at every frame
 entry (`storage-host-sync!`).
 
 ## 4. The journal
 
 SSTORE writes its type-0 entry (address, key, old value) into the native journal arena
 (`c/tx_arena.h`), in the layout of the Lisp `journal-push!`, so the journal stays one mixed
-sequence. On a revert `eita_sh_revert_storage` walks the slice newest first and restores each
-type-0 entry of an account with a known id into the slot table, retyping it so the Lisp loop and
-`eita_ts_revert` skip it; it stops at the first un-create entry (type 10), below which the Lisp
+sequence. On a revert `eita_sh_revert_storage` walks the slice newest first and restores every
+type-0 entry into the slot table, retyping it so the Lisp loop and `eita_ts_revert` skip it. The
+account's id comes from the cache or, when another address has evicted it, from learn (the account
+was bound when its entry was written, so it has an id), so a host with no second pass (a C-only
+host) still restores every slot; it stops at the first un-create entry (type 10), below which the Lisp
 loop replays in order. While the read stream is on, the Lisp restore runs instead, so each restoring
 write is streamed.
+
+The native SSTORE handler (`_eita_handler_sstore`) also journals a type-0 entry of its own after
+every SSTORE, so a slice holds **two type-0 entries per SSTORE**; the newer one restores the value
+just written and is a no-op on revert. A host sizing its journal arena therefore needs two entries per
+SSTORE, not one; an under-sized arena refuses the transaction rather than answering wrongly.
 
 ## 5. Data paths and hooks
 
