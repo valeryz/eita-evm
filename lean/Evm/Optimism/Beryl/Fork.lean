@@ -28,7 +28,7 @@ open Evm.Optimism (OpFork)
 abbrev staticPrecompiles := Evm.Optimism.Azul.azulPrecompiles
 
 /-- No native precompile before Beryl. -/
-theorem no_native_before (f : OpFork) (h : f.ord < OpFork.beryl.ord) (addr : Nat) :
+theorem no_precompiles_before_beryl (f : OpFork) (h : f.ord < OpFork.beryl.ord) (addr : Nat) :
     Spec.nativeKind f addr = 0 := by
   cases f <;> simp_all [Spec.nativeKind, OpFork.atLeast, OpFork.ord]
 
