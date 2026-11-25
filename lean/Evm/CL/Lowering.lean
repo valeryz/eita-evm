@@ -1,8 +1,8 @@
 /-
   Evm.CL.Lowering — one emitter, two targets.
 
-  Stage 2 of #238. The gadgets are `List AInstr`; today `AInstr.emitARM64`
-  turns them into ARM64 text. This introduces the target as a PARAMETER — a
+  The gadgets are `List AInstr`; `AInstr.emitARM64` turns them into ARM64
+  text. This module makes the target a PARAMETER — a
   `Lowering` record — instantiates it for ARM64 (proved to reproduce the
   existing emitter exactly, so `handlers.S` cannot move) and for x86-64, and
   then checks the thing that actually matters: that the x86-64 instantiation
@@ -26,16 +26,12 @@
      addressing mode: `or rcx, [r12 + r13 - 56]`. No load, no temporary, no
      pressure.
 
-  …with one correction the ASSEMBLER had to make, not me: the scale must be 1,
-  because x86's SIB byte offers 1/2/4/8 only. So r13 holds sp as a byte offset
-  on x86-64 rather than a word index — see `nosMem`. My hand spot-checks read
-  right past a scale of 32; `scripts/verify-x86-emit.sh` assembles every gadget
-  now, which is the gate that catches this class.
+  …with one constraint from the assembler: the scale must be 1, because x86's
+  SIB byte offers 1/2/4/8 only. So r13 holds sp as a byte offset on x86-64
+  rather than a word index — see `nosMem`. `scripts/verify-x86-emit.sh`
+  assembles every gadget, which is the gate that catches this class.
 
-  So the register budget is untouched by dropping the NOS cache — which is a
-  better outcome than the "load into a free scratch" plan I started with, and
-  the reason to check the target's addressing modes before assuming a RISC
-  shape.
+  So the register budget is untouched by dropping the NOS cache.
 -/
 
 import Evm.CL.X86Lower
@@ -120,9 +116,8 @@ def pad (m : String) : String :=
     pushes and pops then adjust r13 by ±32 instead of ±1, which costs nothing —
     an immediate either way.
 
-    I had this wrong in the first version of this file, with a scale of 32, and
-    found it only when the assembler saw it. See `scripts/verify-x86-emit.sh`,
-    which now assembles every gadget for exactly this reason. -/
+    A scale of 32 looks plausible in text and only the assembler rejects it;
+    `scripts/verify-x86-emit.sh` assembles every gadget for exactly this reason. -/
 def nosMem (limb : Nat) : String :=
   s!"[r12 + r13 - {64 - 8 * limb}]"
 
@@ -290,11 +285,11 @@ def emitX86 : AInstr → String
   | .movToSp _ | .movFromSp _ | .ldrLsl3 _ _ _ | .loadSymValue _ _ | .loadSymGotValue _ _ =>
       "    «unlowered: ARM64 frame»\n"
   | .ret           => "    ret\n"
-  -- the ARM64 chunk algebra; the x86-64 chunk JIT has its own (stage 5)
+  -- the ARM64 chunk algebra; the x86-64 chunk JIT has its own
   | .movkImm _ _ _ | .addSpReg _ | .spAddReg _ | .spSubReg _ | .adrLbl _ _ | .brk0
   | .strBase _ _ | .strbBase _ _ | .bFar _ | .blFar _ =>
       "    «unlowered: ARM64 chunk algebra»\n"
-  -- the gas routines' forms (stage 4w): x86-64 twins exist for the register
+  -- the gas routines' forms: x86-64 twins exist for the register
   -- selects, the bit test and the compare-and-branch; the ZERO selects do not
   -- (cmov takes no immediate, and a hidden temporary would be a register the
   -- `AsmSem` semantics does not see) — an x86-64 program writes `mov x0, 0`

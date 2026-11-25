@@ -46,7 +46,11 @@
    the withdrawals; the ommer headers (they pay the block rewards) as its uncles."
   (let ((blk (decode-block-json (rpc-header (jval json "blockHeader") (cons "transactions" (jval json "transactions"))
                                             (cons "withdrawals" (jval json "withdrawals"))))))
-    (dolist (tx (blk-txs blk)) (unless (tx-sender tx) (setf (tx-sender tx) (or (recover-tx-sender tx) 0))))
+    (let ((txs (remove-if #'tx-sender (blk-txs blk))))     ; the ones without a "sender"
+      ;; one stops at a signature that does not recover: the rest one by one; such a tx
+      ;; runs as sender 0, and the verifier refuses the block
+      (when (recover-senders! txs)
+        (dolist (tx txs) (unless (or (tx-sender tx) (null (recover-senders! (list tx)))) (setf (tx-sender tx) 0)))))
     (setf (blk-uncles blk) (mapcar (lambda (u) (decode-block-json (rpc-header u))) (jval json "uncleHeaders"))
           (blk-uncle-count blk) (length (blk-uncles blk)))
     blk))
@@ -159,6 +163,8 @@
     (when bad (return-from run-block-checked (cons bad (format nil "header ~A: EELS validate_header refuses it" bad)))))
   (unless (= (blk-header-hash blk) (blk-hash blk))
     (return-from run-block-checked (cons "hash" "the header does not hash to its hash")))
+  (stream-block-begin! (blk-number blk))   ; observers: as the driver's run-block (an invalid block never commits)
+  (observe block blk *fork-ord*)
   (let* ((n (blk-number blk))
          (coinbase (blk-miner blk))
          (total-gas 0)
@@ -181,9 +187,10 @@
         (let ((*current-world* world))
           (run-pre-block! world n blk coinbase block-ctx)
           (loop for tx in (blk-txs blk) for idx from 0
-                do (multiple-value-bind (gas status) (run-evm-tx world tx block-ctx coinbase n idx)
+                do (multiple-value-bind (gas status egp) (run-evm-tx world tx block-ctx coinbase n idx)
                      (incf total-gas gas)
-                     (receipts-push! (tx-type tx) status gas *last-tx-logs*)))
+                     (receipts-push! (tx-type tx) status gas *last-tx-logs*)
+                     (observe tx-result n idx tx gas status egp)))
           ;; the driver's: the ommers tied to sha3Uncles before they pay, then the post-block effects
           (run-post-block! world n blk total-gas coinbase block-ctx))
       (block-invalid (e) (return-from run-block-checked (cons (invalid-kind e) (princ-to-string e))))
@@ -249,7 +256,7 @@
    an RLP-level defect (\"RLP_...\")? The runner, like the driver, reads the decoded block
    (rlp_decoded; JSON-RPC), never its RLP bytes. Such a block is counted `unchecked`, not run.
    (Every other class is checked; the header rules on proposer-chosen inputs — EELS
-   validate_header, check_gas_limit, validate_ommers — since 2026-11-01, block-system.lisp
+   validate_header, check_gas_limit, validate_ommers — in block-system.lisp
    header-violation and validate-ommers!. The proof-of-work seal is not checked; no fixture
    here expects it.)"
   (loop for start = 0 then (1+ bar)
@@ -347,15 +354,20 @@
     (let ((*recent-headers* (and (getf test :genesis-header) (list (getf test :genesis-header))))
           (head (getf test :genesis-hash))
           (*partial-pre-state* (getf test :partial-pre)))
-      (dolist (blk blocks)
-        (let ((why (run-block-checked world blk)))
-          (when why (return-from run-test (list :fail (list (list :block (blk-number blk) (car why) (cdr why)))))))
-        (setf head (blk-hash blk)))
-      (let ((mismatches (or (compare-post world (getf test :post))
-                            (run-invalid-blocks test world head))))
-        (if (null mismatches)
-            (list :pass)
-            (list :fail mismatches))))))
+      ;; a test is a run of the event stream: a valid block commits, the end finalizes
+      (unwind-protect
+           (progn
+             (dolist (blk blocks)
+               (let ((why (run-block-checked world blk)))
+                 (when why (return-from run-test (list :fail (list (list :block (blk-number blk) (car why) (cdr why)))))))
+               (stream-commit! (blk-number blk))
+               (setf head (blk-hash blk)))
+             (let ((mismatches (or (compare-post world (getf test :post))
+                                   (run-invalid-blocks test world head))))
+               (if (null mismatches)
+                   (list :pass)
+                   (list :fail mismatches))))
+        (stream-finalize!)))))
 
 (defun collect-json-files (path)
   "PATH's .json files: PATH itself, or a directory's (not its subdirectories — run-battery.sh

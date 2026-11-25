@@ -1,0 +1,33 @@
+# eita-base — a C-ABI shim over the SAME native-precompile implementation Base's client runs.
+#
+# From Beryl, Base's execution layer serves stateful native precompiles: the B-20 token
+# factory, every B-20 token address (asset and stablecoin variants), the policy registry and
+# the activation registry; from Cobalt also the transaction-context and nonce-manager
+# precompiles. Their logic (base/base crates/common/precompiles, ~25k lines over three
+# frozen versions) is linked here at the release Base mainnet runs, so a divergence in that
+# logic is unrepresentable rather than tested-for. The shim owns no rule: every host
+# operation (storage, transient storage, account and code access, code installation, logs,
+# keccak) is the engine's, priced by the engine from the Lean spec (Evm.Optimism.Beryl.Spec).
+#
+# Cargo.lock started as base/base's own at the pinned tag, which cargo reduced to this
+# crate's dependencies: the same versions as the reference build (built with --locked).
+[package]
+name = "eita-base"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "eita_base"
+crate-type = ["cdylib"]
+
+[dependencies]
+base-common-precompiles = { git = "https://github.com/base/base", tag = "v1.5.6" }
+base-precompile-storage = { git = "https://github.com/base/base", tag = "v1.5.6" }
+base-common-genesis = { git = "https://github.com/base/base", tag = "v1.5.6" }
+base-common-chains = { git = "https://github.com/base/base", tag = "v1.5.6" }
+alloy-primitives = "1"
+revm = { version = "42.0.1", default-features = false }
+
+[profile.release]
+opt-level = 3

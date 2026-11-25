@@ -32,12 +32,9 @@ namespace Evm.Byzantium.Vm.PrecompiledContracts
 open Evm.Frontier.Vm.PrecompiledContracts (registry) in
 /-- Byzantium precompile registry: Frontier's four plus four new ones.
 
-    Lookups go through `lookup` below, which checks this table.
-    Note: `Evm.Byzantium.Vm.Effect`'s trampoline currently calls
-    `Evm.Frontier.Vm.PrecompiledContracts.lookup` (Frontier registry),
-    so the Byzantium-only precompiles don't fire even when this file
-    is imported. Fixing that dispatch is task #122.B (out of scope
-    here; that one-line change happens in the slim-Effect refactor). -/
+    Lookups go through `lookup` below, which checks this table;
+    `Evm.Frontier.Vm.Call.precompiles` selects it for Byzantium through
+    Constantinople/Petersburg. -/
 def registry : List (Evm.Address × Evm.Frontier.Vm.PrecompiledContracts.Precompile) :=
   Evm.Frontier.Vm.PrecompiledContracts.registry ++
   [ (Evm.Address.ofNat 0x05, modexp)

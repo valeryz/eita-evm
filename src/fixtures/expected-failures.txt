@@ -3,7 +3,7 @@
 # gives the reason for the names after it.
 #
 #! EIP-7610 not applied: execution-specs #3417, src/fixtures/expected-failures.txt
-# EIP-7610 is not applied (owner decision 2026-10-26, every chain): ethereum/execution-specs
+# EIP-7610 is not applied (on every chain): ethereum/execution-specs
 # #3417 (merged 2026-08-25, commit 2ce2191562; EIP-7610 declined per EIP-7773) removed the
 # storage leg of the CREATE collision rule and these fixtures upstream; #3508 (merged
 # 2026-09-23, commit faf6637766) wipes the target's storage at creation instead. The local
@@ -15,7 +15,7 @@ BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::c
 BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Cancun-d2g0v0
 BlockchainTests/GeneralStateTests/stExtCodeHash/dynamicAccountOverwriteEmpty_Paris.json::dynamicAccountOverwriteEmpty_Paris-fork_Cancun-d0g0v0
 BlockchainTests/GeneralStateTests/stRevertTest/RevertInCreateInInit_Paris.json::RevertInCreateInInit_Paris-fork_Cancun-d0g0v0
-# The Prague variants of the same six (run since the fixture runner has the Prague block pipeline).
+# The Prague variants of the same six.
 BlockchainTests/GeneralStateTests/stCreate2/RevertInCreateInInitCreate2Paris.json::RevertInCreateInInitCreate2Paris-fork_Prague-d0g0v0
 BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Prague-d0g0v0
 BlockchainTests/GeneralStateTests/stCreate2/create2collisionStorageParis.json::create2collisionStorageParis-fork_Prague-d1g0v0

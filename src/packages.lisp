@@ -62,7 +62,7 @@
            #:attach-subscriber! #:block-blob-base-fee #:block-invalid #:cb-call
            #:check-cached-foreign-pointers! #:child-gas #:code-hash-int #:current-arena
            #:destroyed-p #:ecrecover-address #:recover-authority-ahead! #:effective-gas-price #:el-fork
-           #:calldata-byte-counts #:engine-code-version #:forget-tx-sets! #:fw-drain #:fw-push #:intrinsic-gas
+           #:calldata-byte-counts #:engine-code-version #:forget-tx-sets! #:fw-access! #:fw-drain #:fw-push #:intrinsic-gas
            #:invalid! #:invalid-kind #:journal-balance! #:journal-push! #:jval #:load-observer!
            #:make-observer #:make-pipe #:make-tx #:make-verdict #:mpt-touch! #:mpt-touch-all!
            #:observe #:observe-acct-touch! #:observe-log! #:observe-slot-touch!
@@ -77,13 +77,23 @@
            #:spec-arc-precompile-sstore-gas #:spec-arc-slot-read-gas
            #:spec-arc-smoothed-gas-used #:spec-arc-subcall-dispatch-cost
            #:spec-arc-transfer-log-gas #:spec-arc-write-gas #:spec-arc-write-probe-gas
-           #:spec-block-credits #:spec-coinbase-fee-effect #:spec-destroy-effect
-           #:spec-header-violation #:spec-mainnet-fork-ord #:spec-sweep-effect
+           #:spec-block-credits #:spec-calldata-floor-gas #:spec-coinbase-fee-effect
+           #:spec-destroy-effect #:spec-flz-compress-len #:spec-header-violation
+           #:spec-blob-base-fee-update-fraction #:spec-blob-schedule-max #:spec-blob-schedule-target
+           #:spec-hoodi-fork-ord #:spec-mainnet-fork-ord #:spec-op-base-fork-ord #:spec-op-da-size-scaled
+           #:spec-times-fork-ord
+           #:spec-op-deposit-fails #:spec-op-eth-analog-ord #:spec-op-l1-fee
+           #:spec-op-native-kind #:spec-op-native-sload-gas #:spec-op-native-account-gas
+           #:spec-op-native-sstore-gas #:spec-op-native-sstore-refund-add #:spec-op-native-sstore-refund-sub
+           #:spec-op-native-sstore-sentry #:spec-op-native-transient-gas #:spec-op-native-log-gas
+           #:spec-op-native-keccak-gas #:spec-op-native-code-deposit-gas #:spec-op-native-new-code-gas
+           #:spec-op-denim-block-ms #:spec-op-denim-p
+           #:spec-op-operator-fee #:spec-sweep-effect #:spec-tx-gas-used #:ts-refund
            #:spec-system-effect #:stream-block-begin! #:stream-checkpoint! #:stream-commit!
            #:stream-finalize! #:stream-rollback! #:touch! #:tx #:tx-access-list #:tx-auth-count
            #:tx-auth-list #:tx-blob-hashes #:tx-chain-id #:tx-data #:tx-gas-limit
            #:tx-gas-price #:tx-max-blob-fee #:tx-max-fee #:tx-max-priority #:tx-mint #:tx-nonce
-           #:tx-r #:tx-s #:tx-sender #:tx-source-hash #:tx-system-p #:tx-to #:tx-type #:tx-v
+           #:tx-r #:tx-s #:tx-sender #:tx-sender-recovered #:tx-source-hash #:tx-system-p #:tx-to #:tx-type #:tx-v
            #:tx-value #:verdict #:verifier-note! #:world-account-present-p))
 
 (defpackage #:eita.state
@@ -94,6 +104,7 @@
            #:*anchor-queue* #:*cold-storage-map-hook* #:*fault-account-hook*
            #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
+           #:*chain-head* #:at-tip-p
            #:account-marked-p #:account-uncreate! #:account-unmark! #:acct-addr #:acct-balance
            #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
            #:acct-nonce #:acct-set-flag! #:acct-slots #:acct-slots-map #:acct-table-intern-words #:anchor!
@@ -111,19 +122,21 @@
   (:documentation "Binary snapshots and delta layers (docs/state-snapshot-format.md, docs/layered-snapshots.md).")
   (:use #:cl)
   (:export
-           #:*foreign-layer* #:+empty-code-hash+ #:component-of #:component-path
-           #:compose-address #:composition-string #:hardware-threads #:int->octets
-           #:layer-account #:layer-map-slots #:layer-path #:layer-slot #:layer-tmp-path
-           #:lookup-account #:make-merge #:make-obuf #:map-touched-addresses #:mapping-sap
-           #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap #:octets->int
-           #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be #:snap
-           #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
-           #:snap-dir #:snap-has-storage-p #:snap-kind-p #:snap-layer-p #:snap-manifest
+           #:*foreign-layer* #:+empty-code-hash+ #:acct-fields #:advise-sequential #:component-of
+           #:component-path #:compose-address #:compose-range #:composition-string #:hardware-threads
+           #:int->octets #:key-range #:layer-account #:layer-map-slots #:layer-path #:layer-slot
+           #:layer-tmp-path #:lookup-account #:make-merge #:make-obuf #:make-run #:make-writer
+           #:mapping-sap #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap
+           #:octets->int #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be
+           #:snap #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
+           #:snap-dir #:snap-kind-p #:snap-layer-p #:snap-manifest
            #:snap-map-account-storage #:snap-map-accounts #:snap-map-codes #:snap-map-storage
            #:snap-n-accounts #:snap-n-codes #:snap-n-slots #:snap-open #:snap-p #:snap-parent
-           #:snap-path #:snap-publish #:snap-sealed-p #:snap-slot #:snap-slot-map
-           #:snap-tmp-path #:snap-verify #:view-account #:view-code #:view-has-storage-p
-           #:view-map-account-storage #:view-slot #:write-composed #:zero-bytes-p))
+           #:snap-path #:snap-publish #:snap-run #:snap-sealed-p #:snap-slot #:snap-slot-map
+           #:snap-tmp-path #:snap-verify #:snap-version #:view-account #:view-account-h #:view-code
+           #:view-has-storage-p #:view-map-account-storage #:view-map-storage-h #:view-slot
+           #:view-slot-h #:write-composed #:writer-account #:writer-finish #:writer-record
+           #:writer-slot #:zero-bytes-p))
 
 (defpackage #:eita.state.recovery
   (:documentation "The resume point and garbage collection over snapshots (lean/Evm/Persist/Recovery.lean).")
@@ -143,11 +156,13 @@
            #:rlp-list #:rlp-list* #:rlp-uint #:storage-root #:trie-root))
 
 (defpackage #:eita.state.root
-  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`).")
+  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`), and
+   the root-gated import of another client's state (`eita import-reth`).")
   (:use #:cl #:cffi)
   (:export
-           #:main #:make-stack-trie #:snapshot-root #:st-finish #:st-push #:st-reset
-           #:st-root-bytes))
+           #:assemble #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
+           #:make-stack-trie #:snapshot-root
+           #:st-finish #:st-push #:st-reset #:st-root-bytes))
 
 (defpackage #:eita.input
   (:documentation "Block input: the JSON block decoder and the block-source seam (docs/block-input.md).")
@@ -174,16 +189,17 @@
    header gates, the replay driver.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input)
   (:export
-           #:*chain-id* #:*chain-spec* #:*full-state* #:*receipts-unverifiable*
+           #:*chain-header-foreign* #:*chain-id* #:*chain-spec* #:*full-state*
+           #:*receipts-unverifiable* #:*tx-receipt-extension* #:tx-envelope
            #:*recent-headers* #:+postblock-tx+ #:+preblock-tx+ #:block-credit! #:block-ommers
            #:chain-spec-reorg-depth #:eip2935-store-parent-hash! #:ethereum-pre-block!
            #:find-chain-spec #:header-record #:header-violation #:install-chain-spec!
-           #:make-chain-spec #:receipts-block-begin! #:receipts-push! #:recover-tx-sender
+           #:make-chain-spec #:receipts-block-begin! #:receipts-push! #:recover-senders! #:recover-tx-sender
            #:register-chain-spec #:replay-main #:run-post-block! #:run-pre-block! #:system-call
            #:verify-block-header))
 
 (defpackage #:eita.chain.ethereum
-  (:documentation "Ethereum mainnet on the generic driver.")
+  (:documentation "Ethereum (mainnet, Hoodi, a devnet) on the generic driver.")
   (:use #:cl #:cffi #:eita.native #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.chain.arc
@@ -191,8 +207,8 @@
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.chain.op
-  (:documentation "OP-Stack chains (Base, OP Mainnet, World Chain) with lazy RPC-backed state.")
-  (:use #:cl #:cffi #:eita.native #:eita.evm #:eita.state #:eita.input #:eita.chain))
+  (:documentation "OP-Stack chains (Base, OP Mainnet, World Chain), full or lazy state.")
+  (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state #:eita.input #:eita.chain))
 
 (defpackage #:eita.fixtures
   (:documentation "The BlockchainTests runner (ethereum/tests, execution-spec-tests).")
@@ -220,12 +236,22 @@
    #:set-fork #:fork #:hex #:addr #:*block*
    ;; replaying a chain (src/chains/replay.lisp)
    #:replay
+   ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
+   #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*
    #:make-block-source #:directory-block-source #:*block-source*
    #:*observer* #:make-observer #:attach-subscriber!
    #:make-chain-spec #:install-chain-spec! #:register-chain-spec #:find-chain-spec))
+
+(defpackage #:eita.engine
+  (:documentation "`eita engine`: the Engine API's engine thread and the local socket the edge
+   (rust/engine-api) forwards a consensus client's calls over — a block source
+   (src/engine/engine.lisp). It uses only CL: every engine name it reaches is written with
+   its package.")
+  (:use #:cl)
+  (:export #:run #:engine-block-source))
 
 (defpackage #:eita.cli
   (:documentation "bin/eita: the command line (src/cli.lisp).")

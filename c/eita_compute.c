@@ -118,10 +118,10 @@ void eita_helper_sar(u256 *result, const u256 *shift, const u256 *val) {
         for (int i = 3; i > top_word; i--) result->limb[i] = mask_fill;
         if (top_word >= 0 && top_word < 4) {
             /* Fill bits [top_bit..63] of top_word with the sign. At top_bit==0
-             * this must fill the WHOLE word: ~((1<<0)-1) = ~0 = all-ones. The
-             * old (top_bit==0)?0 special-case produced ~(0-1)=0 → no fill, so
-             * SAR by a multiple of 64 (64/128/192) of a negative value left the
-             * top fill-word zeroed. (Latent: SAR is Constantinople+, 0x1d.) */
+             * this must fill the WHOLE word: ~((1<<0)-1) = ~0 = all-ones. A
+             * (top_bit==0)?0 special case gives no fill, so SAR by a multiple of
+             * 64 (64/128/192) of a negative value would leave the top fill-word
+             * zeroed. */
             uint64_t mask = (uint64_t)1 << top_bit;
             result->limb[top_word] |= ~(mask - 1);
         }
@@ -483,7 +483,7 @@ void eita_helper_codecopy(EvmState *state, const u256 *dst,
 }
 
 /* RETURNDATACOPY: like CALLDATACOPY but errors if src + len > returndata_size.
- * For now, we just zero-pad past end (host validates bounds at the spec layer).
+ * This helper zero-pads past the end; the host validates bounds at the spec layer.
  * Audit fixtures stage len so this is always in-bounds. */
 void eita_helper_returndatacopy(EvmState *state, const u256 *dst,
                                  const u256 *src, const u256 *len) {
@@ -591,7 +591,7 @@ void eita_helper_mcopy(EvmState *state, const u256 *dst,
  * PUSH1..PUSH32 immediate; every other byte 0. EELS `get_valid_jump_destinations`
  * (vm/runtime.py: skip `push_data_size = op - PUSH1 + 1` bytes after a PUSH), the
  * Lean spec's `Runtime.jumpDestBitmap`. The host builds it once per frame next to
- * the frame's code copy and points EvmState.jumpdests (#136) at it; the JUMP/JUMPI
+ * the frame's code copy and points EvmState.jumpdests (offset 136) at it; the JUMP/JUMPI
  * handlers test the map byte after their bounds check. `out` has `len` bytes. */
 void eita_jumpdest_map(const uint8_t *code, uint64_t len, uint8_t *out) {
     memset(out, 0, (size_t)len);
@@ -680,14 +680,14 @@ void eita_helper_exp(u256 *result, const u256 *base, const u256 *e) {
     *result = r;
 }
 
-/* ---- JIT icache maintenance (#249 Linux JIT bring-up) ------------------ *
+/* ---- JIT icache maintenance ------------------------------------------- *
  * Flush the instruction cache for a freshly-written JIT chunk. The replay
  * arena writes machine bytes through a RW alias and executes them through a
  * RX alias of the same physical pages; on ARM64 the I-cache must be made
  * coherent with the D-cache writes before execution. __builtin___clear_cache
  * lowers to the correct `dc cvau` / `ic ivau` / `dsb`/`isb` sequence on both
  * arm64 macOS and Linux, so this is one portable entry the SBCL loader calls
- * regardless of platform (replaces the macOS-only sys_icache_invalidate). */
+ * regardless of platform. */
 void eita_clear_icache(void *addr, uint64_t len) {
     char *p = (char *)addr;
     __builtin___clear_cache(p, p + len);

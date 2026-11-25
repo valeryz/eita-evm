@@ -22,7 +22,7 @@ BREW   := /opt/homebrew
 BLST   := ../vendor/blst
 BLST_A := $(BLST)/libblst.a
 ## libsecp256k1 (ECRECOVER, EIP-7702 authorities, sender recovery): the pinned release, static,
-## upstream's own flags. Debian's 0.2.0 recovered in 35.5 us, v0.8.0 in 30.6 (x300, 2026-11-05).
+## upstream's own flags. On a Zen 3 desktop v0.8.0 recovers in 30.6 us, Debian's 0.2.0 in 35.5 us.
 SECP   := ../vendor/secp256k1
 SECP_A := $(SECP)/build/lib/libsecp256k1.a
 
@@ -56,21 +56,20 @@ else
 endif
 
 LIB := libeita.$(LIBEXT)
-# Batched keccak for the incremental state-root worker (#237). Deliberately its OWN
-# shared library so libeita is never relinked for it — but it had no build rule at
-# all and src/state/mpt.lisp only knew a hardcoded Darwin path, so on Linux the
-# worker died on "the alien function eita_keccak256_batch_par is undefined" the
-# first time a trie level was wide enough to batch.
+# Batched keccak for the incremental state-root worker: its own shared library, so
+# libeita is never relinked for it. src/native/libraries.lisp opens it; without it the
+# worker fails with "the alien function eita_keccak256_batch_par is undefined" the
+# first time a trie level is wide enough to batch.
 KBATCH := libkeccak_batch.$(LIBEXT)
 
 ## handlers.S is emitted Mach-O ARM64 (lake exe emitARM64). On Linux the same
 ## ARM64 instructions need ELF directives/relocations: .text, no leading symbol
-## underscore, adrp/:lo12: instead of @PAGE/@PAGEOFF. Verified on Graviton
-## (#249 Phase 2). This keeps handlers.S the single committed source.
+## underscore, adrp/:lo12: instead of @PAGE/@PAGEOFF (tested on AWS Graviton).
+## This keeps handlers.S the single committed source.
 ifeq ($(UNAME_S),Darwin)
   ASM := handlers.S
 else ifeq ($(UNAME_M),x86_64)
-  ## #238 stage 4: the x86-64 interpreter is derived separately
+  ## The x86-64 interpreter is derived separately
   ## (lake exe emitX86Interp elf): same registry, x86-64 lowering, ELF text.
   ## Committed, like handlers.S; build.sh regenerates both and
   ## scripts/verify-host-emit.sh fails if either drifts from the Lean emitters.
@@ -95,8 +94,9 @@ C_OBJS   := $(addprefix $(BUILD)/, $(notdir $(C_SRCS:.c=.o)))
 CXX_OBJS := $(addprefix $(BUILD)/, $(notdir $(CXX_SRCS:.cpp=.o)))
 
 PQLIB  := libeita_pq.$(LIBEXT)
+BASELIB := libeita_base.$(LIBEXT)
 
-all: $(LIB) $(KBATCH) $(PQLIB)
+all: $(LIB) $(KBATCH) $(PQLIB) $(BASELIB)
 
 ## Arc's PQ precompile (0x1800…0004) verifies SLH-DSA-SHA2-128s. arc-node does it
 ## with the `slh-dsa` crate, and FIPS 205 SLH-DSA is NOT SPHINCS+ round-3.1 (the
@@ -108,6 +108,14 @@ all: $(LIB) $(KBATCH) $(PQLIB)
 $(PQLIB): ../rust/pq/src/lib.rs ../rust/pq/Cargo.toml
 	cd ../rust/pq && cargo build --release
 	cp ../rust/pq/target/release/$(PQLIB) $@
+
+## Base's native precompiles (from Beryl: the B-20 tokens, their factory, the policy and
+## activation registries; from Cobalt the transaction-context and nonce-manager ones) are
+## base/base's own code, linked at the release Base runs: rust/base is a C-ABI shim over it
+## whose every world operation is the engine's (src/chains/op.lisp, op-native-host).
+$(BASELIB): ../rust/base/src/lib.rs ../rust/base/Cargo.toml ../rust/base/Cargo.lock
+	cd ../rust/base && cargo build --release --locked
+	cp ../rust/base/target/release/$(BASELIB) $@
 
 # Self-contained (it carries its own keccak core) and -fvisibility=hidden, so the only
 # symbols it exports are its two batch entry points. Without that it also exported
@@ -147,7 +155,7 @@ $(SECP_A):
 	  -DSECP256K1_BUILD_TESTS=OFF -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF -DSECP256K1_BUILD_BENCHMARK=OFF >/dev/null
 	cmake --build $(SECP)/build >/dev/null
 
-## #249 Phase 2: threaded-interp validation (no Lisp/Lean/precompile libs).
+## Threaded-interpreter validation (no Lisp/Lean/precompile libs).
 test_interp: $(BUILD)/test_interp
 	$(BUILD)/test_interp
 $(BUILD)/test_interp: test_interp.c $(ASM) eita_compute.c tx_state.c $(LEAN_C)/keccak.c evm_state.h | $(BUILD)
@@ -160,10 +168,11 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
+	$(BUILD)/test_storage_host
 
 $(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -183,6 +192,15 @@ test_world_slots_model: $(BUILD)/test_world_slots
 	$(BUILD)/test_world_slots $(BUILD)/ws-vectors.txt
 $(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -o $@ test_world_slots.c world_slots.c
+
+# The native revert alone restores a slice whose accounts collide in the address -> id cache.
+test_storage_host: $(BUILD)/test_storage_host
+	$(BUILD)/test_storage_host
+$(BUILD)/test_storage_host: test_storage_host.c storage_host.c storage_host.h generated/storage_effect.c world_slots.c \
+                            world_slots_emit.c tx_state.c eita_compute.c $(ASM) | $(BUILD)
+	$(CC) $(ARCHFLAG) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DEITA_NO_LEAN_WRAPPER \
+	  -I. -I$(LEAN_C) -o $@ test_storage_host.c storage_host.c generated/storage_effect.c world_slots.c \
+	  tx_state.c eita_compute.c $(LEAN_C)/keccak.c $(ASM)
 
 $(BUILD)/test_tx_state: test_tx_state.c tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(ARCHFLAG) -O1 -o $@ test_tx_state.c tx_state.c
@@ -206,7 +224,7 @@ test_point_evaluation: $(BUILD)/test_point_evaluation
 $(BUILD)/test_point_evaluation: test_point_evaluation.c $(LEAN_C)/point_evaluation.c $(LEAN_C)/sha256.c $(BLST_A) | $(BUILD)
 	$(CC) $(ARCHFLAG) -O2 -DEITA_NO_LEAN_WRAPPER -I$(BLST)/bindings -o $@ $^
 
-# DIV/MOD/SDIV/SMOD/ADDMOD/MULMOD (one word-wise division) and SAR (#258) against
+# DIV/MOD/SDIV/SMOD/ADDMOD/MULMOD (one word-wise division) and SAR against
 # GMP, ~2.5M cases per helper, under ASan + UBSan. Needs libgmp (brew gmp / libgmp-dev).
 test_modexp: $(BUILD)/test_modexp
 	$(BUILD)/test_modexp
@@ -341,5 +359,6 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation \
-	test_host_gas host_gas_rv32 test_compute_portable rv32_engine rv32_qemu
+.PHONY: all clean test test_compute test_storage_host test_modexp test_bls12381 \
+	test_point_evaluation test_host_gas host_gas_rv32 test_compute_portable \
+	rv32_engine rv32_qemu

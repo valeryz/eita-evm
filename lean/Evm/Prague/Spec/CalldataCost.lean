@@ -21,9 +21,7 @@
   and settlement charges `max(gasUsed − refund, calldataFloor)`. Execution starts with
   `tx.gas − regular`; the floor is never taken up front.
 
-  (Until 2026-10-20 this file had 40/10 per byte and a floor of 10 per byte plus the
-  extras. Nothing executable used it — the replay's cost formula is GasEmit's — and
-  Evm.CL.GasEmitPrague now proves the two agree, so they cannot drift apart again.)
+  The replay's cost formula is GasEmit's; Evm.CL.GasEmitPrague proves the two agree.
 
   Inheritance: introduced at Prague.
 -/

@@ -1,10 +1,9 @@
 /-
   Evm.CL.ARM64.ChunkGas — the chunk's gas accounting, with a denotation.
 
-  Stage 1 of #238 (docs/x86-64-backend.md): the ~660 lines of raw mnemonic
-  strings in the emitters have no denotation, so nothing about them can be
-  proved and nothing can be derived for a second target. This module closes
-  that gap for the piece that cost the most: the JIT chunk's gas accounting.
+  Raw mnemonic strings have no denotation, so nothing about them can be proved
+  and nothing can be derived for a second target. This module gives the JIT
+  chunk's gas accounting a denotation.
 
   A chunk is a straight-line block, so its head pre-charges the WHOLE block's
   static gas in one `subs`. Two ops read gas mid-chunk (`observesGas`: GAS and
@@ -16,17 +15,16 @@
       handBack rem     movz/movk x15     + add  x22,x22,x15
       retake rem lbl   movz/movk x15     + subs x22,x22,x15 + OOG branch
 
-  Each was hand-written twice — once as text for the clang path, once as
-  `Item`s for the in-process encoder — and `retake` was written with a bare
-  `sub`, with no borrow check. That is the whole of the second JIT bug: the
-  handler charges its dynamic cost against the COMPENSATED pool, so a cost `c`
-  with `gas < c ≤ gas + rem` passes the handler's own check and leaves the
-  re-take to wrap the u64 gas register just under 2^64. The frame then ran on
-  with ~1.8e19 gas instead of halting (Arc 12 881 017 tx 24).
+  Each is one `GInstr` with two lowerings (text for the clang path, `Item`s for
+  the in-process encoder), and `retake` must check the borrow: the handler
+  charges its dynamic cost against the COMPENSATED pool, so a cost `c` with
+  `gas < c ≤ gas + rem` passes the handler's own check and leaves the re-take
+  to wrap the u64 gas register just under 2^64 if it is a bare `sub` — the
+  frame then runs on with ~1.8e19 gas instead of halting (Arc 12 881 017 tx 24).
 
-  `compensation_refines` below is the theorem that was missing: with a CHECKED
-  re-take the hand-back pair is transparent — the chunk charges exactly what
-  per-op charging would. `compensation_unchecked_is_wrong` exhibits the bug as a
+  `compensation_refines` below: with a CHECKED re-take the hand-back pair is
+  transparent — the chunk charges exactly what per-op charging would.
+  `compensation_unchecked_is_wrong` exhibits the unchecked form as a
   counterexample rather than a comment, and the unchecked form is not a `GInstr`
   at all, so no emitter can produce it.
 -/
@@ -76,32 +74,10 @@ def GInstr.denote : GInstr → GMach → GMach
 def retakeUnchecked (rem : Nat) (m : GMach) : GMach :=
   { m with gas := (m.gas + W - rem % W) % W }
 
-/-! ## Emitters — one definition per gadget, two targets
+/-! ## The emitter — one definition per gadget -/
 
-Byte-identical to the strings these replace, so `handlers.S` and every emitted
-chunk are unchanged (checked by the examples below and by
-`scripts/verify-jit-emit.sh`, which assembles the Items and diffs against clang
-on the text). -/
-
-/-- The clang/text path. -/
-def GInstr.emit : GInstr → String
-  | .charge n lbl =>
-      (if n ≤ 4095 then s!"    subs  x22, x22, #{n}\n"
-       else movImm "x14" n ++ "    subs  x22, x22, x14\n") ++
-      s!"    b.hs  {lbl}\n" ++
-      -- A b.cond cannot reach a cross-image linker stub; branch around an
-      -- unconditional b, which the linker does stub.
-      "    b     _eita_oog\n" ++
-      s!"{lbl}:\n"
-  | .handBack rem => movImm "x15" rem ++ "    add   x22, x22, x15\n"
-  | .retake rem lbl =>
-      movImm "x15" rem ++
-      "    subs  x22, x22, x15\n" ++
-      s!"    b.hs  {lbl}\n" ++
-      "    b     _eita_oog\n" ++
-      s!"{lbl}:\n"
-
-/-- The gadget as `AInstr` (stage 4s): the one body both printers derive from. -/
+/-- The gadget as `AInstr`: the one body the text and the bytes are both
+    lowered from. -/
 def GInstr.instrs : GInstr → List Evm.CL.AsmCore.AInstr
   | .charge n lbl =>
       (if n ≤ 4095 then [.subsImm .x22 .x22 n]
@@ -111,30 +87,6 @@ def GInstr.instrs : GInstr → List Evm.CL.AsmCore.AInstr
   | .retake rem lbl =>
       Evm.CL.AsmCore.movImmInstrs .x15 rem ++
       [.subsReg .x22 .x22 .x15, .bcLbl .hs lbl, .bFar "_eita_oog", .label lbl]
-
-/-- The printed instructions ARE the hand-written text, for both the small and
-    the large immediate path and for every gadget kind. -/
-example : Evm.CL.Frame.text (GInstr.charge 100 "L").instrs = (GInstr.charge 100 "L").emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.charge 5000 "L").instrs = (GInstr.charge 5000 "L").emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.handBack 1027).instrs = (GInstr.handBack 1027).emit := by native_decide
-example : Evm.CL.Frame.text (GInstr.retake 1027 "L").instrs = (GInstr.retake 1027 "L").emit := by native_decide
-
-/-- Byte-identity with the strings this replaces (the `rem != 0` hand-back pair
-    and the chunk head, as they stood in `ARM64.JIT`). -/
-example : (GInstr.handBack 1027).emit
-        = Evm.CL.ARM64.movImm "x15" 1027 ++ "    add   x22, x22, x15\n" := by native_decide
-example : (GInstr.charge 4095 "Lg_7").emit
-        = "    subs  x22, x22, #4095\n    b.hs  Lg_7\n    b     _eita_oog\nLg_7:\n" := by
-  native_decide
-example : (GInstr.retake 1027 "Lr_7_3").emit
-        = Evm.CL.ARM64.movImm "x15" 1027 ++
-          "    subs  x22, x22, x15\n    b.hs  Lr_7_3\n    b     _eita_oog\nLr_7_3:\n" := by
-  native_decide
-/-- Over 4095 the head materialises the immediate in x14 first. -/
-example : (GInstr.charge 5000 "Lg_1").emit
-        = Evm.CL.ARM64.movImm "x14" 5000 ++
-          "    subs  x22, x22, x14\n    b.hs  Lg_1\n    b     _eita_oog\nLg_1:\n" := by
-  native_decide
 
 /-! ## Per-op charging, and the refinement -/
 
@@ -208,7 +160,7 @@ theorem handBack_retake_id (rem : Nat) (m : GMach) :
     (GInstr.retake rem "L").denote ((GInstr.handBack rem).denote m) = m := by
   simp [GInstr.denote]
 
-/-- **The theorem the bug violated.** A handler that reads gas runs against the
+/-- **Compensation is transparent.** A handler that reads gas runs against the
     COMPENSATED pool and charges `c` against it; taking `rem` back afterwards
     must leave exactly what charging `c` from the uncompensated pool would.
 
@@ -232,13 +184,13 @@ theorem compensation_refines (rem c : Nat) (m : GMach) :
         simp [GInstr.denote, oog, hc, this]
       · simp [GInstr.denote, oog, hc, h1, hr]
 
-/-- **And the bug is real.** With a bare `sub` the pair is NOT transparent: the
+/-- **And the unchecked form is wrong.** With a bare `sub` the pair is NOT transparent: the
     numbers are the shape of Arc 12 881 017 tx 24 — a chunk entered with little
     gas, two SSTOREs, a 100-gas charge that the compensated pool could absorb.
     The checked form halts; the unchecked one wraps the u64 register to just
     under 2^64 and the frame runs on.
 
-    `2^63 ≤ gas` is exactly the condition `run-jit-frame` now checks at the
+    `2^63 ≤ gas` is exactly the condition `run-jit-frame` checks at the
     seam, so the runtime guard and this theorem are watching for the same
     thing. -/
 theorem compensation_unchecked_is_wrong :

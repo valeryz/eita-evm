@@ -13,7 +13,7 @@
 (in-package #:eita.chain)
 
 ;; Defined in chains/receipts.lisp.
-(declaim (special *receipts-unverifiable*))
+(declaim (special *receipts-unverifiable* *tx-receipt-extension*))
 
 (defun env (name)
   "EITA_<NAME>."
@@ -37,18 +37,60 @@
 
 ;;; --- Progress and diagnosis ----------------------------------------------------
 (defparameter *run-t0* nil)
-(defparameter *run-blocks* 0)
+(defparameter *run-blocks* 0) (defparameter *run-gas* 0) ; since the last progress line
 (defparameter *run-txs* 0)
 
-(defun progress! (n)
-  (incf *run-blocks*)
+(defun progress! (n gas)
+  (incf *run-blocks*) (incf *run-gas* gas)
   (when (zerop (mod n *progress-every*))
     (let* ((now (get-internal-real-time))
            (dt (/ (- now (or *run-t0* now)) internal-time-units-per-second)))
-      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  rpc=~D~%"
-              n *run-txs* (if (plusp dt) (/ *run-blocks* dt) 0) *rpc-calls*)
+      (format t "~&… block ~D  ~D txs so far  ~,1F blocks/s  ~,1F MGas/s  rpc=~D  gc=~,1Fs~%" n *run-txs*
+              (if (plusp dt) (/ *run-blocks* dt) 0) (if (plusp dt) (/ *run-gas* dt 1d6) 0) *rpc-calls*
+              (/ sb-ext:*gc-run-time* internal-time-units-per-second))
       (finish-output)
-      (setf *run-t0* now *run-blocks* 0))))
+      (setf *run-t0* now *run-blocks* 0 *run-gas* 0))))
+
+;;; --- Memory: the GC policy (its one owner) -------------------------------------
+;;; The heap holds the live data (<= 1.2 GB at Arc's densest blocks), a nursery and copy
+;;; room; nothing here scales with the heap. A nursery of a quarter of the heap plus SBCL's
+;;; age gate (an older generation is collected only past an average age of 0.75) left 5-9 GB
+;;; of promoted garbage in generations 1-3 at Arc 21.13M: three deaths at 12 GB. So: a fixed
+;;; nursery (EITA_NURSERY_MB, 512); older generations collected once a nursery past their
+;;; last GC, at any age; a full GC when the older generations' garbage passes the live size
+;;; (at least two nurseries), or when a GC would have no room to copy its survivors.
+(defstartup *nursery-bytes*
+  (* 1024 1024 (let ((v (env "NURSERY_MB"))) (if (and v (plusp (length v))) (parse-integer v) 512))))
+(defvar *gc-live* 0 "Bytes in use after the newest full GC (a lower bound once another one ran).")
+
+(defun gc-policy! ()
+  (setf (sb-ext:bytes-consed-between-gcs) *nursery-bytes*)
+  (loop for g from 1 below sb-vm:+pseudo-static-generation+
+        do (setf (sb-ext:generation-minimum-age-before-gc g) 0d0
+                 (sb-ext:generation-bytes-consed-between-gcs g) *nursery-bytes*))
+  (setf *gc-live* (sb-kernel:dynamic-usage))
+  (format t "~&[gc] nursery ~D MB, older generations collected over their trigger, full GC on their garbage or for copy room; heap ~D MB~%"
+          (floor *nursery-bytes* 1048576) (floor (sb-ext:dynamic-space-size) 1048576)))
+
+(defun gc-guard! ()
+  "Between blocks: the full-GC backstop. It fires when the older generations hold more
+   garbage than the live data (at least two nurseries) since the last full GC, or when a
+   GC could no longer copy what survives (the use past the heap less live and half a nursery).
+   Absolute thresholds (3x live, half the heap) sat at the use a dense range's live set
+   reaches by itself (Arc 21.16M with read sets, ~1.3 GB live: 62 / 33 / 32 forced full GCs
+   a window at 4 / 8 / 16 GB, against 21 / 18 / 18 with this rule; the late window at
+   0.5 GB: 51 against 14)."
+  (let* ((use (sb-kernel:dynamic-usage))
+         (old (loop for g from 1 below sb-vm:+pseudo-static-generation+ sum (sb-ext:generation-bytes-allocated g)))
+         (live (setf *gc-live* (min *gc-live* use))))
+    (when (or (> (- old live) (max live (* 2 *nursery-bytes*)))
+              (> use (- (sb-ext:dynamic-space-size) live (floor *nursery-bytes* 2))))
+      (let ((t0 (get-internal-real-time)))
+        (sb-ext:gc :full t)
+        (setf *gc-live* (sb-kernel:dynamic-usage))
+        (format t "~&[gc] full GC at ~D MB in use (~D MB in older generations): ~D MB live (~,1F s)~%"
+                (floor use 1048576) (floor old 1048576) (floor *gc-live* 1048576)
+                (/ (- (get-internal-real-time) t0) internal-time-units-per-second))))))
 
 (defun receipt-table (txs receipts our-gas)
   "Per-tx receipt-vs-ours table (diagnosis of a header mismatch)."
@@ -67,7 +109,10 @@
    Bedrock, Arc), else mixHash."
   (if (and (< fork-ord 14) (plusp (blk-difficulty blk))) (blk-difficulty blk) (blk-mix-hash blk)))
 
-(defun run-block (world n)
+(defun run-block (world n &key (layer-point t))
+  "Run block N on WORLD. LAYER-POINT NIL: no layer point at its end (no freeze, no root-check
+   poll) — a caller that freezes only a block it judged (the Engine API: after the header
+   verdict) does both itself."
   (let* ((blk (fetch-verified-block n))
          (ts (blk-timestamp blk))
          (coinbase (blk-miner blk))
@@ -120,6 +165,7 @@
           (total-gas 0) (match 0) (delta 0) (our-gas '()) (rlist receipts))
       (when *verbose*
         (format t "~&── block ~D  (~D txs, header gas ~D) ─────────────~%" n (length txs) header-gas))
+      (setf *cur-tx* +preblock-tx+)         ; the read stream's tx index of system work
       (run-pre-block! world n blk coinbase block-ctx)
       (loop for tx in txs for idx from 0
             for receipt = (pop rlist)
@@ -128,7 +174,7 @@
                       (*trace-step* (and traced *trace-step*)))
                  (when traced (format t "~&=== TRACE tx=~D ===~%" idx))
                  (incf (getf *stats* :txs)) (incf *run-txs*)
-                 (setf *cur-tx* idx)
+                 (setf *cur-tx* idx *tx-receipt-extension* nil)
                  (multiple-value-bind (eita-gas status egp)
                      (if *chain-run-tx-hook*
                          (funcall *chain-run-tx-hook* world tx receipt block-ctx coinbase n idx)
@@ -140,7 +186,7 @@
                        (gate n idx "status" (getf receipt :status) status)))
                    (if (eq status :skip)
                        (setf *receipts-unverifiable* :skipped)
-                       (receipts-push! (tx-type tx) status eita-gas *last-tx-logs*))
+                       (receipts-push! (tx-type tx) status eita-gas *last-tx-logs* *tx-receipt-extension*))
                    (incf total-gas eita-gas)
                    (push eita-gas our-gas)
                    ;; observers: OUR gas-used / status (:skip = unverified) and OUR effective
@@ -169,6 +215,7 @@
       ;; Post-block state changes (rewards, withdrawals, request system calls — the last
       ;; yield the requestsHash the header commits to), then header verification, handed
       ;; to the verifier thread (`verify-block!`) while the replay runs on.
+      (setf *cur-tx* +postblock-tx+)
       (run-post-block! world n blk total-gas coinbase block-ctx)
       (verify-block! n blk total-gas txs our-gas receipts)
       (when *mpt-armed* (mpt-post-block-hook n world))
@@ -177,13 +224,14 @@
       (setf (gethash n *block-hashes*) (blk-hash blk))
       ;; Layer points: freeze the hot set (no pause; written in the background). An anchor's
       ;; root check is queued; at the tip every block is a layer (a reorg drops layers).
-      (when *full-state*
+      (when (and *full-state* layer-point)
         (let ((anchor (anchor-due-p n)))
           (when (or anchor *tip-freeze* (layer-due-p n) (hot-over-budget-p n))
             (anchor! world n (blk-state-root blk) :anchor anchor)))
         ;; finished background work into the stack; collect / start root checks
         (root-check-poll! n))
-      (progress! n))))
+      (gc-guard!)
+      (progress! n header-gas))))
 
 ;;; --- Header verification, on the verifier thread ------------------------------------
 (defun verify-block! (n blk total-gas txs our-gas receipts)
@@ -222,13 +270,13 @@
   "Forget everything above the newest layer boundary T <= FORK: layers, the running root
    check and a pending compacted base (`rollback-to!`), queued root checks, observers'
    records (the stream's :rollback), block hashes and the source's blocks. Returns T+1."
-  (let ((top (rollback-to! world fork)))
+  (let ((top (rollback-to! world fork))) ; @veil rollback-chain!/rollback
     ;; an anchor above TOP belongs to the abandoned branch
     (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*))
     (stream-rollback! top)
     (loop for b being the hash-keys of *block-hashes* when (> b top) do (remhash b *block-hashes*))
     (source-call #'block-source-forget-above top)
-    (1+ top)))
+    (1+ top))) ; @veil rollback-chain!/resume
 
 ;;; --- Starting state ----------------------------------------------------------------
 (defun composition-sealed-p (comps)
@@ -296,14 +344,7 @@
     (sb-ext:exit :code 1))
   (load-observer!)                     ; EITA_OBSERVER: an observer to install (the observation seam)
   (read-run-policy!)
-  ;; Nursery: SBCL's default is 5 % of the heap; per-tx garbage is dead by the next tx, so a
-  ;; larger nursery means fewer collections at the same cost each. A quarter of the heap,
-  ;; between 1 GB and 8 GB. x300, 30k mainnet blocks, 16 GB heap (2026-11-06): 1.6 GB
-  ;; (a tenth) 1,614.6 Mgas/s, GC 25.0 s, RSS 8.7 GB; 4 GB 1,628.4 (+0.9 %), GC 18.3 s,
-  ;; RSS 11.9 GB; 8 GB 1,641.6 (+1.7 %), GC 12.7 s, RSS 15.4 GB -- too close to a 16 GB
-  ;; heap to be a default there, so 8 GB comes with heaps of 32 GB and more.
-  (setf (sb-ext:bytes-consed-between-gcs)
-        (max (* 1024 1024 1024) (min (* 8 1024 1024 1024) (floor (sb-ext:dynamic-space-size) 4))))
+  (gc-policy!)
   (let* ((start (parse-block-arg (first args)))
          (end (cond ((null (second args)) start)
                     ((string-equal (second args) "tip") :tip)
@@ -366,18 +407,15 @@
               *rpc-calls* *offline-misses*))))
 
 ;;; The trie (state/mpt.lisp, Lean-mirrored) backs the receipts-root gate (receipts.lisp) and,
-;;; with EITA_MPT_CHECK, the incremental state-root validator (state/mpt-live.lisp, #237): one
+;;; with EITA_MPT_CHECK, the incremental state-root validator (state/mpt-live.lisp): one
 ;;; persistent account trie on a worker thread fed per-block dirty sets. The worker is a
 ;;; live aux thread, so a run that also forks would hit SBCL's "cannot fork with multiple
 ;;; threads running" — the driver does not fork.
 ;;; The incremental validator (state/mpt-live.lisp, system eita/mpt-live) is kept but cannot
-;;; be armed: its anchors were text dumps — written by the deleted dump-state-root, resumed by
-;;; the deleted load-state-dump, re-seeded from a world that held every account — and a
-;;; snapshot-backed world evicts cold accounts, so the worker can neither be seeded from
-;;; it nor resumed into. Step F (the project's complexity ledger) gives mpt-live the
-;;; snapshot: seed the worker from snap-N/, take the anchor verdict (n expected computed
-;;; ok content-hash) from it in place of `eita check-root`. Until then this is the stub:
-;;; EITA_MPT_CHECK is refused, not silently ignored.
+;;; be armed: a snapshot-backed world evicts cold accounts, so the worker can be neither
+;;; seeded from it nor resumed into. Arming it needs the worker seeded from snap-N/ and the
+;;; anchor verdict (n expected computed ok content-hash) taken from it in place of
+;;; `eita check-root`. Until then EITA_MPT_CHECK is refused, not silently ignored.
 (at-startup refuse-mpt-check
   (when (sb-ext:posix-getenv "EITA_MPT_CHECK")
     (error "EITA_MPT_CHECK: the incremental validator cannot be armed until it reads snapshots (step F); run with snapshot root checks instead")))

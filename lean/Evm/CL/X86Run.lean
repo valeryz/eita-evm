@@ -2,27 +2,27 @@
   Evm.CL.X86Run — the x86-64 frame: `eita_run_chunk`'s prologue and the
   `sync_and_ret` epilogue, derived from the role map.
 
-  Stage 4 of #238. ARM64's `JIT.runChunkItems` caches the EvmState into the
+  ARM64's `JIT.runChunkItems` caches the EvmState into the
   register file on entry and `_eita_sync_and_ret` writes it back on exit
   (`Evm/CL/ARM64.lean`). The x86-64 frame does the same job through
   `Target.x86_64`'s roles:
 
       state   x20 → rbx      pc        x21 → rbp      gas   x22 → r15
       sp      x23 → r13      stackBase x24 → r12      x26's slot → r14
-      TOS     x6-x9 → r8-r11            NOS x10-x13 → (dropped, stage 0)
+      TOS     x6-x9 → r8-r11            NOS x10-x13 → (dropped, `Target`)
 
-  Two differences from the ARM64 frame, both decided earlier and now visible as
-  instructions rather than prose:
+  Two differences from the ARM64 frame, decided in `Target`/`Lowering` and
+  visible here as instructions:
 
    * **sp is a BYTE offset on x86-64.** The state stores depth in words; the
      prologue loads it and shifts left by 5, the epilogue shifts right by 5
      before storing. Every stack access is then `[r12 + r13 - k]` at scale 1,
-     which is what the SIB rule (stage 2f) demands — `sp_is_a_byte_offset`
+     which is what the SIB rule demands — `sp_is_a_byte_offset`
      checks both conversions are present.
    * **No NOS block.** The prologue loads one cached word, the epilogue stores
      one. The memory read is the specification; the register cache is the
-     refinement; one fewer cache is one fewer thing to keep coherent (#272 was
-     exactly a NOS under-read).
+     refinement; one fewer cache is one fewer thing to keep coherent (a NOS
+     under-read is exactly such a coherence bug).
 
   The dispatch pointer ARM64 keeps in x25 is reached RIP-relatively on x86-64
   (`jmp [table + rax*8]`), so there is no register for it here.
@@ -48,7 +48,7 @@ def x26SlotOff : Int := 64
 
 /-- Where the frame saves its post-prologue `rsp`. ARM64 keeps this in x28 so
     the fault stubs can unwind from any depth; x86-64 has no callee-saved
-    register left (stage 0's budget is exact), so it lives in the state — one
+    register left (`Target`'s budget is exact), so it lives in the state — one
     store per run, one load per fault. The value 72 is a slot the test harness
     provides; tying it to the C `EvmState` layout is part of the arena packaging. -/
 def frameSpOff : Int := 72

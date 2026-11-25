@@ -34,9 +34,8 @@ open Evm.Frontier.Spec (IsUnaryStep)
     `bit_length` Python's `int.bit_length` — the least `k` with `x < 2^k`, i.e.
     Mathlib's `Nat.size`. EELS `forks/osaka/vm/instructions/bitwise.py::
     count_leading_zeros` 268-269 (`bit_length = U256(x.bit_length())`;
-    `result = U256(256) - bit_length`). Restated 2026-11-09: this used to be the
-    implementation's own shift loop (`Evm.Osaka.Vm.Effect.clzU256`), so the
-    refinement was circular. -/
+    `result = U256(256) - bit_length`). Independent of the implementation's shift
+    loop (`Evm.Osaka.Vm.Effect.clzU256`), so the refinement is not circular. -/
 def clzU256 (x : Evm.U256) : Evm.U256 := Evm.U256.ofNat (256 - Nat.size x.toNat)
 
 /-- 0x1E CLZ. EELS `count_leading_zeros`; gas tier LOW. -/

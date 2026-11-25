@@ -1,8 +1,8 @@
 /-
-  Evm.CL.ARM64.JIT — per-chunk native emit (Phase 6, tier 2).
+  Evm.CL.ARM64.JIT — per-chunk native emit (tier 2).
 
   Consumes `IR.Chunk` (the verified compiler's output) and emits one
-  straight-line native function per chunk. Stage 6a is subroutine-
+  straight-line native function per chunk. The base form is subroutine-
   threaded: every op site branches to the SAME audited handler the
   interp tier uses, with the continuation register pointing at the
   next inline site instead of the `next` dispatch loop. What the JIT
@@ -11,7 +11,7 @@
   handler bodies (and therefore the fixture audit that covers them)
   are shared verbatim.
 
-  Stage 6b adds the chunk-head gas pre-charge (the spec-side contract
+  **Chunk-head gas pre-charge** (the spec-side contract
   `IR.execute` already states: charge the chunk's static gas up
   front). The head subtracts Σ `Interp.chargedCost` over the chunk's
   ops once, and op sites branch to the `_f` (flat, cost-0) handler
@@ -19,7 +19,7 @@
   (memory expansion, per-word/per-byte, callback-returned) still
   charges inside the shared bodies. Mid-chunk OOG thereby moves to
   the chunk head: an OOG frame halts with gas=0/reverted=1 as
-  before, but its pc/stack at death differ from the interp tier —
+  in the interp tier, but its pc/stack at death differ —
   per-opcode accounting is explicitly out of scope (the audit
   compares exceptional halts on the flattened observables only).
 
@@ -45,14 +45,14 @@
   have no opcode byte: the former syncs with pc = next chunk entry,
   the latter is the implicit STOP.
 
-  Stage 6c folds constant-stack regions at emit time (see the
+  **Constant folding** of constant-stack regions at emit time (see the
   "Constant folding" section): PUSH/PC-fed pure ops never emit a
   site; their results materialize as inline constant pushes at the
   first dynamic use. The folding evaluator IS `IR.execOp` run on a
   synthetic frame, so the fold inherits the verified semantics
   rather than re-deriving them.
 
-  Stage 6d (issue #11 stage 2) generalizes 6c from constant to
+  **Symbolic regions** generalize constant folding from constant to
   symbolic regions: any run of stack-pure ops — known values or not
   — executes at emit time over `SymExpr.SymStack` (whose `symStep`
   is proved sound against `IR.execOp` in Evm/IR/SymExpr.lean).
@@ -61,17 +61,17 @@
   expression DAG evaluated into an SP scratch frame — shared
   subtrees (DUP) compute once. Cheap ops inline the audited handler
   cores verbatim (same carry chains, same condition codes); hard
-  ops `bl` the same C helpers the handlers call. The 6c constant
+  ops `bl` the same C helpers the handlers call. The constant
   folder still runs first, on the region's constant prefix, because
   it alone can evaluate EXP and fold its dynamic gas into the head
   pre-charge. Underflow is discharged with one region-entry depth
   check (`symStep`'s consumed count is monotone, and DUP peeks are
   folded into the same bound); overflow with one peak-net check, as
-  in 6c. Both fault to the shared stubs, landing in the same
+  for constant regions. Both fault to the shared stubs, landing in the same
   flattened exceptional-halt observables the audit compares.
 
-  Stage 6e (issue #11 stage 3) promotes constant-offset memory
-  writes into the region: an MSTORE/MSTORE8 whose offset is a
+  **Buffered memory writes**: constant-offset memory writes join
+  the region: an MSTORE/MSTORE8 whose offset is a
   compile-time constant buffers (offset, value-DAG) instead of
   flushing. The region commits the writes at its flush: one merged
   memory-expansion charge (per-op deltas telescope to
@@ -84,9 +84,6 @@
   alias analysis). This keeps the dominant Solidity mapping-slot
   idiom (MSTORE key→0x00, MSTORE slot→0x20, KECCAK256(0,64))
   inside one region.
-
-  Later stages: hotness-gated runtime integration in the SBCL
-  replay (6f).
 -/
 
 import Evm.CL.ARM64
@@ -173,7 +170,7 @@ def termName : Terminator → Option String
 
 def chunkSym (startPc : Nat) : String := s!"_eita_chunk_{startPc}"
 
-/-! ## Constant folding (Stage 6c)
+/-! ## Constant folding
 
     A chunk region whose values all come from PUSH literals (or PC, or
     ops over those) is evaluated at emit time and materialized as
@@ -232,12 +229,12 @@ def foldDynCost (f : Evm.Fork) (ks : List Evm.U256) : Op → Nat
 def limb (v : Evm.U256) (i : Nat) : Nat :=
   (v.toNat >>> (64 * i)) % (2 ^ 64)
 
-/-! ## Symbolic regions (Stage 6d, issue #11 stage 2)
+/-! ## Symbolic regions
 
     A region is a maximal run of stack-pure ops. It executes at emit
     time over the verified symbolic stack: `SymExpr.symStep` (proved
     sound against `IR.execOp` by `symStep_sound`) when values are
-    unknown, the 6c `foldStep` on the region's constant prefix when
+    unknown, the constant `foldStep` on the region's constant prefix when
     they are known (that path alone evaluates EXP and folds its
     dynamic gas into the head pre-charge). The region emits no code
     per op; everything materializes once at the flush.
@@ -256,7 +253,7 @@ def limb (v : Evm.U256) (i : Nat) : Nat :=
          canonical stack, which is intact until step 3; cheap ops
          inline the audited handler cores; hard ops `bl` the same
          C helpers the handlers call (slots live in memory, so the
-         AAPCS caller-saved clobber is harmless); then (6e) buffered
+         AAPCS caller-saved clobber is harmless); then buffered
          constant-offset memory writes commit: one merged expansion
          charge to the writes' max end, one mp update, the words in
          program order;
@@ -275,7 +272,7 @@ def constPrefix : List Expr → List Evm.U256
   | .const v :: tl => v :: constPrefix tl
   | _ => []
 
-/-- A buffered constant-offset memory write (stage 6e): `off` is the
+/-- A buffered constant-offset memory write: `off` is the
     compile-time byte offset, `val` the value DAG. `isByte` marks
     MSTORE8 (one byte: the value's low byte) vs MSTORE (32 BE bytes). -/
 structure MemWrite where
@@ -285,12 +282,12 @@ structure MemWrite where
 
 /-- One op against the open region. -/
 inductive RegStep where
-  /-- 6c constant fold over the const prefix; `dyn` = folded dynamic
+  /-- Constant fold over the const prefix; `dyn` = folded dynamic
       gas (EXP only), to be added to the chunk-head pre-charge. -/
   | fold (ss' : SymStack) (dyn : Nat)
   /-- Verified symbolic step. -/
   | sym (ss' : SymStack)
-  /-- Constant-offset memory write absorbed into the region (6e). -/
+  /-- Constant-offset memory write absorbed into the region. -/
   | store (ss' : SymStack) (w : MemWrite)
   /-- Not stack-pure (or `swap 0`): flush and emit a handler site. -/
   | flush
@@ -336,7 +333,7 @@ structure Region where
   /-- Peak of (prefix length − consumed) after any op: the region's
       maximal net growth over the entry depth. -/
   maxNet : Int := 0
-  /-- Buffered constant-offset memory writes, in program order (6e). -/
+  /-- Buffered constant-offset memory writes, in program order. -/
   writes : List MemWrite := []
 
 def Region.step (r : Region) (op : Op) (ss' : SymStack) : Region :=
@@ -349,89 +346,6 @@ def Region.step (r : Region) (op : Op) (ss' : SymStack) : Region :=
     ss     := ss'
     need   := max r.need (max ss'.consumed dupNeed)
     maxNet := max r.maxNet ((ss'.exprs.length : Int) - ss'.consumed) }
-
-/-- `xreg ← sp + 32*slot`. -/
-private def spAddr (xreg : String) (slot : Nat) : String :=
-  let off := 32 * slot
-  if off ≤ 4095 then s!"    add   {xreg}, sp, #{off}\n"
-  else movImm xreg off ++ s!"    add   {xreg}, sp, {xreg}\n"
-
-/-- Load scratch slot into the quad at x{lo}..x{lo+3} (lo ∈ {6, 10}). -/
-private def loadSlot (lo : Nat) (slot : Nat) : String :=
-  spAddr "x14" slot ++
-  s!"    ldp   x{lo}, x{lo+1}, [x14]\n" ++
-  s!"    ldp   x{lo+2}, x{lo+3}, [x14, #16]\n"
-
-/-- Store x6-x9 into a scratch slot. -/
-private def storeSlot (slot : Nat) : String :=
-  spAddr "x14" slot ++
-  "    stp   x6, x7, [x14]\n" ++
-  "    stp   x8, x9, [x14, #16]\n"
-
-private def zeroHi : String :=
-  "    mov   x7, #0\n" ++
-  "    mov   x8, #0\n" ++
-  "    mov   x9, #0\n"
-
-/-! Inline cores: a = x6-x9, b = x10-x13, result → x6-x9. Verbatim
-    copies of the audited handler cores — same carry chains, and only
-    the borrow (`lo`) / signed (`lt`) condition codes that survive a
-    chained `sbcs` (Z reflects just the last limb; EQ has its own
-    XOR/ORR core, exactly like `eqHandler`). -/
-
-private def addCore : String :=
-  "    adds  x6, x6, x10\n" ++
-  "    adcs  x7, x7, x11\n" ++
-  "    adcs  x8, x8, x12\n" ++
-  "    adc   x9, x9, x13\n"
-
-private def subCore : String :=
-  "    subs  x6, x6, x10\n" ++
-  "    sbcs  x7, x7, x11\n" ++
-  "    sbcs  x8, x8, x12\n" ++
-  "    sbc   x9, x9, x13\n"
-
-private def bitCore (op : String) : String :=
-  s!"    {op}   x6, x6, x10\n" ++
-  s!"    {op}   x7, x7, x11\n" ++
-  s!"    {op}   x8, x8, x12\n" ++
-  s!"    {op}   x9, x9, x13\n"
-
-private def notCore : String :=
-  "    mvn   x6, x6\n" ++
-  "    mvn   x7, x7\n" ++
-  "    mvn   x8, x8\n" ++
-  "    mvn   x9, x9\n"
-
-private def isZeroCore : String :=
-  "    orr   x14, x6, x7\n" ++
-  "    orr   x15, x8, x9\n" ++
-  "    orr   x14, x14, x15\n" ++
-  "    cmp   x14, #0\n" ++
-  "    cset  x6, eq\n" ++ zeroHi
-
-private def eqCore : String :=
-  "    eor   x14, x6, x10\n" ++
-  "    eor   x15, x7, x11\n" ++
-  "    orr   x14, x14, x15\n" ++
-  "    eor   x15, x8, x12\n" ++
-  "    orr   x14, x14, x15\n" ++
-  "    eor   x15, x9, x13\n" ++
-  "    orr   x14, x14, x15\n" ++
-  "    cmp   x14, #0\n" ++
-  "    cset  x6, eq\n" ++ zeroHi
-
-/-- Compare core: `swapped` compares (b ? a) instead of (a ? b), so
-    GT/SGT use the reliable `lo`/`lt` conditions (see cmpHandler). -/
-private def cmpCore (swapped : Bool) (cond : String) : String :=
-  let a := ["x6", "x7", "x8", "x9"]
-  let b := ["x10", "x11", "x12", "x13"]
-  let (l, r) := if swapped then (b, a) else (a, b)
-  s!"    subs  xzr, {l[0]!}, {r[0]!}\n" ++
-  s!"    sbcs  xzr, {l[1]!}, {r[1]!}\n" ++
-  s!"    sbcs  xzr, {l[2]!}, {r[2]!}\n" ++
-  s!"    sbcs  xzr, {l[3]!}, {r[3]!}\n" ++
-  s!"    cset  x6, {cond}\n" ++ zeroHi
 
 def exprKids : Expr → List Expr
   | .const _ | .stackAt _ => []
@@ -511,224 +425,11 @@ private unsafe def dagSlotsImpl (roots : List Expr) :
 /-- Reference semantics (never executed): the structural-dedup path.
     `implemented_by` swaps in the linear pointer-memoized version;
     both assign every root and child a slot computed before use, which
-    is the only property `emitRegionFlush` needs. -/
+    is the only property `emitRegionFlushT` needs. -/
 @[implemented_by dagSlotsImpl]
 def dagSlots (roots : List Expr) : Array Expr × (Expr → Nat) :=
   let slots := roots.foldl collectSlots []
   (slots.toArray, fun e => (slots.findIdx? (· == e)).getD 0)
-
-/-- Emit code computing one DAG node into its scratch slot. -/
-private def evalNode (idx : Expr → Nat) (e : Expr) : String :=
-  let me := idx e
-  let bin (core : String) (a b : Expr) : String :=
-    loadSlot 6 (idx a) ++ loadSlot 10 (idx b) ++ core ++ storeSlot me
-  let un (core : String) (a : Expr) : String :=
-    loadSlot 6 (idx a) ++ core ++ storeSlot me
-  let call2 (h : String) (a b : Expr) : String :=
-    spAddr "x0" me ++ spAddr "x1" (idx a) ++ spAddr "x2" (idx b) ++
-    s!"    bl    {h}\n"
-  let call3 (h : String) (a b c : Expr) : String :=
-    spAddr "x0" me ++ spAddr "x1" (idx a) ++ spAddr "x2" (idx b) ++
-    spAddr "x3" (idx c) ++ s!"    bl    {h}\n"
-  match e with
-  | .const v =>
-      movImm "x6" (limb v 0) ++ movImm "x7" (limb v 1) ++
-      movImm "x8" (limb v 2) ++ movImm "x9" (limb v 3) ++
-      storeSlot me
-  | .stackAt k =>
-      -- Entry slot k (0 = entry TOS): canonical at x24 + (x23-1-k)*32;
-      -- the entry stack is intact until the exit-store phase.
-      s!"    sub   x14, x23, #{k + 1}\n" ++
-      "    add   x14, x24, x14, lsl #5\n" ++
-      "    ldp   x6, x7, [x14]\n" ++
-      "    ldp   x8, x9, [x14, #16]\n" ++
-      storeSlot me
-  | .add a b        => bin addCore a b
-  | .sub a b        => bin subCore a b
-  | .and_ a b       => bin (bitCore "and") a b
-  | .or_ a b        => bin (bitCore "orr") a b
-  | .xor_ a b       => bin (bitCore "eor") a b
-  | .lt a b         => bin (cmpCore false "lo") a b
-  | .gt a b         => bin (cmpCore true  "lo") a b
-  | .slt a b        => bin (cmpCore false "lt") a b
-  | .sgt a b        => bin (cmpCore true  "lt") a b
-  | .eq_ a b        => bin eqCore a b
-  | .isZero a       => un isZeroCore a
-  | .not_ a         => un notCore a
-  | .mul a b        => call2 "_eita_helper_mul" a b
-  | .div a b        => call2 "_eita_helper_div" a b
-  | .sdiv a b       => call2 "_eita_helper_sdiv" a b
-  | .mod_ a b       => call2 "_eita_helper_mod" a b
-  | .smod_ a b      => call2 "_eita_helper_smod" a b
-  | .signExtend a b => call2 "_eita_helper_signextend" a b
-  | .byte_ a b      => call2 "_eita_helper_byte" a b
-  | .shl_ a b       => call2 "_eita_helper_shl" a b
-  | .shr_ a b       => call2 "_eita_helper_shr" a b
-  | .sar_ a b       => call2 "_eita_helper_sar" a b
-  | .addmod a b n   => call3 "_eita_helper_addmod" a b n
-  | .mulmod a b n   => call3 "_eita_helper_mulmod" a b n
-
-/-- Merged memory-expansion charge for the region's buffered writes:
-    the inline `memExpandInto` logic with the cross-image `b.cond`
-    faults rewritten as branch-arounds (this code lives in the chunk
-    image; the stubs do not). One charge to `maxEnd` equals the
-    interp's per-op deltas: expansion cost is a function of the word
-    count alone and the size is monotone, so the deltas telescope —
-    and the charge stays relative to the RUNTIME entry memory size.
-    Clobbers x0, x14-x16, flags. -/
-private def memExpandFlush (maxEnd : Nat) : String :=
-  movImm "x0" maxEnd ++
-  "    ldr   x14, [x20, #56]\n" ++          -- memory_cap
-  "    cmp   x0, x14\n" ++
-  "    b.ls  5f\n" ++
-  "    b     _eita_oog\n" ++
-  "5:\n" ++
-  "    add   x14, x0, #31\n" ++
-  "    lsr   x14, x14, #5\n" ++             -- new_words
-  "    ldr   x15, [x20, #48]\n" ++          -- memory_size (aligned)
-  "    lsr   x15, x15, #5\n" ++             -- old_words
-  "    cmp   x14, x15\n" ++
-  "    b.ls  7f\n" ++
-  "    mul   x16, x14, x14\n" ++
-  "    add   x16, x14, x16, lsr #9\n" ++
-  "    add   x16, x16, x14, lsl #1\n" ++    -- new_cost = 3w + w²/512
-  "    mul   x14, x15, x15\n" ++
-  "    add   x14, x15, x14, lsr #9\n" ++
-  "    add   x14, x14, x15, lsl #1\n" ++    -- old_cost
-  "    sub   x16, x16, x14\n" ++            -- delta
-  "    subs  x22, x22, x16\n" ++
-  "    b.hs  6f\n" ++
-  "    b     _eita_oog\n" ++
-  "6:\n" ++
-  "    add   x14, x0, #31\n" ++
-  "    lsr   x14, x14, #5\n" ++
-  "    lsl   x14, x14, #5\n" ++
-  "    str   x14, [x20, #48]\n" ++          -- memory_size = align(maxEnd)
-  "7:\n"
-
-/-- mp = max(mp, maxEnd) — the same raw-byte high-water the handlers
-    keep per op; the max of the per-op maxes is the max of the ends. -/
-private def mpUpdateFlush (maxEnd : Nat) : String :=
-  movImm "x15" maxEnd ++
-  "    ldr   x16, [x20, #24]\n" ++
-  "    cmp   x15, x16\n" ++
-  "    csel  x16, x15, x16, hi\n" ++
-  "    str   x16, [x20, #24]\n"
-
-/-- x14 ← memory base + constant offset. -/
-private def memBaseAt (off : Nat) : String :=
-  "    ldr   x14, [x20, #40]\n" ++
-  (if off == 0 then ""
-   else if off ≤ 4095 then s!"    add   x14, x14, #{off}\n"
-   else movImm "x15" off ++ "    add   x14, x14, x15\n")
-
-/-- Commit one buffered write from its value slot (the same BE byte
-    order mstoreHandler writes; mstore8Handler's low-byte strb). -/
-private def emitMemWrite (idx : Expr → Nat) (w : MemWrite) : String :=
-  loadSlot 6 (idx w.val) ++
-  memBaseAt w.off ++
-  (if w.isByte then
-    "    strb  w6, [x14]\n"
-  else
-    "    rev   x0, x9\n" ++
-    "    rev   x1, x8\n" ++
-    "    rev   x2, x7\n" ++
-    "    rev   x3, x6\n" ++
-    "    str   x0, [x14]\n" ++
-    "    str   x1, [x14, #8]\n" ++
-    "    str   x2, [x14, #16]\n" ++
-    "    str   x3, [x14, #24]\n")
-
-/-- Materialize a region at its end (numeric local labels keep this
-    position-independent; see the module doc for the phase layout). -/
-def emitRegionFlush (r : Region) : String := Id.run do
-  let p := r.ss.exprs.length
-  let c := r.ss.consumed
-  let net : Int := (p : Int) - c
-  let idle := p == 0 && c == 0 && r.writes.isEmpty
-  if idle && r.need == 0 && r.maxNet ≤ 0 then return ""
-  let mut s := ""
-  -- 1. Depth checks. b.cond can't reach a cross-image stub, so branch
-  --    around an unconditional b, as the chunk head does.
-  if r.need > 1024 then
-    -- The interp would fault on every possible entry depth.
-    return "    b     _eita_stack_underflow\n"
-  if r.need > 0 then
-    s := s ++ s!"    cmp   x23, #{r.need}\n" ++
-         "    b.hs  8f\n" ++
-         "    b     _eita_stack_underflow\n" ++
-         "8:\n"
-  if r.maxNet > 0 then
-    let lim := 1025 - r.maxNet
-    if lim ≤ 0 then
-      return s ++ "    b     _eita_stack_overflow\n"
-    s := s ++ s!"    cmp   x23, #{lim}\n" ++
-         "    b.lo  9f\n" ++
-         "    b     _eita_stack_overflow\n" ++
-         "9:\n"
-  if idle then return s
-  -- 2. Scratch frame + DAG evaluation (write values are roots too).
-  let (slots, idx) := dagSlots (r.ss.exprs ++ r.writes.map (·.val))
-  let n := slots.size
-  if n > 0 then
-    s := s ++ "    stp   x29, x30, [sp, #-16]!\n"
-    s := s ++ (if 32 * n ≤ 4095 then s!"    sub   sp, sp, #{32 * n}\n"
-               else movImm "x15" (32 * n) ++ "    sub   sp, sp, x15\n")
-    for e in slots do
-      s := s ++ evalNode idx e
-    -- 2.5 Memory commit (6e): merged expansion charge (may OOG —
-    --     the fault stub restores sp from x28, so the open frame is
-    --     fine), mp high-water, then the words in program order.
-    if !r.writes.isEmpty then
-      let maxEnd := r.writes.foldl
-        (fun m w => max m (w.off + if w.isByte then 1 else 32)) 0
-      s := s ++ memExpandFlush maxEnd ++ mpUpdateFlush maxEnd
-      for w in r.writes do
-        s := s ++ emitMemWrite idx w
-    -- 3. Exit-prefix stores (x23 still = entry depth; all entry-stack
-    --    reads happened in phase 2).
-    let mut m : Nat := 0
-    for e in r.ss.exprs do
-      s := s ++ loadSlot 6 (idx e)
-      let d : Int := net - 1 - m
-      s := s ++ (if d ≥ 0 then s!"    add   x14, x23, #{d}\n"
-                 else s!"    sub   x14, x23, #{-d}\n")
-      s := s ++ "    add   x14, x24, x14, lsl #5\n" ++
-           "    stp   x6, x7, [x14]\n" ++
-           "    stp   x8, x9, [x14, #16]\n"
-      m := m + 1
-    s := s ++ (if 32 * n ≤ 4095 then s!"    add   sp, sp, #{32 * n}\n"
-               else movImm "x15" (32 * n) ++ "    add   sp, sp, x15\n")
-    s := s ++ "    ldp   x29, x30, [sp], #16\n"
-  -- 4. Depth update + TOS/NOS cache reload (run_chunk-prologue shape).
-  if net > 0 then s := s ++ s!"    add   x23, x23, #{net}\n"
-  else if net < 0 then s := s ++ s!"    sub   x23, x23, #{-net}\n"
-  s := s ++ "    cmp   x23, #1\n" ++
-       "    b.lt  8f\n" ++
-       "    sub   x14, x23, #1\n" ++
-       "    add   x14, x24, x14, lsl #5\n" ++
-       "    ldp   x6, x7, [x14]\n" ++
-       "    ldp   x8, x9, [x14, #16]\n" ++
-       "8:\n" ++
-       "    cmp   x23, #2\n" ++
-       "    b.lt  9f\n" ++
-       "    sub   x14, x23, #2\n" ++
-       "    add   x14, x24, x14, lsl #5\n" ++
-       "    ldp   x10, x11, [x14]\n" ++
-       "    ldp   x12, x13, [x14, #16]\n" ++
-       "9:\n"
-  return s
-
-/-- Set x27 (continuation) = sync_and_ret. GOT-indirect because the
-    symbol lives in the handlers dylib, not this image — adrp@PAGE
-    can't reach across images. -/
-private def syncContSpec : String :=
-  "    adrp  x27, _eita_sync_and_ret@GOTPAGE\n" ++
-  "    ldr   x27, [x27, _eita_sync_and_ret@GOTPAGEOFF]\n"
-
-private def syncCont : String := Frame.text Frame.syncCont
-
-theorem syncCont_derived : syncCont = syncContSpec := by native_decide
 
 /-- Instructions whose HANDLER reads the *instantaneous* `gas_left`, so the chunk-head
     pre-charge of strictly-later ops must be handed back before the handler runs and
@@ -754,26 +455,15 @@ def observesGas : Op → Bool
     `Evm.CL.ARM64.ChunkGas`, with a denotation and the refinement theorem that
     says the scheme charges exactly what per-op charging would
     (`compensation_refines`). Both emitters below go through those definitions,
-    so there is one source for each gadget and the unchecked re-take that was
-    the second JIT bug is not representable. -/
+    so there is one source for each gadget and an unchecked re-take is not
+    representable. -/
 
 /-! ## The chunk emitter, once
 
-`emitChunk` (text, assembled by clang at build time) and `emitChunkItems`
-(machine code, assembled in-process at run time) used to be two copies of the
-same algorithm: same region pre-pass, same body loop, same terminator cases,
-differing only in which constructor each step produced. Two copies is how
-`ChunkGas`'s `retake` ended up with a bare `sub` on one side only — the second
-JIT gas bug — and the JIT is the path we actually run.
-
-So the algorithm lives here once, parameterised by an output algebra. The two
-outputs are instantiations; neither can drift from the other, because there is
-nothing to keep in step.
-
-The two paths are deliberately NOT byte-identical: `b <sym>` is four bytes
-through the linker, while the in-process path has no linker and materialises an
-absolute address in twenty (`BrSym`). That difference lives in the algebra, not
-in the algorithm. -/
+The algorithm lives here once, parameterised by an output algebra: ARM64's
+`instrOut` below and the x86-64 instances in `Evm.CL.X86JIT`. (Two copies of it
+— text and items — is how `ChunkGas`'s `retake` once ended up with a bare `sub`
+on one side only, the second JIT gas bug.) -/
 
 /-- What a chunk emitter needs from its output type: a monoid, plus one
     operation per step the algorithm takes. -/
@@ -890,32 +580,11 @@ def emitChunkGen {α : Type} (O : ChunkOut α) (f : Evm.Fork) (c : Chunk) : α :
   let s := if total > 0 then O.cat s (O.gas (ChunkGas.GInstr.charge total s!"Lg_{id}")) else s
   O.cat s body
 
-/-- The text algebra: what clang assembles into the per-program `.S`. -/
-def textOut : ChunkOut String where
-  nil      := ""
-  cat      := (· ++ ·)
-  head id  := s!".global {chunkSym id}\n.p2align 2\n{chunkSym id}:\n"
-  setPc n  := movImm "x21" n
-  gas g    := g.emit
-  flush _ r := emitRegionFlush r
-  adrCont l := s!"    adr   x27, {l}\n"
-  label l  := s!"{l}:\n"
-  callSym sym := s!"    b     {sym}\n"
-  tailSym sym := s!"    b     {sym}\n"
-  brCont   := "    br    x27\n"
-  syncCont := syncCont
-  brk      := "    brk   #0\n"
+/-! ## The algebra at `List AInstr`
 
-
-/-! ## The algebra at `List AInstr` (stage 4s)
-
-The text algebra above and the item algebra below were written twice, in two
-vocabularies — the duplication the handler work retired (`Op.instrs?`). This
-section is the chunk emitter written ONCE as `AInstr`; `emitChunk` prints it
-and `emitChunkItems` lowers it through `AsmItems`. `textOut` stays as the
-specification (`chunk_text_derived` gates the fixture corpus character for
-character); the hand-written item algebra is gated bytes-identical and
-retired. -/
+The chunk emitter written once as `AInstr`; `emitChunk` prints it (the clang
+`.S` path) and `emitChunkItems` lowers it through `AsmItems` (the in-process
+bytes the replay loads). -/
 
 section InstrEmit
 open Evm.CL.AsmCore
@@ -926,7 +595,7 @@ def spAddrA (r : Reg) (slot : Nat) : List AInstr :=
   let off := 32 * slot
   if off ≤ 4095 then [.addSp r off] else movImmA r off ++ [.addSpReg r]
 
-/-! ### The flush, target-generically (stage 4x)
+/-! ### The flush, target-generically
 
 The region flush is one algorithm over a few target choices: which registers
 hold the right operand of a binary core (ARM64 caches NOS in x10-x13; x86-64
@@ -935,7 +604,7 @@ materialised, how a scratch slot is addressed, how the scratch frame opens
 and closes, how a fault symbol is reached, which registers carry a helper's
 arguments and how it is called, the base-register store forms, and what the
 flush reloads at its end. `FlushTarget` names those; `armFlush` is the ARM64
-instance (its output is the stage-4s text, `chunk_text_derived` below) and
+instance and
 `Evm.CL.X86JIT.x86Flush` the x86-64 one. -/
 structure FlushTarget where
   /-- the right operand's four limbs (lo → hi) -/
@@ -1079,6 +748,11 @@ def memBaseAtT (T : FlushTarget) (off : Nat) : List AInstr :=
    else if off ≤ 4095 then [.addImm .x14 .x14 off]
    else T.movImm .x15 off ++ [.addReg .x14 .x14 .x15])
 
+/-- Merged memory-expansion charge for the region's buffered writes. One charge
+    to `maxEnd` equals the interp's per-op deltas: expansion cost is a function of
+    the word count alone and the size is monotone, so the deltas telescope —
+    and the charge stays relative to the
+    RUNTIME entry memory size. Clobbers x0, x14-x16, flags. -/
 def memExpandFlushT (T : FlushTarget) (maxEnd : Nat) : List AInstr :=
   T.movImm .x0 maxEnd ++
   [ .ldrOff .x14 .x20 56, .cmpReg .x0 .x14, .blsLbl "5f" ] ++ T.far "_eita_oog" ++ [ .label "5",
@@ -1124,7 +798,7 @@ def depthUpdate (net : Int) : List AInstr :=
   if net > 0 then [.addImm .x23 .x23 net.toNat]
   else if net < 0 then [.subImm .x23 .x23 (-net).toNat] else []
 
-/-- The region flush, once, at a target, as list combinators (stage 7: so the
+/-- The region flush, once, at a target, as list combinators (so the
     pieces can be reasoned about one at a time). Numeric local labels as in
     the text; each byte path's `resolveLocals` makes them unique. -/
 def emitRegionFlushT (T : FlushTarget) (r : Region) : List AInstr :=
@@ -1176,17 +850,13 @@ def emitChunkInstrs (f : Evm.Fork) (c : Chunk) : List AInstr := emitChunkGen ins
 
 end InstrEmit
 
-/-- The text, printed from the instructions (`chunk_text_derived` below gates
-    it against `textOut` over the fixture corpus). -/
+/-- The text, printed from the instructions. -/
 def emitChunk (f : Evm.Fork) (c : Chunk) : String := Evm.CL.Frame.text (emitChunkInstrs f c)
-
-/-- The specification: the hand-written text algebra. -/
-def emitChunkSpec (f : Evm.Fork) (c : Chunk) : String := emitChunkGen textOut f c
 
 /-- Bytecode covering the paths the chunk emitter branches on: plain
     arithmetic, a gas-reading op (`observesGas`), a store, a memory op, and
-    each terminator kind. The corpus the derivation gates run over; the
-    snapshot exe dumps both lowerings of it. -/
+    each terminator kind. The corpus the emitter gates (x86 lowering,
+    aliasing, flag provenance) run over. -/
 def fixtureCorpus : List (String × List Nat) :=
   [ ("arith",      [0x60, 0x05, 0x60, 0x03, 0x01, 0x60, 0x02, 0x02, 0x00]),
     ("gas_read",   [0x5a, 0x60, 0x01, 0x01, 0x00]),
@@ -1217,58 +887,8 @@ def corpusChunks : Option (List Chunk) := Id.run do
     | .error _ => return none
   return some out
 
-/-- **Text identity over the corpus**: the derived chunk text IS the
-    hand-written algebra's, character for character. -/
-theorem chunk_text_derived :
-    (match corpusChunks with
-     | some cs => cs.length ≥ 14 && cs.all (fun c => emitChunk .cancun c == emitChunkSpec .cancun c)
-     | none => false) = true := by native_decide
-
-
-/-- `eita_run_chunk(state*, chunk_fn)`: same prologue as `eita_run`
-    (cache state into registers, stash post-prologue SP in x28 for the
-    fault stubs), then enter the chunk. The chunk's terminator exits
-    through sync_and_ret, which restores callee-saved and returns. -/
-def runChunkCodeSpec : String :=
-  ".global _eita_run_chunk\n" ++
-  ".p2align 2\n" ++
-  "_eita_run_chunk:\n" ++
-  "    stp   x29, x30, [sp, #-96]!\n" ++
-  "    stp   x19, x20, [sp, #16]\n" ++
-  "    stp   x21, x22, [sp, #32]\n" ++
-  "    stp   x23, x24, [sp, #48]\n" ++
-  "    stp   x25, x26, [sp, #64]\n" ++
-  "    stp   x27, x28, [sp, #80]\n" ++
-  "    mov   x28, sp\n" ++
-  "    mov   x20, x0\n" ++
-  "    ldr   x21, [x0, #0]\n" ++
-  "    ldr   x22, [x0, #8]\n" ++
-  "    ldr   x23, [x0, #16]\n" ++
-  "    ldr   x24, [x0, #32]\n" ++
-  "    ldr   x26, [x0, #64]\n" ++
-  "    cmp   x23, #1\n" ++
-  "    b.lt  20f\n" ++
-  "    sub   x14, x23, #1\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x6, x7, [x14]\n" ++
-  "    ldp   x8, x9, [x14, #16]\n" ++
-  "20:\n" ++
-  "    cmp   x23, #2\n" ++
-  "    b.lt  21f\n" ++
-  "    sub   x14, x23, #2\n" ++
-  "    add   x14, x24, x14, lsl #5\n" ++
-  "    ldp   x10, x11, [x14]\n" ++
-  "    ldp   x12, x13, [x14, #16]\n" ++
-  "21:\n" ++
-  "    adrp  x25, _eita_dispatch_ptr@GOTPAGE\n" ++
-  "    ldr   x25, [x25, _eita_dispatch_ptr@GOTPAGEOFF]\n" ++
-  "    ldr   x25, [x25]\n" ++
-  "    br    x1\n"
-
-/-- The entry, printed from `Frame.runChunk` (stage 4r). -/
+/-- The entry, printed from `Frame.runChunk`. -/
 def runChunkCode : String := Frame.text Frame.runChunk
-
-theorem runChunkCode_derived : runChunkCode = runChunkCodeSpec := by native_decide
 
 /-- First-occurrence-wins dedup of `Program.chunks` (overlapping-chunk
     compilation may list an entry twice; emitting twice would define
@@ -1302,7 +922,7 @@ def emitProgram (f : Evm.Fork) (p : Program) : String :=
   String.intercalate "\n" (chunks.map fun (_, c) => emitChunk f c) ++ "\n" ++
   entriesTable chunks
 
-/-! ## In-process `List Item` emitter (#235)
+/-! ## In-process `List Item` emitter
 
 The byte path is `instrOut` lowered through `AsmItems` — the same instructions
 the text is printed from. Nothing here describes a chunk a second time; what
@@ -1321,8 +941,8 @@ private def syncContI : List Item := Evm.CL.AsmItems.progItems Frame.syncCont
 def emitChunkItems (f : Evm.Fork) (c : Chunk) : List Item :=
   Evm.CL.AsmItems.resolveLocals (Evm.CL.AsmItems.progItems (emitChunkInstrs f c))
 
-/-- The entry as items, from the same program the text comes from (stage 4r):
-    the two paths no longer describe the prologue twice. -/
+/-- The entry as items, from the same program the text comes from:
+    the two paths do not describe the prologue twice. -/
 def runChunkItems : List Item :=
   Evm.CL.AsmItems.resolveLocals (Evm.CL.AsmItems.progItems Frame.runChunk)
 

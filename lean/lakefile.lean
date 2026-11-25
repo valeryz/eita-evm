@@ -51,7 +51,7 @@ require "leanprover-community" / "mathlib" @ git "v4.35.0"
 
 /-- Every module under `Evm/` is part of the default build, not only those reachable from
     `Evm.lean`: an orphaned module (nothing imports it) is still compiled, so it cannot rot
-    unnoticed (four had, 2026-11-02). -/
+    unnoticed. -/
 @[default_target]
 lean_lib Evm where
   globs := #[.andSubmodules `Evm]
@@ -61,15 +61,6 @@ lean_exe test where
 
 lean_exe replay where
   root := `Replay
-
-lean_exe mainnet where
-  root := `Mainnet
-
-lean_exe baseProbe where
-  root := `BaseProbe
-
-lean_exe baseReplay where
-  root := `BaseReplay
 
 lean_exe interpFixtures where
   root := `InterpFixtures
@@ -209,7 +200,7 @@ target blake2f.o pkg : FilePath := do
   let srcJob ← inputTextFile <| pkg.dir / "c" / "blake2f.c"
   buildO oFile srcJob (← cFlags) #[] "cc"
 
-/-- Build c/uds.c → uds.o (Unix-domain-socket FFI for the emit server, #235). -/
+/-- Build c/uds.c → uds.o (Unix-domain-socket FFI for the emit server). -/
 target uds.o pkg : FilePath := do
   let oFile  := pkg.buildDir / "c" / "uds.o"
   let srcJob ← inputTextFile <| pkg.dir / "c" / "uds.c"
@@ -255,3 +246,9 @@ lean_exe recoveryVectors where
 lean_exe cryptoTests where
   root := `CryptoTests
 
+
+/-- The Lean comparator's challenge (the owner-reviewed statements of the headline theorems)
+    and its solution (each proved by the real theorem). Not a default target: only
+    `scripts/verify-comparator.sh` builds it, through `lake comparator`. -/
+lean_lib Comparator where
+  globs := #[.andSubmodules `Comparator]

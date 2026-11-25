@@ -17,7 +17,7 @@
 ;;;; code 0x01; a stock EVM executing it (ADD, empty stack) burns all forwarded
 ;;;; gas and reverts. Arc's client intercepts these addresses as precompiles.
 ;;;; Not ported yet (loud, not silent): SystemAccounting 0x1800…0002 — an `error`
-;;;; names the address. PQ 0x1800…0004 IS ported: see arc-pq-verify (stop #14).
+;;;; names the address. PQ 0x1800…0004 IS ported: see arc-pq-verify.
 ;;;; 0x1800…0003 CallFrom (subcall precompile) IS ported: see arc-call-from.
 
 (in-package #:eita.chain.arc)
@@ -510,7 +510,7 @@
   (let ((slot (arc-gas-values-slot n)) (word (arc-pack-gas-values gas-used smoothed next-base-fee)))
     (fault-slot! +arc-system-accounting+ slot)
     ;; UNJOURNALED on purpose (a post-block write has no frame to revert into), so the
-    ;; #237 dirty-set hooks in journal-push! cannot see it. Touch by hand, as every
+    ;; incremental state-root dirty-set hooks in journal-push! cannot see it. Touch by hand, as every
     ;; non-journaled writer must. Without this, block 1
     ;; of Arc mainnet already diverges: the ring slot changes and the incremental
     ;; account trie never hears about it.
@@ -672,8 +672,8 @@
    NOT — evm.rs:1672 registers it only once Zero7 is active. Before Zero7 the address holds
    the genesis 1-byte placeholder 0x01, so a call runs that code and halts exceptionally,
    burning the whole forwarded pool (Arc block 12998407: a Multicall3From batch whose first
-   callFrom consumed all 265511 forwarded gas and reverted the batch — we executed the
-   precompile instead and came out 142225 gas short)."
+   callFrom consumes all 265511 forwarded gas and reverts the batch; executing the
+   precompile there instead comes out 142225 gas short)."
   (or (and (>= addr #x1800000000000000000000000000000000000000)
            (<= addr #x1800000000000000000000000000000000000002))
       (= addr +arc-pq+)
@@ -694,7 +694,7 @@
 ;;; That frame-init also REVERTS value moves involving the zero address, a
 ;;; blocklisted party or a selfdestructed target (`arc-value-transfer-prewarm!`
 ;;; below), at every call site: cb-call, cb-create and the top-level tx in
-;;; apply-tx (the last one was missing until stop #15, Arc block 21 418 236).
+;;; apply-tx (Arc block 21 418 236 exercises the top-level case).
 (defun arc-tx-prewarm! (from to value)
   "handler.rs check_blocklist: warm NativeCoinControl + the sender's blocklist
    slot, and the recipient's when the tx carries value."

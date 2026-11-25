@@ -1,16 +1,14 @@
 /-
   Evm.CL.X86Alias — aliased registers are never live together (x86-64).
 
-  Stage 5 of #238, from the first x86-64 Linux divergence. The x86-64 register map
-  gives several `Reg`s ONE home — x1/x15 → rdx, x2/x17 → rsi, x3/x4/x16 →
-  rdi (`X86Items.xreg?`, marked "provisional" there) — which is sound only
-  while no two of them are live at once. Three bodies broke it, all while
-  staging a host callback's arguments: the CALL family loaded the gas word's
-  limb 3 into x1 over limb 0 in x15 (every sub-frame on x86-64 Linux started with
-  gas 0), EXTCODECOPY loaded the memory base into x16 over the context in
-  x3, LOG set the topic count in x1 before using x15 as an address temporary.
-  The Rosetta vectors could not see it: their fake callbacks ignore their
-  arguments.
+  The x86-64 register map gives several `Reg`s ONE home — x1/x15 → rdx,
+  x2/x17 → rsi, x3/x4/x16 → rdi (`X86Items.xreg?`, marked "provisional" there)
+  — which is sound only while no two of them are live at once. The hazard is
+  sharpest while staging a host callback's arguments: e.g. loading the CALL gas
+  word's limb 3 into x1 over limb 0 in x15 starts every sub-frame with gas 0;
+  loading EXTCODECOPY's memory base into x16 clobbers the context in x3; setting
+  LOG's topic count in x1 clobbers x15 used as an address temporary. The Rosetta
+  vectors cannot see it: their fake callbacks ignore their arguments.
 
   This is the check that makes the aliasing a theorem instead of a comment:
   an exact, branch-aware liveness over each body (forward and backward local

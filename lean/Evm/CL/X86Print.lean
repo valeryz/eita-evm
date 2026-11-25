@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86Print — Intel-syntax text for `XInsn`/`XItem`.
 
-  Stage 4 of #238. The x86-64 FRAME (`X86Run`, `X86Dispatch`, `X86Interp`) is
+  The x86-64 FRAME (`X86Run`, `X86Dispatch`, `X86Interp`) is
   written as `XItem`s, because its instructions (push/pop, `shl r13, 5`,
   RIP-relative loads, `call [rax + rcx*8]`) have no ARM64 twin in `AInstr`.
   Those items already encode to bytes (`X86Encode`); this is their text, in

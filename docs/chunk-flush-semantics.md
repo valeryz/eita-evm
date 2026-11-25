@@ -1,9 +1,8 @@
-# The chunk JIT's flush, proven (stage 7 of #238)
+# The chunk JIT's flush, proven
 
 The JIT's chunk pieces — the gas gadgets, the u256 cores, the region flush —
-used to be *derived* (one `AInstr` algebra, text byte-identical to the
-hand-written emitters) but not *denoted*: nothing related the instructions
-to what the region means. This stage closes that for ARM64.
+are emitted from one `AInstr` algebra and *denoted*: the theorems below relate
+the instructions to what the region means, on ARM64 and x86-64.
 
 ## The semantics: `Evm.CL.AsmRun`
 
@@ -44,16 +43,19 @@ disjoint ranges, the limb view `ofLimbs`). Addresses are uniformly
 | `ARM64/MemCommitSem` | `memExpand_run` | the expansion gadget is EELS's `memoryExpansionCost` delta (`mcost_eq_spec`/`ecost_eq_spec` are `rfl` against `Gas.memoryCost`/`memoryExpansionCost`): faults to `_eita_oog` iff the writes' end is past the capacity or the delta is past the gas left; otherwise x22 drops by the delta and `memory_size` becomes the aligned new end (unchanged when no expansion) |
 | `ARM64/MemCommitSem` | `mpUpdate_run`, `memWrite_run`, `writes_run` | `mp` becomes `max mp maxEnd`; each buffered write lands at `buffer + off` as the value's low byte (MSTORE8) or its 32 big-endian bytes (MSTORE; `stBE_byte`: byte `j` is `v.extractLsb' (8·(31−j)) 8`), reading its slot; the writes apply in order (`applyW` fold) |
 | `ARM64/MemCommitSem` | **`memCommit_run`** | `memCommitT` on a non-empty write list: the three outcomes above composed, every other byte of memory untouched (the struct words and the buffer are the only ones written) |
-| `ARM64/FlushMain` | **`flush_run`** (now all regions) | as before plus: x22 drops by `memGas` (0 without writes), `MemOut` (the new `memory_size`, `mp`, the buffer bytes), the struct and buffer are the only extra memory touched; `flush_run_oog`: when the capacity or gas check fails the flush faults to `_eita_oog` (after the depth checks pass) |
+| `ARM64/FlushMain` | **`flush_run`** (all regions) | the write-free statement above plus: x22 drops by `memGas` (0 without writes), `MemOut` (the new `memory_size`, `mp`, the buffer bytes), the struct and buffer are the only extra memory touched; `flush_run_oog`: when the capacity or gas check fails the flush faults to `_eita_oog` (after the depth checks pass) |
 
-The flush was restated as list combinators (`exitOneT`, `exitStoresT`,
-`memCommitT`, `depthUpdate`) with no change to the text
-(`chunk_text_derived`, the snapshot, `handlers.S`, 36/36, 110/110).
-`emitChunkGen`'s two `for` loops were likewise restated as folds (`dynCosts`,
-`bodyStep` over `BodySt`), text identical by the same gates, so the body pass
-is a `List.foldl` an invariant can be carried through. `symStep` now refuses
+The flush is written as list combinators (`exitOneT`, `exitStoresT`,
+`memCommitT`, `depthUpdate`), and `emitChunkGen`'s body pass as folds
+(`dynCosts`, `bodyStep` over `BodySt`), so the body pass is a `List.foldl` an
+invariant can be carried through. `symStep` refuses
 `dup 0` (not an EVM op; the decoder emits `dup 1..16`) exactly as it refused
 `swap 0` — the one place where an entry read could have escaped `need`.
+
+The x86-64 target has the same theorem: `X86/FlushMainX.flush_runX_scaled` is
+`flush_run` at the x86-64 target under `AsmRun`, and `X86/FlushOkX.flush_x86`
+carries it to the lowered x86-64 bytes through `X86SemCtrl.sim_run` with the
+proven liveness transfer `X86Xfer` ([`x86-64-backend.md`](x86-64-backend.md) §5).
 
 ## Hypotheses (the trust surface, stated)
 
@@ -75,18 +77,14 @@ is a `List.foldl` an invariant can be carried through. `symStep` now refuses
   big-endian layout; the tie to the spec's `Memory.write`/`toBytesBE` is by
   definition of big-endian, not a theorem yet.
 * `dagSlots`'s `implemented_by` (pointer-memoised) is trusted to agree with the
-  reference definition the proofs are about, as before.
+  reference definition the proofs are about.
 
 ## Not yet
 
 * The spec-side memory model: `MemOut`'s buffer bytes against
   `Frontier.Vm.Memory.write`/`U256.toBytesBE`, and `memory_size`/`mp` against
   the spec's `Memory.words`.
-* ~~The x86-64 twin~~ — done (2026-10-16): `X86/FlushMainX.flush_runX_scaled`
-  is this theorem at the x86-64 target under `AsmRun`, and `X86/FlushOkX.flush_x86`
-  carries it to the lowered x86-64 bytes through `X86SemCtrl.sim_run` with the
-  proven liveness transfer `X86Xfer` (see `docs/x86-64-backend.md`, stage 8e–8f).
 * The chunk-level composition (`emitChunkGen` as a whole: head charge, op
   sites, flushes, terminators) against `IR.execChunk`; the body pass is a
-  fold now, and its flushed regions are known good, so this is the remaining
+  fold, and its flushed regions are known good, so this is the remaining
   glue.

@@ -61,8 +61,7 @@
 ;;; an open stream or socket, a thread or child process, or an integer that is an address in
 ;;; a shared library or the malloc heap (on Linux, from /proc/self/maps) — is wrong in every
 ;;; other process: libraries map elsewhere (ASLR), foreign memory and descriptors are gone.
-;;; The 2026-11-02 Arc deploy died on one (the factlog writer's syncfs address, an integer
-;;; computed at load). FORGET-SHARED-OBJECTS! refuses to let the image be saved while any
+;;; (E.g. the factlog writer's syncfs address, an integer computed at load.) FORGET-SHARED-OBJECTS! refuses to let the image be saved while any
 ;;; variable not re-initialized at startup (DEFSTARTUP) holds such a value, anywhere in its
 ;;; conses, vectors, hash tables or structures.
 

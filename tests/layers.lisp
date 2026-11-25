@@ -13,6 +13,9 @@
 ;;;;           exactly the model's materialized state (Lean `compaction_correct`);
 ;;;;   root    the layered root check (state/root.lisp over base + layers) equals the
 ;;;;           root of the compacted base.
+;;;; Then the same rounds in snapshot v2 (hashed key order): the view by hashed key, the
+;;;; major compaction, the persisted fences and the state root, with mutants that must fail
+;;;; (see "v2" below).
 ;;;; Addresses and slots come from small ranges so that collisions, wipes over earlier
 ;;;; writes, tombstones over base slots and empty-but-marked accounts all occur.
 
@@ -192,7 +195,7 @@
 (defun gc-spares-frozen-layer ()
   "A frozen RAM layer whose layer-P-N/ the writer has published but not yet swapped into the
    stack: no resume point names it, and the replay's GC (prune-dumps!: run-gc pinned by
-   live-components) must leave it (2026-11-08: it deleted it under the writer)."
+   live-components) must leave it (deleting it under the writer breaks the writer's rename)."
   (let ((dir (format nil "~Agc/" *dir*)))
     (ensure-directories-exist (merge-pathnames "layer-117-118/" dir))
     (let ((eita.state::*layers* (list (eita.state::make-ram-layer :block 118 :parent 117)))
@@ -353,7 +356,7 @@
                      (check (list tag :root-check-stopped) eita.state::*pending-root* nil)
                      (when proc (check (list tag :checker-dead) (sb-ext:process-alive-p proc) nil))
                      (check (list tag :snap-120-deleted) (probe-file (snap-path dir 120)) nil)
-                     ;; the old check passing later (old code: it installed snap-120 here)
+                     ;; the old check passing later must not install snap-120
                      (let ((s eita.state::*compacting-base*))
                        (when s (eita.state::compaction-swap! 120)))
                      (check (list tag :base-still-100) (snap-block eita.state::*base*) 100)
@@ -381,8 +384,282 @@
       (loop for v in vars for x in saved do (setf (symbol-value v) x))
       (if old-env (sb-posix:setenv "EITA_STATE_DIR" old-env 1) (sb-posix:unsetenv "EITA_STATE_DIR")))))
 
+;;; ---------------------------------------------------------------- v2 (hashed key order)
+;;;
+;;; The same random states and layers, written in v2 (`make-writer`): the view by hashed key
+;;; (`view-account-h`, `view-slot-h`, `view-map-storage-h`: `compose-range`, Lean
+;;; `viewRange_acct` / `viewRange_slot`) and the major compaction (`write-composed-2`) equal
+;;; the model; every fence read from a .fnc equals the one built over the file at open; the
+;;; compacted base's state root, a stack trie streamed over its records in file order, equals
+;;; the v1 root of the same state. Three mutants of the layers (their WIPED flags, their
+;;; tombstones, their existence marks dropped) must each make some view differ from the
+;;; model, and the writer must refuse records out of order or against S2 / S5.
+
+(defvar *hk* (make-hash-table))
+(defun hk (addr) (or (gethash addr *hk*) (setf (gethash addr *hk*) (eita.mpt:%keccak (int->octets addr 20)))))
+(defvar *hs* (make-hash-table))
+(defun hs (slot) (or (gethash slot *hs*) (setf (gethash slot *hs*) (eita.mpt:%keccak (int->octets slot 32)))))
+(defun oct< (a b) (minusp (cmp-octets a b)))
+(defun cmp-octets (a b) (dotimes (i (length a) 0) (cond ((< (aref a i) (aref b i)) (return -1)) ((> (aref a i) (aref b i)) (return 1)))))
+
+(defun write-2 (tmp n entries &key parent (expect '(0 0)))
+  "ENTRIES: (addr fields flags slots) in any order, SLOTS ((slot . value) ...): written in
+   hashed order, each account's slots before it."
+  (let ((w (make-writer tmp 1 n "0x00" :parent parent :expect expect)))
+    (dolist (e (sort (copy-list entries) #'oct< :key (lambda (e) (hk (first e)))))
+      (destructuring-bind (addr fields flags slots) e
+        (dolist (kv (sort (copy-list slots) #'oct< :key (lambda (kv) (hs (car kv)))))
+          (writer-slot w (hk addr) (hs (car kv)) (cdr kv)))
+        (destructuring-bind (nonce balance codehash mark) fields
+          (declare (ignore mark))
+          (writer-account w (hk addr) addr flags nonce balance codehash))))
+    (writer-finish w '())))
+
+(defun write-base-2 (n acc sto)
+  (multiple-value-bind (ma ms) (mat acc sto)
+    (let ((tmp (snap-tmp-path *dir* n)))
+      (write-2 tmp n (loop for addr being the hash-keys of ma using (hash-value f)
+                           collect (list addr f (if (fourth f) +flag-exists-empty+ 0)
+                                         (loop for k being the hash-keys of ms using (hash-value v)
+                                               when (= (car k) addr) collect (cons (cdr k) v))))
+               :expect (list (hash-table-count ma) (hash-table-count ms)))
+      (snap-publish *dir* n tmp)
+      (open-snap (snap-path *dir* n)))))
+
+(defun write-layer-2 (p n d &key (mutant nil))
+  "D as `rand-delta` gives it; MUTANT :wipe, :tombstone or :mark drops that from the layer."
+  (let ((tmp (layer-tmp-path *dir* p n)))
+    (write-2 tmp n (mapcar (lambda (e)
+                             (destructuring-bind (addr fields wiped slots) e
+                               (list addr fields
+                                     (logior (if (and (fourth fields) (not (eq mutant :mark))) +flag-exists-empty+ 0)
+                                             (if (and wiped (not (eq mutant :wipe))) +flag-wiped+ 0))
+                                     (if (eq mutant :tombstone) (remove 0 slots :key #'cdr) slots))))
+                           d)
+             :parent p)
+    (snap-publish *dir* n tmp :final (layer-path *dir* p n))
+    (open-snap (layer-path *dir* p n))))
+
+(defun view-mismatches (layers base acc sto)
+  "How many of the view's answers by hashed key differ from the model (`mat`)."
+  (let ((bad 0))
+    (multiple-value-bind (ma ms) (mat acc sto)
+      (loop for addr from #x1000 below (+ #x1000 40)
+            do (multiple-value-bind (found a n b c flag) (view-account-h layers base (hk addr))
+                 (unless (equalp (and found (list a n b c flag)) (let ((f (gethash addr ma))) (and f (cons addr f))))
+                   (incf bad)))
+               (loop for slot below 12
+                     do (unless (= (view-slot-h layers base (hk addr) (hs slot)) (gethash (cons addr slot) ms 0))
+                          (incf bad)))
+               (let ((got '()))
+                 (view-map-storage-h layers base (hk addr) (lambda (k v) (push (cons k v) got)))
+                 (unless (equalp (nreverse got)
+                                 (sort (loop for k being the hash-keys of ms using (hash-value v)
+                                             when (= (car k) addr) collect (cons (hs (cdr k)) v))
+                                       #'oct< :key #'car))
+                   (incf bad)))))
+    bad))
+
+(defun records-2 (s table)
+  "Every record of the v2 snap S's TABLE, decoded, in file order (a one-source compose-range)."
+  (let ((out '()))
+    (compose-range (list (snap-run s table nil nil))
+                   (lambda (sap off)
+                     (push (if (eq table :accounts)
+                               (list (sap-be sap off 32) (sap-be sap (+ off 32) 20) (sap-be sap (+ off 52) 4)
+                                     (sap-be sap (+ off 56) 8) (sap-be sap (+ off 64) 32) (sap-be sap (+ off 96) 32))
+                               (list (sap-be sap off 32) (sap-be sap (+ off 32) 32) (sap-be sap (+ off 64) 32)))
+                           out)))
+    (nreverse out)))
+
+(defun check-base-2 (tag s acc sto)
+  (multiple-value-bind (ma ms) (mat acc sto)
+    (check (list tag :accounts) (records-2 s :accounts)
+           (sort (loop for addr being the hash-keys of ma using (hash-value f)
+                       collect (destructuring-bind (n b c e) f
+                                 (list (octets->int (hk addr)) addr (if e +flag-exists-empty+ 0) n b c)))
+                 #'< :key #'first))
+    (check (list tag :storage) (records-2 s :storage)
+           (sort (loop for k being the hash-keys of ms using (hash-value v)
+                       collect (list (octets->int (hk (car k))) (octets->int (hs (cdr k))) v))
+                 (lambda (x y) (or (< (first x) (first y)) (and (= (first x) (first y)) (< (second x) (second y)))))))))
+
+(defun fence-equal (a b)
+  (or (and (null a) (null b))
+      (and a b (= (fence-bit a) (fence-bit b)) (= (fence-r a) (fence-r b)) (equalp (fence-a a) (fence-a b))
+           (= (if (fence-kids a) (hash-table-count (fence-kids a)) 0) (if (fence-kids b) (hash-table-count (fence-kids b)) 0))
+           (or (null (fence-kids a))
+               (loop for p being the hash-keys of (fence-kids a) using (hash-value k)
+                     always (fence-equal k (gethash p (fence-kids b))))))))
+
+(defun check-fences (tag s)
+  "S's fences, read from its .fnc files, are the ones `build-fence` builds over its files."
+  (check (list tag :acct-fence)
+         (fence-equal (snap-acct-fence s) (build-fence (snap-acct s) +acct-rec-2+ 32 (snap-n-accounts s))) t)
+  (check (list tag :slot-fence)
+         (fence-equal (snap-slot-fence s) (build-fence (snap-slot-map s) +slot-rec-2+ 64 (snap-n-slots s))) t))
+
+(defun v2-state-root (s)
+  "The state root of the v2 base S in one pass over its records: each account's slots (a
+   contiguous run, in hslot order) streamed into its storage trie, the accounts (in hkey
+   order) into the account trie. Codehashes are taken as given."
+  (let ((st (eita.state.root:make-stack-trie)) (sst (eita.state.root:make-stack-trie))
+        (slots (records-2 s :storage)) (key (make-array 32 :element-type '(unsigned-byte 8))))
+    (dolist (a (records-2 s :accounts))
+      (destructuring-bind (h addr flags nonce balance codehash) a
+        (declare (ignore addr flags))
+        (eita.state.root:st-reset sst 0)
+        (loop while (and slots (= (first (first slots)) h))
+              do (destructuring-bind (ha hsl v) (pop slots)
+                   (declare (ignore ha))
+                   (eita.state.root:st-push sst (int->octets hsl 32) 0 (eita.mpt:rlp-encode (eita.mpt:rlp-uint v)))))
+        (replace key (int->octets h 32))
+        (eita.state.root:st-push st key 0 (eita.mpt:account-leaf-value nonce balance
+                                                                       (eita.state.root:st-root-bytes (eita.state.root:st-finish sst))
+                                                                       (int->octets codehash 32)))))
+    (eita.mpt:bytes->hex (eita.state.root:st-root-bytes (eita.state.root:st-finish st)))))
+
+(defvar *mutants-caught* (list :wipe 0 :tombstone 0 :mark 0))
+
+(defun round-2 (r)
+  (mapc #'snap-close *open*)
+  (setf *open* '())
+  (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
+  (ensure-directories-exist *dir*)
+  (let ((acc (make-hash-table)) (sto (make-hash-table :test 'equal)))
+    (apply-delta acc sto (mapcar (lambda (e) (list (first e) (second e) nil (remove 0 (fourth e) :key #'cdr))) (rand-delta)))
+    (multiple-value-bind (ma ms) (mat acc sto) (setf acc ma sto ms))
+    (let* ((base (write-base-2 100 acc sto)) (deltas '()) (layers '()) (blk 100) (k (1+ (rnd 6)))
+           (acc0 (model-copy acc)) (sto0 (model-copy sto)))
+      (check-fences (list r :v2-base) base)
+      (check (list r :v2-base-view) (view-mismatches '() base acc sto) 0)
+      (dotimes (i k)
+        (let ((d (rand-delta)) (n (+ blk 10)))
+          (apply-delta acc sto d)
+          (push (cons blk d) deltas)
+          (push (write-layer-2 blk n d) layers)
+          (setf blk n)))
+      (dolist (l layers) (check-fences (list r :v2-layer) l))
+      (check (list r :v2-stack-view k) (view-mismatches layers base acc sto) 0)
+      ;; the mutants: the same deltas with one rule dropped from the layers
+      (dolist (mutant '(:wipe :tombstone :mark))
+        (let ((ml (loop for (p . d) in deltas
+                        collect (let ((*dir* (format nil "~Am-~(~A~)/" *dir* mutant)))
+                                  (ensure-directories-exist *dir*)
+                                  (write-layer-2 p (+ p 10) d :mutant mutant)))))
+          (when (plusp (view-mismatches ml base acc sto)) (incf (getf *mutants-caught* mutant)))))
+      ;; major: everything into a new v2 base
+      (let ((tmp (snap-tmp-path *dir* blk)))
+        (write-composed tmp 1 blk "0x00" layers base)
+        (snap-publish *dir* blk tmp)
+        (let ((nb (open-snap (snap-path *dir* blk))))
+          (check-base-2 (list r :v2-major) nb acc sto)
+          (check-fences (list r :v2-major) nb)
+          (check (list r :v2-major-view) (view-mismatches '() nb acc sto) 0)
+          ;; the same state in v1: its root (state/root.lisp) is the v2 base's
+          (let ((tmp1 (snap-tmp-path *dir* 1)))
+            (multiple-value-bind (ma ms) (mat acc sto)
+              (let ((m (make-merge tmp1 1 1 "0x00" nil)))
+                (dolist (addr (sort (loop for a being the hash-keys of ma collect a) #'<))
+                  (merge-account m addr :fields (gethash addr ma)
+                                        :slots (sort (loop for kk being the hash-keys of ms using (hash-value v)
+                                                           when (= (car kk) addr) collect (cons (cdr kk) v))
+                                                     #'< :key #'car)))
+                (merge-finish m '())))
+            (snap-publish *dir* 1 tmp1)
+            (check (list r :v2-root) (v2-state-root nb)
+                   (eita.state.root:snapshot-root (snap-path *dir* 1) :threads 1)))))
+      ;; the base before the layers: compose-range over it alone is the model's base
+      (check (list r :v2-base-kept) (view-mismatches '() base acc0 sto0) 0))))
+
+(defun fences-at-scale ()
+  "Fences over enough records to have deep top levels and kids (a contract of 3,000 slots:
+   its buckets exceed +fence-split+), written with EXPECT exact, four times too high (the
+   top level subsampled), too low and absent (kids built from the records written): each
+   equals the fence `build-fence` builds over the files, and finds every key and no other."
+  (let ((dir (format nil "~Afences/" *dir*)) (n 20000)
+        (keys (make-hash-table :test 'equalp)))
+    (loop while (< (hash-table-count keys) n)
+          do (let ((k (make-array 32 :element-type '(unsigned-byte 8))))
+               (dotimes (i 32) (setf (aref k i) (rnd 256)))
+               (setf (gethash k keys) t)))
+    (let* ((accts (sort (loop for k being the hash-keys of keys collect k) #'oct<))
+           (big (nth 777 accts))
+           (slots (lambda (a) (if (eq a big) 3000 (if (zerop (rnd 4)) (rnd 3) 0))))
+           (plan (mapcar (lambda (a) (cons a (sort (loop repeat (funcall slots a) collect (int->octets (rnd (ash 1 60)) 32)) #'oct<)))
+                         accts))
+           (ns (reduce #'+ plan :key (lambda (e) (length (remove-duplicates (cdr e) :test #'equalp))))))
+      (dolist (expect (list (list n ns) (list (* 4 n) (* 4 ns)) (list 100 100) (list 0 0)))
+        (sb-ext:run-program "rm" (list "-rf" dir) :search t)
+        (let ((w (make-writer dir 1 1 "0x00" :expect expect)))
+          (dolist (e plan)
+            (dolist (sl (remove-duplicates (cdr e) :test #'equalp)) (writer-slot w (car e) sl 1))
+            (writer-account w (car e) 0 0 1 0 +ec+))
+          (writer-finish w '()))
+        (let ((s (snap-open dir)))
+          (check-fences (list :fences-at-scale expect) s)
+          (check (list :fences-at-scale expect :kids) (and (fence-kids (snap-slot-fence s)) t) t)
+          (check (list :fences-at-scale expect :finds)
+                 (loop for a in accts for i from 0
+                       always (eql (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec-2+ a 32) i))
+                 t)
+          (check (list :fences-at-scale expect :finds-slots)
+                 (loop for (a . sls) in plan
+                       always (loop for sl in sls
+                                    always (find-record (snap-slot-map s) (snap-slot-fence s) (snap-n-slots s) +slot-rec-2+
+                                                        (concatenate '(simple-array (unsigned-byte 8) (*)) a sl) 64)))
+                 t)
+          (check (list :fences-at-scale expect :absent)
+                 (loop repeat 2000
+                       never (let ((k (make-array 32 :element-type '(unsigned-byte 8))))
+                               (dotimes (i 32) (setf (aref k i) (rnd 256)))
+                               (and (not (gethash k keys))
+                                    (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec-2+ k 32))))
+                 t)
+          (snap-close s))))
+    (sb-ext:run-program "rm" (list "-rf" dir) :search t)))
+
+(defun writer-refuses ()
+  "The v2 writer signals on keys out of order (S4), a slot without its account (S5) and a
+   zero slot in a base (S2), and accepts a zero slot in a layer."
+  (let ((dir (format nil "~Awriter/" *dir*)) (k1 (int->octets 1 32)) (k2 (int->octets 2 32)))
+    (flet ((refuses (tag fn &key parent)
+             (sb-ext:run-program "rm" (list "-rf" dir) :search t)
+             (let ((w (make-writer dir 1 1 "0x00" :parent parent)))
+               (check (list :writer tag)
+                      (handler-case (progn (funcall fn w) (writer-finish w '()) :accepted)
+                        (error () :refused))
+                      (if (eq tag :layer-tombstone) :accepted :refused)))))
+      (refuses :account-order (lambda (w) (writer-account w k2 2 0 1 0 +ec+) (writer-account w k1 1 0 1 0 +ec+)))
+      (refuses :account-duplicate (lambda (w) (writer-account w k1 1 0 1 0 +ec+) (writer-account w k1 1 0 1 0 +ec+)))
+      (refuses :slot-order (lambda (w) (writer-slot w k1 k2 1) (writer-slot w k1 k1 1) (writer-account w k1 1 0 1 0 +ec+)))
+      (refuses :slot-orphan (lambda (w) (writer-slot w k1 k1 1) (writer-account w k2 2 0 1 0 +ec+)))
+      (refuses :slot-after-account (lambda (w) (writer-account w k1 1 0 1 0 +ec+) (writer-slot w k1 k1 1)))
+      (refuses :base-zero-slot (lambda (w) (writer-slot w k1 k1 0) (writer-account w k1 1 0 1 0 +ec+)))
+      (refuses :layer-tombstone (lambda (w) (writer-slot w k1 k1 0) (writer-account w k1 1 0 0 0 +ec+)) :parent 0))
+    (sb-ext:run-program "rm" (list "-rf" dir) :search t)))
+
+(defun page-range-stays-inside ()
+  "A release never names a page past the mapping (MADV_DONTNEED there zeroes another one)."
+  (let ((pg (sb-posix:getpagesize)))
+    (dolist (len (list 4096 pg (* 2 pg) (1+ pg) (+ 4096 88) (* 3 pg) (1- (* 3 pg))))
+      (let ((top (* pg (ceiling len pg))))
+        (dolist (end (list len (+ len 1) (+ len pg) (* 2 top)))
+          (check (format nil "page-range ~D 0 ~D" len end)
+                 (multiple-value-list (page-range len 0 end)) (list 0 top)))
+        (check (format nil "page-range ~D inside" len)
+               (multiple-value-list (page-range len (1+ pg) (1- len)))
+               (list pg (* pg (floor (1- len) pg))))))))
+
 (let ((rounds (if eita.test:*argument* (parse-integer eita.test:*argument*) 200)))
+  (page-range-stays-inside)
   (dotimes (r rounds) (round-1 r))
+  (dotimes (r rounds) (round-2 r))
+  (loop for (mutant n) on *mutants-caught* by #'cddr
+        do (check (list :mutant-caught mutant) (plusp n) t))
+  (format t "v2 mutants caught (rounds): ~{~(~A~) ~D~^, ~}~%" *mutants-caught*)
+  (fences-at-scale)
+  (writer-refuses)
   (gc-spares-frozen-layer)
   (tip-freezes-stay-bounded)
   (dolist (sub '(:due :running :above :guard)) (rollback-discards-pending-base sub))

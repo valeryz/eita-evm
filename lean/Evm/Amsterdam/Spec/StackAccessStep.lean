@@ -24,10 +24,6 @@
   An invalid immediate is EELS `InvalidParameter`, an exceptional halt:
   no step relation holds.
 
-  2026-11-09: these relations used the pre-index-shifting draft
-  (`imm + 1`, `imm`, nibbles); corrected to EELS amsterdam (spec-fidelity
-  fix, together with the implementation).
-
   Per the SPEC-METHODOLOGY: new opcodes get their own relations here;
   the implementation in `Evm/Amsterdam/Vm/Effect.lean` (`doDupN`,
   `doSwapN`, `doExchange`) is the refinement target.

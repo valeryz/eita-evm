@@ -3,7 +3,7 @@ import Evm.CL.MacroSpec
 /-! # CL/Extract — Lean-derived CL opcode emission
 
 This is the foundation for retiring `axiom cl_X_macro_equals_step`
-in favor of `theorem cl_X_macro_equals_step` (issue #10).
+in favor of `theorem cl_X_macro_equals_step`.
 
 Idea:
 
@@ -26,16 +26,15 @@ The remaining trust point is a SINGLE global axiom:
 of `interp f`." That's the bridge between Lean and SBCL; everything
 else is provable.
 
-## Comparison with the current axiom shape
+## Comparison with a per-opcode axiom shape
 
-  * Today: ~90 opaques + ~90 axioms in OpRefinement.lean. Each
-    asserts `sbclMacroOpX = MacroSpec.stepX`. Bridge per opcode.
+  * Per opcode: one opaque + one axiom per op, each asserting
+    `sbclMacroOpX = MacroSpec.stepX`.
   * Extracted: 1 axiom asserting `interp f ≡ sbcl_eval (toCL f)`.
     Per-opcode soundness becomes a theorem `interp opForm =
     stepX`, provable inside Lean.
 
-For now, prototype with one opcode (ADD). The pattern then
-generalizes mechanically. -/
+The pattern is shown on ADD first and generalizes mechanically. -/
 
 namespace Evm.CL.Extract
 
@@ -1547,8 +1546,8 @@ This is the load-bearing claim: extracting `addForm` produces a
 CL form whose Lean-level semantics agrees with `stepBinOp 3 (· + ·)`.
 
 Closing this in Lean replaces the existing
-`axiom cl_add_macro_equals_stepBinOp`. The audit pass that
-caught the EXP bug becomes redundant for ADD — the proof IS the
+`axiom cl_add_macro_equals_stepBinOp`. The differential audit
+pass becomes redundant for ADD — the proof IS the
 correctness check. -/
 
 /-- The Lean-level extraction soundness for ADD: applying `addForm`'s
@@ -1973,7 +1972,7 @@ theorem not_extract_correct
   | [] => simp [Form.interp, h]
   | _ :: _ => simp [Form.interp, h, Env.set]
 
-/-- DIV/MOD: interp is now SEMANTICALLY CORRECT (binOp interp recognizes
+/-- DIV/MOD: interp is SEMANTICALLY CORRECT (binOp interp recognizes
     'floor' → BitVec.udiv, 'mod' → BitVec.umod). However, simp can't
     reduce the nested `match Form.interp env s (var "b") with | none =>
     none | some ... => if cv = 0 then ... else ...` to a clean record

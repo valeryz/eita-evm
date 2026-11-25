@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86CallGas — `_eita_call_gas{,_frontier,_tangerine}` for x86-64.
 
-  Stage 4w of #238. The ARM64 routines (`ARM64.CallGas`) are AAPCS64 programs
+  The ARM64 routines (`ARM64.CallGas`) are AAPCS64 programs
   over x0–x4; the x86-64 ones are the SAME plan (`CallGasDenote.plan*`) as
   `AInstr` programs over the registers whose x86-64 homes are the SysV
   argument registers:

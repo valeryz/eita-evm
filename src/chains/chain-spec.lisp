@@ -7,11 +7,12 @@
 ;;;;   identity      name id genesis-path banner rpc-url cache-dir
 ;;;;   tip           reorg-depth (blocks a reorg may undo; 0: final at once)  — snapshot-world.lisp
 ;;;   lazy state    prestate-overlay (pre-block state from debug traces, one fetch per block)
-;;;;   per block     block-setup (fork table, chain hardfork flags)   — chains/driver.lisp
+;;;;   per block     fork-ord (n ts → the fork of a block, when the chain has a schedule: the
+;;;;                 Engine API checks a payload's method version by it) block-setup (fork
+;;;;                 table, chain hardfork flags)                     — chains/driver.lisp
 ;;;;                 pre-block post-block (system calls)              — block-system.lisp
 ;;;;                 system-rule (a system call's warm-up, GASPRICE, end) — block-system.lisp
 ;;;;   per tx        run-tx (non-user tx kinds) tx-prewarm upfront-extra fee — evm/run-tx.lisp
-;;;;   receipts      receipt-encode                                   — receipts.lisp
 ;;;;   header        header-foreign (fields the chain defines otherwise: not compared,
 ;;;;                 named in the banner)                             — receipts.lisp
 ;;;;   observers     observe-kinds (NIL = everything, call frames included) — src/evm/
@@ -33,7 +34,6 @@
    run-evm-tx. A chain with non-user tx kinds (OP deposits) dispatches here.")
 
 
-(defvar *chain-receipt-encode-hook* nil)   ; owned by receipts.lisp (loaded later); declared for install
 (defvar *chain-header-foreign* '())        ; owned by receipts.lisp; declared for install
 (defvar *chain-observe-kinds* nil
   "What this chain's observers record (NIL: everything). Arc's records predate call frames.")
@@ -41,8 +41,8 @@
 (defstruct chain-spec
   (name "Ethereum") (id 1) genesis-path (banner "") rpc-url cache-dir prestate-overlay
   (reorg-depth 64)
-  block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
-  receipt-encode header-foreign observe-kinds
+  fork-ord block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
+  header-foreign observe-kinds
   precompile-p precompile-run frame-init frame-init-log selfdestruct p256verify)
 
 (defvar *chain-spec* nil "The installed chain-spec.")
@@ -64,7 +64,6 @@
         *chain-tx-prewarm-hook* (chain-spec-tx-prewarm spec)
         *chain-upfront-extra-hook* (chain-spec-upfront-extra spec)
         *chain-fee-hook* (chain-spec-fee spec)
-        *chain-receipt-encode-hook* (chain-spec-receipt-encode spec)
         *chain-header-foreign* (chain-spec-header-foreign spec)
         *chain-precompile-p* (chain-spec-precompile-p spec)
         *chain-precompile-hook* (chain-spec-precompile-run spec)

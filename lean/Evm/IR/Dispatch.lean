@@ -131,8 +131,8 @@ def Op.handler (fork : Evm.Fork) (op : Op) : Option Handler := Id.run do
   | .jumpdest   => some Instructions.jumpdest
   -- 0x60..0x7f: PUSH-N. The IR carries `imm` for compile-time analysis;
   -- the canonical handler reads the immediate from bytecode at runtime.
-  -- The Phase 2a compiler must guarantee bytecode[pc+1..pc+1+n] = imm
-  -- (proven by the compile-loop's correctness — Phase 4 obligation).
+  -- The compiler must guarantee bytecode[pc+1..pc+1+n] = imm
+  -- (an obligation of the compile loop's correctness proof).
   | .push n _   => some (Instructions.push n)
   -- 0x80..0x8f, 0x90..0x9f, 0xa0..0xa4: parametric stack/log ops
   | .dup n      => some (Instructions.dup n)
@@ -142,7 +142,7 @@ def Op.handler (fork : Evm.Fork) (op : Op) : Option Handler := Id.run do
   -- binds the repricing fork's own tested handler (the same definition
   -- that fork's Effect step1 / interpreter uses). Berlin's EIP-2929
   -- warm/cold handlers are Handler-shaped because the accessed-
-  -- address/-slot sets live in `evm.env` (#206); every fork ≥ berlin
+  -- address/-slot sets live in `evm.env`; every fork ≥ berlin
   -- falls through its step1 chain to Berlin's `do*Pure` (London
   -- overrides only SSTORE — EIP-3529 refund).
   | .sload =>
@@ -192,7 +192,7 @@ def Op.handler (fork : Evm.Fork) (op : Op) : Option Handler := Id.run do
     then some Evm.TangerineWhistle.Vm.Instructions.extcodecopy
     else some Instructions.extcodecopy
   -- Post-Frontier additions, gated on their INTRODUCING fork and
-  -- bound to that fork's handler. Per-fork repricings are #223.
+  -- bound to that fork's handler.
   | .shl =>
     if fork.atLeast .constantinople
     then some Evm.Constantinople.Vm.Instructions.shl else none

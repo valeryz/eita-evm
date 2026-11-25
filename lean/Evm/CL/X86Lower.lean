@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86Lower — lowering `AInstr` to x86-64, and the two-operand problem.
 
-  Stage 2 of #238. `AInstr`'s vocabulary is already ISA-neutral — three-operand
+  `AInstr`'s vocabulary is already ISA-neutral — three-operand
   RISC forms — but x86-64's arithmetic is TWO-OPERAND and destructive (`add dst,
   src` means `dst += src`), and it has no shifted-operand add. So the lowering
   is not a plain register substitution for every form; some need expanding, and
@@ -28,13 +28,12 @@
   gadget set lands in a no-temp class, so the lowering is substitution plus
   local expansion and the five-register pool survives.
 
-  Two things this classification taught me, both corrections to my first guess:
+  Two consequences of this classification:
 
    * `csel d, a, b, hi` with `d = a` is NOT a temporary case. x86's `cmov`
      overwrites its destination when the condition holds, so "keep a, else take
-     b" is `cmov<inverted> d, b` — one instruction. My first rule called it
-     `needsTemp`, and the gadget set contains exactly one instance
-     (`cselHi x0 x0 x14`), which is how the error surfaced.
+     b" is `cmov<inverted> d, b` — one instruction, not `needsTemp`. The gadget
+     set contains exactly one instance (`cselHi x0 x0 x14`).
    * The expansion is a constant factor, not a multiple — see
      `Evm.CL.Lowering.expansion_under_a_quarter`, which counts the emitted text
      rather than estimating it.
@@ -135,10 +134,9 @@ theorem small_shift_is_one_lea :
     form (.addLsl .x16 .x16 .x14 1) = some .leaScale ∧
     form (.addLsl .x16 .x16 .x16 1) = some .leaScale := by native_decide
 
-/-- **And the one I got wrong.** `csel d, a, b, hi` with `d = a` is one `cmov`
+/-- **And the inverted case.** `csel d, a, b, hi` with `d = a` is one `cmov`
     with the condition inverted — "keep a when hi" is "take b when NOT hi" —
-    not a temporary case. The gadget set has exactly one such instruction, which
-    is how my first (pessimistic) rule was caught. -/
+    not a temporary case. The gadget set has exactly one such instruction. -/
 theorem csel_into_true_operand_inverts :
     form (.cselHi .x0 .x0 .x14) = some .inPlaceInv := by native_decide
 
@@ -147,11 +145,9 @@ theorem csel_into_false_operand_is_direct :
 
 /-! ## Instruction counts
 
-The size question — how much bigger is the x86 code — used to be answered here
-by a per-form estimate. `Evm.CL.Lowering` now emits the real text and
-`scripts/verify-x86-emit.sh` assembles it, so the counts live there, measured
-rather than modelled. (The estimate said 317 against a true 310: it charged one
-instruction for each label, which emits none, and one for each `ldpOff`,
-`cbzLbl` and register-moving shift, which emit two.) -/
+How much bigger the x86 code is gets measured, not modelled: `Evm.CL.Lowering`
+emits the real text and `scripts/verify-x86-emit.sh` assembles it, so the counts
+live there. (A per-form estimate is easy to get wrong: a label emits no
+instruction, and each `ldpOff`, `cbzLbl` and register-moving shift emits two.) -/
 
 end Evm.CL.X86Lower

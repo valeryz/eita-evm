@@ -4,13 +4,12 @@
   (`_eita_next`), the exit (`_eita_sync_and_ret`), the fault stubs, the JIT's
   chunk entry (`_eita_run_chunk`) and its continuation load.
 
-  Stage 4r of #238. Until now these were the last assembly in the tree written
-  as STRINGS (`Evm/CL/ARM64.lean`, `Evm/CL/ARM64/JIT.lean`), and the JIT's
-  byte path re-wrote `_eita_run_chunk` a second time as `Item`s — the
-  text/bytes duplication the handler work retired. Each program here is gated
-  text-identical against the string it replaces (the string stays as the
-  specification) and, for the JIT entry, bytes-identical against the
-  hand-written item list; the emitters then print the program.
+  The text and the JIT's bytes come from one program, so there is no second
+  hand-written copy of `_eita_run_chunk` as `Item`s. Each program here is gated
+  text-identical against the reference string in `Evm/CL/ARM64.lean` /
+  `Evm/CL/ARM64/JIT.lean` (the string is the specification) and, for the JIT
+  entry, bytes-identical against the reference item list; the emitters print
+  the program.
 
   Two forms carry the only genuine per-path difference: the Mach-O
   `@PAGE`/`@GOTPAGE` pairs the linker resolves become an absolute-address

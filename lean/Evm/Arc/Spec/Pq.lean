@@ -19,9 +19,9 @@
 
   Ported against the real chain call, which is also pinned as an example below:
   block 21 452 605 tx 17, a STATICCALL at depth 4 into 0x1800…0004 with 8 132
-  bytes of input, `gasUsed = 230 006`, output `0x…01`. That block is where the
-  continuous replay stopped (stop #14) — the address was in `arc-precompile-p`
-  but had no implementation, so the seam raised instead of guessing.
+  bytes of input, `gasUsed = 230 006`, output `0x…01`. An address in
+  `arc-precompile-p` without an implementation makes the seam raise instead of
+  guessing.
 -/
 
 import Evm.Arc.Spec.NativeCoin

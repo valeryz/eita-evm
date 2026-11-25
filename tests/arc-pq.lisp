@@ -1,6 +1,6 @@
 ;;;; test-arc-pq.lisp — the Arc PQ precompile (0x1800…0004) against the chain.
 ;;;;
-;;;; The fixture is the REAL call that stopped the continuous replay (stop #14):
+;;;; The fixture is a REAL call on Arc mainnet:
 ;;;; block 21 452 605 tx 17, a STATICCALL at depth 4 into 0x1800…0004 with 8 132
 ;;;; bytes of input. Alchemy's callTracer reports gasUsed = 230 006 and output
 ;;;; 0x…01 for it, and those two numbers are what this file asserts.

@@ -1,7 +1,7 @@
 /* test_interp.c — validate the threaded interpreter (handlers.S → eita_run)
  * with no Lisp/Lean: set up an EvmState the way replay-cl does (incl. the cb
- * vtable + cb_ctx the stale eita_run_program omits), run simple bytecode, check
- * the 32-byte RETURN. Validates the aarch64-Linux ELF port of handlers.S (#249).
+ * vtable + cb_ctx that eita_run_program omits), run simple bytecode, check
+ * the 32-byte RETURN. Validates the aarch64-Linux ELF port of handlers.S.
  * Build: clang handlers(-elf).o eita_compute.c tx_state.c <keccak>.c test_interp.c */
 #include <stdint.h>
 #include <stdio.h>
@@ -15,7 +15,7 @@ void eita_set_fork(uint64_t ord);
 static int g_fail = 0;
 
 /* A callback that CHECKS its arguments: the Rosetta vectors' fake callbacks
- * ignore theirs, which is how the x86-64 argument staging bugs got through. */
+ * ignore theirs, so they cannot catch an x86-64 argument-staging bug. */
 static uint64_t g_ecc_calls = 0, g_ecc_bad = 0;
 static uint64_t cb_ext_code_copy_check(void *ctx, const u256_t *addr, uint8_t *dst,
                                        uint64_t src_off, uint64_t len) {
@@ -41,7 +41,7 @@ static void check_extcodecopy(void) {
     /* PUSH1 0, PUSH1 0, LOG0 first: a callback-bearing op whose ARM64 handler leaves a
      * memory POINTER in x4 (the fifth argument register), so EXTCODECOPY's len is
      * checked against a stale value that can never equal 9 — the handler must load
-     * len itself (f812945 left it inherited from the gas gadget; mainnet 4,972,698).
+     * len itself, not inherit it from the gas gadget (seen on mainnet block 4,972,698).
      * Then PUSH1 9 (len), PUSH1 7 (src), PUSH1 0x20 (dst), PUSH2 0x1234 (addr),
      * EXTCODECOPY, STOP. */
     uint8_t code[] = {0x60,0, 0x60,0, 0xa0, 0x60,9, 0x60,7, 0x60,0x20, 0x61,0x12,0x34, 0x3c, 0x00};
@@ -168,8 +168,7 @@ static void check_push_end_cases(void) {
 }
 
 /* EIP-4844 (Cancun): BLOBHASH reads the tx's versioned-hash table (state->blob_hashes,
- * blob_hash_count) and BLOBBASEFEE the block's fee (state->blob_base_fee); both were
- * stubs pushing 0 until 2026-10-25. Runs CODE with two hashes installed and the fee
+ * blob_hash_count) and BLOBBASEFEE the block's fee (state->blob_base_fee). Runs CODE with two hashes installed and the fee
  * set; reports the returned word's low 8 bytes and the gas used. */
 static void run_blob(const uint8_t *code, int len, uint64_t fee, uint64_t *val_out, uint64_t *gas_out) {
     EvmState     *st    = calloc(1, sizeof(EvmState));

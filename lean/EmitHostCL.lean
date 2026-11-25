@@ -10,6 +10,10 @@ import Evm.Arc.Spec.NativeCoin
 import Evm.Arc.Spec.Pq
 import Evm.Arc.Spec.BlockSystem
 import Evm.CL.ForkEmit
+import Evm.Optimism.Replay.Emit  -- the OP-Stack fork table, L1 fee, operator fee, failed deposit; proved there
+import Evm.Optimism.Beryl.Spec.NativePrecompiles  -- Base's native precompiles: table, host-op gas; proved there
+import Evm.Optimism.Denim.Spec.BaseTime  -- Denim's timestamp schedule; proved there
+import Evm.Optimism.Fjord.Spec.FastLz  -- the FastLZ length (the Fjord L1 fee's size)
 import Evm.CL.EffectSelfdestruct  -- the derived cb-selfdestruct effect; proved in EffectSelfdestructProof
 import Evm.CL.EffectSettle        -- the derived fee settlement; proved in EffectSettleProof
 import Evm.CL.EffectEndTx         -- the derived end-of-tx deletions; proved in EffectEndTxProof
@@ -35,7 +39,7 @@ open Evm.CL.GasEmit (Expr sha256Gas ripemd160Gas identityGas ecrecoverGas p256ve
   bn256AddGas bn256MulGas bn256PairingGas intrinsicGas codeDepositGas createGas createInitcodeOversize
   selfdestructRefund refundCap retain63of64 newAccountFee blockBaseReward
   uncleInclusionBonus uncleReward effectiveGasPrice priorityFee calldataFloorGas txGasUsed selfdestructColdGas delegateAccessGas
-  fakeExponentialCL blobBaseFee maxBlobGasPerBlock txMaxGasLimit
+  fakeExponentialCL blobBaseFee maxBlobGasPerBlock blobScheduleTarget blobScheduleMax blobBaseFeeUpdateFraction txMaxGasLimit
   blsG1AddGas blsG2AddGas blsMapFpToG1Gas blsMapFp2ToG2Gas blsPairingGas
   blsG1MsmBase blsG2MsmBase blsG1MsmDiscounts blsG2MsmDiscounts
   blsG1MsmMaxDiscount blsG2MsmMaxDiscount)
@@ -109,8 +113,8 @@ def main : IO Unit := do
   IO.println s!"  {revertDispatchCL})"
   IO.println ""
   IO.println ";; BLOCKHASH validity window (EELS block_hash): n < cur AND cur <= n+256"
-  IO.println ";; (oldest valid block = cur-256, inclusive). No subtraction => the #265"
-  IO.println ";; off-by-one is unrepresentable."
+  IO.println ";; (oldest valid block = cur-256, inclusive). No subtraction => an off-by-one"
+  IO.println ";; at the window's edge is unrepresentable."
   IO.println s!"(defun spec-blockhash-valid (n cur)"
   IO.println s!"  {blockhashValidCL})"
   IO.println ""
@@ -131,6 +135,9 @@ def main : IO Unit := do
   IO.println ";; the blob base fee. The one loop in the emitted formulas; `.fakeExp` terms call it."
   IO.println s!"(defun spec-fake-exponential (factor numerator denominator)"
   IO.println s!"  {fakeExponentialCL})"
+  -- FastLZ compressed length (Evm.Optimism.Fjord.Spec.FastLz; op-geth FlzCompressLen)
+  IO.println s!"(defun spec-flz-compress-len (ib)"
+  IO.println s!"  {Evm.Optimism.Fjord.Spec.flzCompressLenCL})"
   IO.println ""
   IO.println ";; Precompile gas (EIP-198/196/197/1108) and tx/CREATE/refund/reward gas,"
   IO.println ";; all emitted from Evm.CL.GasEmit — eval kernel-checked vs published numbers."
@@ -172,6 +179,10 @@ def main : IO Unit := do
     -- BPO2; Evm.CL.GasEmitCancun proves it Evm.Osaka.Spec.calculateBlobGasPriceAt)
     , ("spec-blob-base-fee",     "(excess-blob-gas fork-ord)",      blobBaseFee)
     , ("spec-max-blob-gas-per-block", "(fork-ord)",                 maxBlobGasPerBlock)   -- blobGasUsed cap
+    -- the schedule entry itself (a devnet's genesis.json blobSchedule is checked against it)
+    , ("spec-blob-schedule-target", "(fork-ord)",                   blobScheduleTarget)
+    , ("spec-blob-schedule-max",    "(fork-ord)",                   blobScheduleMax)
+    , ("spec-blob-base-fee-update-fraction", "(fork-ord)",          blobBaseFeeUpdateFraction)
     , ("spec-tx-max-gas-limit",  "()",                              txMaxGasLimit)        -- EIP-7825 (Osaka+)
     -- EELS validate_header against the parent header, every fork: the code of the first
     -- clause that raises, 0 = valid (Evm.CL.HeaderEmit.headerViolation_eq_spec; the base fee
@@ -181,6 +192,10 @@ def main : IO Unit := do
        Evm.CL.HeaderEmit.headerViolation)
     -- Ethereum mainnet fork schedule (Evm.Forks.ofBlock; proved in Evm.CL.ForkEmit)
     , ("spec-mainnet-fork-ord",  "(n ts)",                        Evm.CL.ForkEmit.mainnetForkOrd)
+    -- Hoodi testnet fork schedule (Evm.Forks.ofHoodi; proved in Evm.CL.ForkEmit)
+    , ("spec-hoodi-fork-ord",    "(ts)",                          Evm.CL.ForkEmit.hoodiForkOrd)
+    -- a devnet's: Cancun, then its genesis.json times (Evm.Fork.ofTimes; proved in Evm.CL.ForkEmit)
+    , ("spec-times-fork-ord",    "(ts prague osaka bpo1 bpo2)",   Evm.CL.ForkEmit.timesForkOrd)
     -- Circle Arc native-USDC precompiles (Evm.Arc.Spec.NativeCoin; arc-nodee76402).
     -- Circle Arc post-block compute_gas_values (Evm.Arc.Spec.BlockSystem; proved = the spec)
     , ("spec-arc-smoothed-gas-used", "(gas-used smoothed-parent alpha have-params)", Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr)
@@ -204,7 +219,30 @@ def main : IO Unit := do
     , ("spec-arc-pq-base-gas",         "()",          Evm.Arc.Spec.Pq.verifyBaseGasExpr)
     , ("spec-arc-pq-msg-word-gas",     "()",          Evm.Arc.Spec.Pq.gasPerMsgWordExpr)
     , ("spec-arc-pq-vk-len",           "()",          Evm.Arc.Spec.Pq.vkLenExpr)
-    , ("spec-arc-pq-sig-len",          "()",          Evm.Arc.Spec.Pq.sigLenExpr) ]
+    , ("spec-arc-pq-sig-len",          "()",          Evm.Arc.Spec.Pq.sigLenExpr)
+      -- OP Stack (Evm.Optimism.Replay.Emit: each proved equal to its spec function there)
+    , ("spec-op-base-fork-ord",        "(ts)",        Evm.Optimism.Replay.Emit.baseForkOrdExpr)
+    , ("spec-op-eth-analog-ord",       "(op-fork)",   Evm.Optimism.Replay.Emit.ethAnalogOrdExpr)
+    , ("spec-op-l1-fee", "(op-fork zeroes ones flz l1-base-fee overhead scalar blob-base-fee base-fee-scalar blob-base-fee-scalar)", Evm.Optimism.Replay.Emit.l1FeeExpr)
+    , ("spec-op-da-size-scaled",       "(flz)",       Evm.Optimism.Replay.Emit.daSizeScaledExpr)
+    , ("spec-op-operator-fee",         "(op-fork gas scalar constant)", Evm.Optimism.Replay.Emit.operatorFeeExpr)
+    , ("spec-op-deposit-fails", "(op-fork gas-limit intrinsic floor value balance data-len create)", Evm.Optimism.Replay.Emit.depositFailsExpr)
+      -- Base's native precompiles (Evm.Optimism.Beryl.Spec.NativePrecompiles) and Denim's
+      -- schedule (Evm.Optimism.Denim.Spec.BaseTime): each proved equal to its spec there
+    , ("spec-op-native-kind",          "(op-fork addr)", Evm.Optimism.Beryl.Spec.nativeKindExpr)
+    , ("spec-op-native-sload-gas",     "(cold)",      Evm.Optimism.Beryl.Spec.sloadGasExpr)
+    , ("spec-op-native-account-gas",   "(cold)",      Evm.Optimism.Beryl.Spec.accountGasExpr)
+    , ("spec-op-native-sstore-gas",    "(cold new-eq-cur cur-eq-orig orig-zero)", Evm.Optimism.Beryl.Spec.sstoreGasExpr)
+    , ("spec-op-native-sstore-refund-add", "(new-eq-cur cur-eq-orig orig-zero cur-zero new-zero new-eq-orig)", Evm.Optimism.Beryl.Spec.sstoreRefundAddExpr)
+    , ("spec-op-native-sstore-refund-sub", "(new-eq-cur cur-eq-orig orig-zero cur-zero)", Evm.Optimism.Beryl.Spec.sstoreRefundSubExpr)
+    , ("spec-op-native-sstore-sentry", "()",          Evm.Optimism.Beryl.Spec.sstoreSentryExpr)
+    , ("spec-op-native-transient-gas", "()",          Evm.Optimism.Beryl.Spec.transientGasExpr)
+    , ("spec-op-native-log-gas",       "(topics len)", Evm.Optimism.Beryl.Spec.logGasExpr)
+    , ("spec-op-native-keccak-gas",    "(len)",       Evm.Optimism.Beryl.Spec.keccakGasExpr)
+    , ("spec-op-native-code-deposit-gas", "(len)",    Evm.Optimism.Beryl.Spec.codeDepositGasExpr)
+    , ("spec-op-native-new-code-gas",  "(len)",       Evm.Optimism.Beryl.Spec.newCodeGasExpr)
+    , ("spec-op-denim-block-ms",       "(number)",    Evm.Optimism.Denim.Spec.blockMsExpr)
+    , ("spec-op-denim-p",              "(number)",    Evm.Optimism.Denim.Spec.isDenimExpr) ]
   for (name, args, e) in defs do
     IO.println s!"(defun {name} {args} {e.toCL})"
   -- EIP-2537 MSM gas does not fit the Expr IR: it is a 128-entry table lookup. The

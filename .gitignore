@@ -7,6 +7,8 @@
 
 # Lean build and local corpora (ethereum/tests checkouts, block files)
 lean/.lake/
+verify/velvet-slots/.lake/
+verify/protocols/.lake/
 lean/external/
 data/
 
@@ -19,8 +21,14 @@ c/libkeccak_batch.dylib
 c/libkeccak_batch.so
 c/libeita_pq.dylib
 c/libeita_pq.so
+c/libeita_base.dylib
+c/libeita_base.so
 rust/pq/target/
+rust/base/target/
+rust/engine-api/target/
+rust/reth-export/target/
 scripts/__pycache__/
 scripts/generated/__pycache__/
 ocicl/
 bin/
+tests/__pycache__/

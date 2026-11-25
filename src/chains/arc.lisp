@@ -122,7 +122,7 @@
      :rpc-url (or (sb-ext:posix-getenv "ARC_RPC_URL")
                   (if mainnet "https://rpc.mainnet.arc.io" "https://rpc.testnet.arc.io"))
      ;; ARC_CACHE_DIR: the supervisor's own $CACHE. Without it every supervisor on a box
-     ;; shared lean/external's — the fault-injection twins read and wrote production's.
+     ;; shares lean/external's (a test twin would read and write the live run's).
      :cache-dir (pathname (let ((d (sb-ext:posix-getenv "ARC_CACHE_DIR")))
                             (if (and d (plusp (length d)))
                                 (if (char= (char d (1- (length d))) #\/) d (concatenate 'string d "/"))
@@ -139,9 +139,10 @@
      :frame-init-log #'arc-value-transfer-log!    ; EIP-7708 transfer logs
      :selfdestruct #'arc-selfdestruct-check
      :p256verify t                                ; EIP-7951 at 0x100 (block 1888235 = first use)
-     ;; Arc's records predate call frames: adding them is a deliberate migration for an
-     ;; observer (its records start at the switch block), not a side effect of a restart.
-     :observe-kinds '(:storage_diff :account_diff :transfer :log :tx :block))))
+     ;; Call frames on (the execution-gas views). A live replay records them from its switch
+     ;; block on; full history comes from a re-replay from genesis in its own directory,
+     ;; swapped in at the tip (docs/eth-protocol-views.md §7.3).
+     :observe-kinds '(:storage_diff :account_diff :transfer :log :tx :block :call))))
 
 (register-chain-spec "arc-mainnet" (lambda () (arc-chain-spec "mainnet")))
 (register-chain-spec "arc-testnet" (lambda () (arc-chain-spec "testnet")))

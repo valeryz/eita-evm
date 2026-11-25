@@ -96,8 +96,8 @@ def signingHash155 (tx : Transaction) (cid : Nat) : Evm.Hash32 :=
         must be the block's (`check_transaction` 390-395, `chain_id != block
         chain_id` raises), here mainnet's `chainId = 1`, so `v ∈ {37, 38}`.
 
-    Restated 2026-11-09: this relation used to be `recoverSender tx = some
-    sender` — the implementation itself. -/
+    Stated from the EELS clauses, not as `recoverSender tx = some sender` (the
+    implementation itself). -/
 def IsRecoverSenderStep (ecrecover : Evm.Hash32 → Evm.U256 → Evm.U256 → Evm.U256 → Option Evm.Address)
     (tx : Transaction) (sender : Evm.Address) : Prop :=
   0 < tx.r.toNat ∧ tx.r.toNat < Evm.Frontier.Vm.Tx.secp256k1n ∧

@@ -1,5 +1,5 @@
 /*
- * x86_run.c — execution harness for X86Asm output (stage 4 of #238), and a
+ * x86_run.c — execution harness for X86Asm output, and a
  * minimal loader for the helper-call family.
  *
  * Usage: x86_run <hex-bytes> [arg0 [arg1]] [N=V | N=@M | ?N | !sym:off ...]

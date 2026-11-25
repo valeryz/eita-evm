@@ -1,6 +1,6 @@
 # Replay architecture: generic EVM replay, chains as specs
 
-Since 2026-10-17 the replay is one generic driver plus per-chain specs. Nothing in the
+The replay is one generic driver plus per-chain specs. Nothing in the
 generic modules knows which chain it runs; a chain changes behaviour only through the
 fields of a `chain-spec` (`src/chains/chain-spec.lisp`), which is the complete list of
 extension points.
@@ -9,7 +9,7 @@ extension points.
 
 | Module | Role |
 |---|---|
-| `src/evm/` (package `eita.evm`) | EVM core: per-fork semantics, the tiers, host callbacks, `apply-tx` (`tx.lisp`), the event stream (`stream.lisp`) and the observation seam (`observe.lisp`, `observe-tx.lisp`); chain hooks for precompiles, frame-init checks (`chain-frame-init`, the single entry point for tx, CALL and CREATE) and SELFDESTRUCT (`seams.lisp`) |
+| `src/evm/` (package `eita.evm`) | EVM core: per-fork semantics, the tiers, host callbacks, `apply-tx` (`tx.lisp`), the event stream (`stream.lisp`), the observation seam (`observe.lisp`, `observe-tx.lisp`) and subscriptions over it (`hooks.lisp`, docs/hooks.md); chain hooks for precompiles, frame-init checks (`chain-frame-init`, the single entry point for tx, CALL and CREATE) and SELFDESTRUCT (`seams.lisp`) |
 | `src/input/` (`eita.input`) | the block decoder (a JSON-RPC block object's bytes straight to a `chain-block`), and the **block source** seam: `fetch-block`, `fetch-verified-block`, `fetch-block-hash`, `fetch-receipts`, `fetch-uncles` ask `*block-source*`; `directory-block-source` reads per-block files (docs/block-input.md) |
 | `src/evm/run-tx.lisp` | one user transaction: effective gas price, upfront debit, execution, refund cap (London+), EIP-7623 floor (Prague+), fee settlement; hooks: prewarm, upfront extra, fee |
 | `src/chains/block-system.lisp` (`eita.chain`) | pre/post-block system calls: EIP-4788 (Cancun+), EIP-2935 (Prague+) by default; chain hooks |
@@ -21,14 +21,23 @@ extension points.
 
 Chain modules (system `eita/chains`): `src/chains/arc.lisp` + `arc-precompiles.lisp` (Arc:
 `arc-mainnet`, `arc-testnet`), `src/chains/op.lisp` (OP-Stack: `base`, `opt`, `world`),
-`src/chains/ethereum.lisp` (Ethereum, every fork; blocks, receipts and uncles as JSON-RPC
-results from the block source).
+`src/chains/ethereum.lisp` (Ethereum, every fork: mainnet `ethereum`, the Hoodi testnet
+`hoodi` and a `devnet` from its genesis.json, which differ only in data — chain id, genesis,
+the Lean fork schedule, the DAO block;
+blocks, receipts and uncles as JSON-RPC results from the block source).
 
-Where blocks come from is not part of this repository's execution path: a block source
-(`make-block-source` in `src/input/source.lisp`) supplies them. The shipped source reads files
-you produce with your own node or tools; a source that follows a node over RPC, reads
-archives, or serves lazy state is plugged in the same way (`--source FILE` / `EITA_SOURCE`,
-a Lisp file that installs it, or an ASDF system that depends on `eita` and sets it).
+Blocks come from a block source (`make-block-source` in `src/input/source.lisp`); the driver
+runs whatever it supplies the same way. Two sources ship here:
+
+- **the Engine API** (`src/engine/engine.lisp`, `bin/eita engine`): a consensus client sends
+  each new block; the driver's verdict, after the block's state root, is the answer (VALID,
+  or INVALID with the state rolled back to the parent). `docs/run-a-node.md`.
+- **block files** (`directory-block-source`, `bin/eita replay --blocks`): history you produce
+  with your own node or tools. `docs/block-input.md`.
+
+A source that follows a node over RPC, reads archives, or serves lazy state is plugged in the
+same way (`--source FILE` / `EITA_SOURCE`, a Lisp file that installs it, or an ASDF system
+that depends on `eita` and sets it).
 
 ## Adding a chain
 

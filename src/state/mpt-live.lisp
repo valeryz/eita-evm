@@ -1,7 +1,7 @@
 ;;;; mpt-live.lisp — incremental account state-root validator wired into the
 ;;;; live SBCL mainnet replay, running on a SEPARATE worker thread.
 ;;;;
-;;;; Design (see #237 / project_state_root_validation):
+;;;; Design:
 ;;;;   * The EXECUTION thread captures, per block, the set of addresses whose
 ;;;;     account leaf (nonce/balance/code/storageRoot) changed. The source is
 ;;;;     the revert journal (storage/balance/nonce/created carry the addr) plus
@@ -45,7 +45,7 @@
      :all                storage invalidated WHOLESALE — re-read the full list
    Reset at each post-block boundary after the snapshot is taken.
 
-   Per-slot, not addr-level, because the worker now keeps a PERSISTENT storage
+   Per-slot, not addr-level, because the worker keeps a PERSISTENT storage
    trie per contract: touching Arc's largest contract (14 618 285 slots, 70% of
    the state) must cost the ~10 changed slots, not a 93 s / 7.6 GB rebuild of the
    whole thing, and it is touched in 10-46% of blocks.")
@@ -358,7 +358,7 @@
          (present (getf snap :present)))
     (multiple-value-bind (sroot has-storage) (mpt-apply-storage! ws snap addr)
       ;; Membership mirrors %sr-collect: present iff balance>0 ∨ nonce>0 ∨
-      ;; has-code ∨ has-nonzero-storage ∨ in world-accounts. HAS-STORAGE now comes
+      ;; has-code ∨ has-nonzero-storage ∨ in world-accounts. HAS-STORAGE comes
       ;; from the persistent trie, not from the snapshot: an incremental snapshot
       ;; only carries the CHANGED slots and so cannot answer the question.
       (if (or (plusp balance) (plusp nonce)

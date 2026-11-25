@@ -1,7 +1,7 @@
 /-
   Evm.CL.Pressure — how many scratch registers the gadgets actually need.
 
-  Stage 2 of #238. `Evm.CL.Target` fixed the role assignment and showed x86-64
+  `Evm.CL.Target` fixes the role assignment and shows x86-64
   has FIVE scratch registers (rax, rcx, rdx, rsi, rdi) once TOS is cached and
   NOS is dropped. The structured gadgets in `AsmCore` use SIX ARM64 registers as
   temporaries — x0, x4, x14, x15, x16, x17 — so the obvious worry is that the
@@ -187,8 +187,8 @@ theorem peaks :
     constraint to check first if one grows. -/
 theorem bound_is_tight : keccakGasP = x86Scratch := by native_decide
 
-/-- Every temporary but x4 is used — x4 left the gadgets when EXTCODECOPY moved onto
-    memRangeInstrs (its operands are now range-checked over all 256 bits). -/
+/-- Every temporary but x4 is used (EXTCODECOPY's gas gadget is `memRangeInstrs`,
+    which range-checks its operands over all 256 bits without x4). -/
 theorem all_temps_but_x4_are_used :
     (allTemps.filter (· != .x4)).all (fun r =>
       [memExpandInstrs, keccakGasInstrs 30, copyGasInstrs 3, mcopyGasInstrs 3,
@@ -222,7 +222,7 @@ def interferes (a b : Reg) : Bool :=
   gadgetSet.any (fun p => (List.range p.length).any (fun i => liveAt p a i && liveAt p b i))
 
 /-- **x4 collides with nothing; every other pair of temporaries does.** So the x86
-    map's x4/x16 merge stays valid, and is no longer the only possible one. -/
+    map's x4/x16 merge is valid, though not the only possible one. -/
 theorem only_x4_is_free :
     allTemps.all (fun b => !interferes .x4 b) ∧
     (allTemps.filter (· != .x4)).all (fun a =>

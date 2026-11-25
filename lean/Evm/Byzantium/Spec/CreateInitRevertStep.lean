@@ -26,15 +26,14 @@
       account creations performed inside the init code roll back.
       Only the sender's nonce bump survives.
 
-  This spec was missing until 2026-05-30. Found via:
+  Exercised by:
     stCreate2/RevertOpcodeCreate_*
     stCreate2/RevertOpcodeInCreateReturnsCreate2_*
     stCreate2/returndatacopy_following_revert_in_create_*
 
-  Before the fix, our implementation treated REVERT as a normal CREATE
-  success and either attempted to deposit the REVERT data as code or
-  fell into the deposit-OOG branch — losing both the nonce bump and
-  the returndata.
+  An implementation that treats REVERT as a normal CREATE success either
+  deposits the REVERT data as code or falls into the deposit-OOG branch,
+  losing both the nonce bump and the returndata.
 -/
 
 import Evm.Frontier.Vm

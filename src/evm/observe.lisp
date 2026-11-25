@@ -26,7 +26,7 @@
 ;;; revert net out. Transfers and logs are EVENTS and follow the journal's frame scoping:
 ;;; pending in a per-tx vector, a frame marks it where it snapshots the journal and
 ;;; truncates to the mark where it reverts; the survivors are the committed ones.
-(defstruct observer name attach start block tx-end tx-result)
+(defstruct observer name attach start block tx-end tx-result retain)
 (defmacro observe (hook &rest args)
   "Call the installed observer's HOOK with ARGS (evaluated only when there is one)."
   (let ((acc (intern (format nil "OBSERVER-~A" (symbol-name hook)) :eita.evm)) (o (gensym "O")) (f (gensym "F")))

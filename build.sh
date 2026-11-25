@@ -70,9 +70,10 @@ else
   echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h}"
 fi
 
-echo "[4/6] build libeita, libkeccak_batch, libeita_pq ($(uname -s)/$(uname -m))"
+echo "[4/6] build libeita, libkeccak_batch, libeita_pq, the Engine API edge ($(uname -s)/$(uname -m))"
 make -C c clean >/dev/null && make -C c all >/dev/null
 ls -1 c/lib*."$LIBEXT"
+( cd rust/engine-api && cargo build --release --quiet )
 
 echo "[5/6] Lisp dependencies (ocicl.csv)"
 command -v ocicl >/dev/null 2>&1 || { echo "ERROR: ocicl not found (https://github.com/ocicl/ocicl)" >&2; exit 1; }
@@ -92,7 +93,8 @@ rm -f /tmp/eita-build-$$.log
 [ -x bin/eita ] || { echo "ERROR: bin/eita was not built" >&2; exit 1; }
 ## The native artifacts beside the executable: bin/ moves as a whole (src/native/libraries.lisp
 ## looks next to the executable first).
-for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" lean/.lake/build/bin/emitJIT; do
+for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" c/libeita_base."$LIBEXT" lean/.lake/build/bin/emitJIT \
+         rust/engine-api/target/release/eita-engine-api; do
   [ -f "$f" ] && cp -p "$f" bin/
 done
 
@@ -101,3 +103,4 @@ if [ "$LEANLESS" = 1 ]; then echo "  (Leanless -> run interp-only: EITA_NO_JIT=1
 echo "  REPL:      bin/eita repl                                  (docs/quickstart.md)"
 echo "  fixtures:  bin/eita fixtures <BlockchainTests dir or file> (docs/testing.md)"
 echo "  a chain:   bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   (docs/block-input.md)"
+echo "  a node:    bin/eita engine --chain hoodi --state DIR --jwt FILE   (docs/run-a-node.md)"

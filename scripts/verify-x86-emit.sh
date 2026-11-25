@@ -3,8 +3,7 @@
 #
 # The Lean side (Evm.CL.Lowering) proves COVERAGE: no gadget emits an
 # «unlowered» marker. It cannot know whether what it emitted is encodable x86 —
-# and the first version was not: `[r12 + r13*32 - 48]` has a SIB scale of 32,
-# which x86 does not have. This gate is the assembler's opinion, which is the
+# e.g. `[r12 + r13*32 - 48]` needs a SIB scale of 32, which x86 does not have. This gate is the assembler's opinion, which is the
 # authority on that question.
 #
 # Mirrors scripts/verify-asm-encode.sh, which does the same for ARM64.

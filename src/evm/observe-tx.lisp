@@ -127,7 +127,7 @@
   "Driver hook before a tx's first account fault; opens the tx's read/write stream when a
    subscriber wants it (the storage view)."
   (setf *last-tx-logs* '()
-        *view-log* *capture-reads*
+        *view-log* (and (or *capture-reads* *readset-dir*) t)   ; the recorder attaches after block 1
         (fill-pointer *obs-events*) 0)
   (when *observer*
     (setf *observe-capture* t)

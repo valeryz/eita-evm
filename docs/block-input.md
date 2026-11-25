@@ -1,7 +1,9 @@
 # Replaying a chain from your own block files
 
-Eita executes blocks; it does not fetch them. You supply blocks — from your own node, an
-archive you exported, a test generator — as files, and the replay driver runs them with
+Eita has two block sources. As an execution client, it takes each new block from a
+consensus client over the Engine API (`bin/eita engine`, `docs/run-a-node.md`). To replay
+history — the subject of this document — you supply blocks: from your own node, an archive
+you exported, a test generator, as files, and the replay driver runs them with
 the same code paths it runs everywhere: the chain spec's fork table and rules, the
 transactions, the system calls, the header gate (EELS `validate_header`/`validate_ommers`),
 the receipts root and logs bloom, and, in full-state mode, the state root at anchors.
@@ -89,10 +91,19 @@ state is `<PREFIX>_FROM_GENESIS`.
 - Without full state, a run needs a block source that also serves state (lazy state: each
   account and slot loaded on first touch at the block before the range). The file source
   serves blocks only, so it refuses lazy runs.
+- The Hoodi testnet runs as `--chain hoodi` (mainnet's rules, Hoodi's id, genesis
+  `chains/hoodi/genesis.json` from eth-clients/hoodi, and fork schedule `Evm.Fork.ofHoodi`).
+- A devnet on mainnet's rules (geth `--dev`, Kurtosis) runs as `--chain devnet --genesis FILE`:
+  its chain id and fork times are read from that genesis.json, the fork of each block is
+  `Evm.Fork.ofTimes` at those times, and a genesis that is not of that shape (a fork out of
+  order or after BPO2, a blob schedule other than the Lean one) is refused.
 - The other chains run the same way: `--chain arc-mainnet` / `arc-testnet`
   (`src/chains/arc.lisp`; the chain's `genesis.json` via `--genesis`), `--chain base` /
-  `opt` / `world` (`src/chains/op.lisp`, OP Stack; these runs are lazy-state, so they need
-  a state-serving source).
+  `opt` / `world` (`src/chains/op.lisp`, OP Stack: `--genesis FILE` runs them from the
+  chain's genesis alloc — Base's is the superchain-registry `base.json.zst` of the last revision that listed
+  Base (`5b055be`), decompressed with that revision's `superchain/extra/dictionary` —, with
+  the deposit receipts in the receipts root and the L1 data fee computed from the L1Block
+  predeploy; `--lazy` with a state-serving source runs them without full state).
 - `EITA_NO_JIT=1` runs the threaded interpreter only; by default hot code is compiled by
   the Lean-emitted JIT.
 

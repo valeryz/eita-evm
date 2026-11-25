@@ -1206,8 +1206,8 @@ theorem cacheIncoherent_sound (is : List AInstr) (h : cacheIncoherent is = []) (
 
 /-! ## What the soundness proof made the check reject
 
-The value numbering this replaced (a join over all paths with a `phi` per difference)
-accepted each of these bodies, and each breaks the cache on some run: -/
+A join-based value numbering (a join over all paths with a `phi` per difference)
+accepts each of these bodies, and each breaks the cache on some run: -/
 
 /-- A join took the reloaded TOS of the sp ≥ 1 side for the sp < 1 side, and a push after
     the join made the stale word owed (sp₀ = 0: x6 is not stack[0] at exit). -/

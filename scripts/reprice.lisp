@@ -344,7 +344,7 @@
 ;; two view-log functions are wrapped above), the attach below keeps it on.
 (setf *observe-calls* t *capture-reads* t)
 ;; The per-tx file opens now, not at attach: attach runs after the first block, whose txs
-;; would otherwise be missing from txs.tsv (the totals were never affected).
+;; would otherwise be missing from txs.tsv (the totals count them either way).
 (when (nonempty-env "REPRICE_TX_TSV")
   (ensure-directories-exist (rp-out "x"))
   (setf *rp-tx-out* (open (rp-out "txs.tsv") :direction :output :if-exists :supersede))
@@ -354,7 +354,7 @@
        :name "reprice-8037-8038"
        :attach (lambda ()
                  ;; a reads subscriber turns the storage view's write stream on (SSTOREs)
-                 (attach-subscriber! "reprice-reads" (lambda (ev) ev) :wants-reads t
+                 (attach-subscriber! "reprice-reads" (lambda (ev) ev) :on-access (constantly nil)
                                                      :on-finalize #'rp-report))
        :tx-end #'rp-tx-end
        :tx-result #'rp-tx-result))

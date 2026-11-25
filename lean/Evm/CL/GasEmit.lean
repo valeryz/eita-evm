@@ -2,15 +2,15 @@ import Evm.Cancun.Spec.BlobTx
 import Evm.Cancun.Spec.KzgStep
 import Evm.Optimism.Fjord.Spec.P256Verify
 
-/-! # Evm.CL.GasEmit — arithmetic gas IR, emitted to CL (closes #260 / #261)
+/-! # Evm.CL.GasEmit — arithmetic gas IR, emitted to CL
 
 `HostEmit.Pred` is a boolean decision IR; consensus gas formulas need integer
 arithmetic. This module adds an `Expr` IR over named Nat inputs with the SAME
 `eval`/`toCL` discipline: `eval` is the Lean semantics we check against the EIP
-numbers, `toCL` emits the identical computation as Common Lisp. The hand-written
-`modexp-gas` in `src/evm/precompiles.lisp` (a parallel, fork-blind copy that caused
-the Byzantium divergence #260) is replaced by the emitted `spec-modexp-gas`; the
-byte-reading stays the hand-written seam, exactly like `Pred`'s world queries. -/
+numbers, `toCL` emits the identical computation as Common Lisp. MODEXP gas is the
+emitted `spec-modexp-gas` (one fork-aware definition, no parallel hand-written copy
+in `src/evm/precompiles.lisp`); the byte-reading stays the hand-written seam, exactly
+like `Pred`'s world queries. -/
 
 namespace Evm.CL.GasEmit
 
@@ -372,7 +372,7 @@ def selfdestructRefund : Expr := .ite fork (.lit 11) (.lit 24000) (.lit 0)
 def refundCap : Expr := .fdiv (.var "gas-used") (.ite fork (.lit 11) (.lit 2) (.lit 5))
 
 /-- EIP-150 63/64 retention: forwarded gas = gas (pre-TangerineWhistle, fork<3) else
-    gas − ⌊gas/64⌋. Same quantity CALL derives — used to kill the CREATE asymmetry. -/
+    gas − ⌊gas/64⌋. Same quantity CALL derives, so CREATE and CALL share it. -/
 def retain63of64 : Expr :=
   .ite fork (.lit 3) (.var "gas") (.sub (.var "gas") (.fdiv (.var "gas") (.lit 64)))
 
@@ -467,6 +467,10 @@ def maxBlobGasPerBlock : Expr := bySchedule 786432 1179648 1966080 2752512
     reserve-branch ratio `blob_gas_used · delta // max`. -/
 def blobScheduleMax   : Expr := bySchedule 6 9 15 21
 def blobScheduleDelta : Expr := bySchedule 3 3 5 7
+/-- `BLOB_SCHEDULE_TARGET` (blobs): with `blobScheduleMax` and `blobBaseFeeUpdateFraction`, the
+    entry a network's genesis.json `blobSchedule` must name for the fork (a devnet's, checked
+    in src/chains/ethereum.lisp: the fork ords carry these). -/
+def blobScheduleTarget : Expr := bySchedule 3 6 10 14
 
 /-- `calculate_blob_gas_price(excess) = fake_exponential(MIN_BASE_FEE_PER_BLOB_GAS = 1,
     excess, fraction)`. Inputs: `excess-blob-gas`, `fork-ord`. -/

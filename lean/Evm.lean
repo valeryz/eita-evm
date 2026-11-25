@@ -13,6 +13,7 @@ import Evm.Rlp
 import Evm.Crypto.Hash
 import Evm.Trie
 import Evm.Forks
+import Evm.Testnets
 
 -- Per-fork modules. Each fork is a self-contained namespace mirroring the
 -- corresponding EELS package; pre-Prague forks currently expose only a
@@ -115,8 +116,6 @@ import Evm.Optimism.Holocene.Spec.Eip1559Params
 import Evm.Optimism.Isthmus.Spec.PragueInheritance
 import Evm.Optimism.Bedrock.Transactions
 import Evm.Optimism.Bedrock.Fork
-import Evm.Optimism.Replay.Fetch
-import Evm.Optimism.Replay.Parse
 import Evm.Optimism.Replay.L1Fee
 import Evm.Optimism.Replay.FeeRouting
 import Evm.Optimism.Canyon.Fork
@@ -125,6 +124,7 @@ import Evm.Optimism.Fjord.Fork
 import Evm.Optimism.Fjord.P256VerifyImpl
 import Evm.Optimism.Granite.Fork
 import Evm.Optimism.Isthmus.Fork
+import Evm.Optimism.Denim.Fork
 import Evm.Optimism.Replay.Dispatch
 import Evm.Optimism.Isthmus.Spec.Soundness
 import Evm.Optimism.Fjord.Spec.Soundness
@@ -163,7 +163,10 @@ import Evm.CL.StorageCache
 import Evm.CL.MacroSpec
 import Evm.CL.Extract
 
--- Block-STM spec (#255): never imported before, so `lake build Evm` never compiled it.
+-- Block-STM spec.
 import Evm.Parallel.BlockSTM
 import Evm.Parallel.Reads
 import Evm.Parallel.Scheduler
+
+-- Read sets (docs/readset.md): ReadKey, AgreeOn, Sufficient.
+import Evm.Witness.ReadSet

@@ -4,10 +4,10 @@ import Evm.CL.GasEmit
   Evm.CL.ARM64.RunProgramDenote — what `_eita_execute_program` computes, and
   where it deliberately differs from `IR.executeProgram`.
 
-  Stage 1 of #238. `ARM64.RunProgram` emits the chunk-dispatch trampoline as 26
-  lines of asm, "case-for-case against the spec" per its header. Writing the
-  loop down as a function found that the cases are NOT in the same order, and
-  the difference is observable:
+  `ARM64.RunProgram` emits the chunk-dispatch trampoline as 26
+  lines of asm, "case-for-case against the spec" per its header. As a function,
+  the loop's cases are NOT in the same order as the spec's, and the difference
+  is observable:
 
       spec (IR.Execute.executeProgram)        asm (Lrp_loop)
       ──────────────────────────────────      ──────────────────────────────
@@ -26,8 +26,7 @@ import Evm.CL.GasEmit
   That case is unreachable through the host — `run-jit-frame` passes
   `gas_left + 1 ≥ 1` and never enters on a halted frame — and the asm's
   behaviour is the more useful one (an already-finished frame is not out of
-  gas). It is recorded here rather than left as the header's "case-for-case",
-  which is what it is not.
+  gas). It is recorded here because the header's "case-for-case" is not exact.
 
   ## The dispatch table
 
@@ -37,9 +36,9 @@ import Evm.CL.GasEmit
   src/generated/host.lisp). `tableLookup_build` proves the indexed load
   answers exactly what the first-match-wins scan of the manifest answers, given
   no chunk address is 0 (which the emitted builder checks) — so
-  `runAsm_eq_runSpec` is stated against the manifest itself. (The scan it
-  replaced cost ~400-1,800 iterations per chunk transition on near-tip
-  mainnet contracts and made the JIT tier 2x slower than the interpreter.)
+  `runAsm_eq_runSpec` is stated against the manifest itself. (A linear scan
+  costs ~400-1,800 iterations per chunk transition on near-tip mainnet
+  contracts and makes the JIT tier 2x slower than the interpreter.)
 
   ## What this module does not cover
 

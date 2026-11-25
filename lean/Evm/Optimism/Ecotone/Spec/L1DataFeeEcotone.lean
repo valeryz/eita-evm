@@ -22,11 +22,6 @@
   First Ecotone block: op-geth (`NewL1CostFunc`, lines 169-179) uses the
   Bedrock cost function while the L1Block's blob base fee and both Ecotone
   scalars are still zero (`firstEcotoneBlock`).
-
-  Until 2026-11-02 `l1FeeWei` ignored `l1BlobBaseFee`, weighted the blob
-  scalar with `l1BaseFee`, and took a pre-divided size — 60x too high on
-  the vector below; nothing called it with real data (the replay takes
-  `l1Fee` from the receipt).
 -/
 
 import Evm.BaseTypes

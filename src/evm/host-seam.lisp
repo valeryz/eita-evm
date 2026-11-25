@@ -20,7 +20,7 @@
            (zerop (length (code-of *current-world* addr))))
       (with-acct (tb a) *current-world* addr (acct-empty-p tb a))))   ; one lookup, no bignum
 
-;;; --- EIP-161 (Spurious Dragon+) touched set (#252) ---------------------------
+;;; --- EIP-161 (Spurious Dragon+) touched set ---------------------------------
 ;;; Mainnet deletes every *touched* account that is empty at the END of a tx: the
 ;;; Lean-emitted spec-sweep-effect (Evm.CL.EffectEndTx, = SpuriousDragon.finishTx's
 ;;; sweep). `*touched*` is per-tx (reset in reset-tx-state), populated at the EELS
@@ -28,14 +28,14 @@
 ;;; when it succeeds and leaves it existing and empty, and 0x03 when a failed child
 ;;; qualifies for EELS's RIPEMD-160 exemption (cb-call: spec-call-effect), CREATE new
 ;;; address (cb-create), SELFDESTRUCT beneficiary
-;;; (cb-selfdestruct) — fork-gated ≥ Spurious Dragon (ord 4), revert-scoped (#271).
+;;; (cb-selfdestruct) — fork-gated ≥ Spurious Dragon (ord 4), revert-scoped.
 ;;; (`*touched*` is declared up near `*selfdestructed*` so reset-tx-state sees it.)
 
 (declaim (inline touch!))
 (defun touch! (addr)
   "Record ADDR as touched this tx (EIP-161; Spurious Dragon+ only) and journal
    a type-12 entry into the active frame's scope so a frame revert un-touches
-   it (#271 revert-scoping): a touch inside a sub-frame that later reverts must
+   it: a touch inside a sub-frame that later reverts must
    NOT reach the end-of-tx empty-account sweep — mirrors the Lean spec, where
    the touch lives in the frame's `env` and is discarded with it on revert.
    Only NEW touches journal: a re-touch of an already-touched addr adds no

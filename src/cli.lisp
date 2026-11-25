@@ -3,9 +3,12 @@
 ;;;;   eita replay --chain C --from N [--to M | --to tip] [--blocks DIR] [--state DIR]
 ;;;;               [--checkpoint-every N] [--source FILE] [--observer FILE]
 ;;;;               [--resume N] [--genesis FILE] [--lazy | --full-state]
+;;;;   eita engine --chain C --state DIR --jwt FILE [--engine-listen ADDR] [--genesis FILE]
+;;;;               [--blocks DIR]               the Engine API for a consensus client
 ;;;;   eita fixtures PATH...                    BlockchainTests (a file or a flat directory)
 ;;;;   eita repl [--load FILE]...               a REPL in the EITA package
 ;;;;   eita check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
+;;;;   eita import-reth --state DIR [--threads N] FILE|-   a base from rust/reth-export's stream
 ;;;;   eita recovery resume|peek|gc STATE-DIR
 ;;;;   eita version
 ;;;;
@@ -19,12 +22,17 @@
 
 (defparameter +usage+
   "usage: eita <command> [arguments]
-  replay --chain ethereum|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
+  replay --chain ethereum|hoodi|devnet|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
          [--blocks DIR] [--state DIR] [--checkpoint-every N] [--source FILE]
          [--observer FILE] [--resume N] [--genesis FILE] [--lazy | --full-state]
+  engine --chain ethereum|hoodi|devnet --state DIR --jwt FILE [--engine-listen 127.0.0.1:8551]
+         [--genesis FILE] [--blocks DIR]
+                                   an execution client for a consensus client (docs/run-a-node.md)
   fixtures PATH...                 run BlockchainTests (files or flat directories)
   repl [--load FILE]...            a REPL in the EITA package
   check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
+  import-reth --state DIR [--threads N] FILE|-
+                                   a root-checked base from a reth node (rust/reth-export)
   recovery resume|peek|gc DIR      the resume point / garbage collection of a state directory
   version                          the engine version and code version
 Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/quickstart.md)")
@@ -78,6 +86,20 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
                    ((getf o :full-state) '(:full-state t))))))
   t)
 
+(defun cmd-engine (args)
+  (multiple-value-bind (o rest)
+      (parse-options args '(("--chain" :value) ("--state" :value) ("--jwt" :value)
+                            ("--engine-listen" :value) ("--genesis" :value) ("--blocks" :value)))
+    (when rest (usage-error "engine: unexpected ~{~A~^ ~}" rest))
+    (dolist (k '(:chain :state :jwt))
+      (unless (getf o k) (usage-error "engine: --~(~A~) is required" k)))
+    (when (and (string-equal (getf o :chain) "devnet") (null (getf o :genesis)))
+      (usage-error "engine: a devnet needs --genesis FILE (its genesis.json)"))
+    (eita.engine:run (getf o :chain) :state (getf o :state) :jwt (getf o :jwt)
+                     :listen (getf o :engine-listen)
+                     :genesis (getf o :genesis) :blocks (getf o :blocks)))
+  t)
+
 (defun cmd-fixtures (args)
   (when (null args) (usage-error "fixtures: give a BlockchainTests file or directory"))
   (eita.fixtures:main args)
@@ -97,6 +119,9 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 
 (defun cmd-check-root (args)
   (eita.state.root:main args))
+
+(defun cmd-import-reth (args)
+  (eita.state.root:import-main args))
 
 (defun cmd-recovery (args)
   (destructuring-bind (&optional what dir &rest more) args
@@ -119,8 +144,8 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   t)
 
 (defparameter +commands+
-  '(("replay" . cmd-replay) ("fixtures" . cmd-fixtures) ("repl" . cmd-repl)
-    ("check-root" . cmd-check-root) ("recovery" . cmd-recovery) ("version" . cmd-version)))
+  '(("replay" . cmd-replay) ("engine" . cmd-engine) ("fixtures" . cmd-fixtures) ("repl" . cmd-repl)
+    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth) ("recovery" . cmd-recovery) ("version" . cmd-version)))
 
 (defun register-command (name function)
   "Add the subcommand NAME, run as (FUNCTION args) after the engine started: a program that

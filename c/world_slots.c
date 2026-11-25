@@ -3,7 +3,7 @@
  *
  * Every table decision is in world_slots_emit.c (generated, do not edit), printed from Velvet
  * methods proved for every capacity against the slot-table model (lean/Evm/CL/WorldSlotsModel.lean;
- * the proofs live in Eita's separate velvet-slots package, to be published): the probe and its
+ * the proofs and the printer are in verify/velvet-slots/): the probe and its
  * insertion index, place, the load test, the growth rule, the rehash, remove, the walk step, the
  * 4-entry fresh table, the directory size rule, the array copy, and both abort conditions
  * (WS_MAX_CAP, the 2^40 id limit). This file is the trusted glue (docs/trusted-surface.md), mirrored
@@ -11,7 +11,6 @@
  * and stores their results back, frees the arrays a grow replaced (the emitted functions never
  * free), keeps the directory's pointer array (allocate, copy the old pointers, free), and calls the
  * map callback. ws_place / ws_grow stay statics for the CBMC harness (cbmc/world_slots_harness.c).
- * Core's copy is byte-identical to the package's; the package's drift check diffs the two.
  */
 #include "world_slots.h"
 #include "world_slots_emit.c"

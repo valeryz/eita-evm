@@ -12,11 +12,10 @@
     * Tx intrinsic gas: `21000 + 4·#zero-bytes + 68·#non-zero-bytes`.
       Contract-creation has no extra base cost in Frontier (Homestead
       adds +32000, EIP-2).
-    * Block reward: 5 ETH to miner; uncle/ommer rewards are not yet
-      implemented in this port.
-    * Sender recovery is currently a stub — `processTransaction` takes
-      the sender as an argument; the caller is responsible for getting
-      it from somewhere (until ecrecover is implemented for real).
+    * Block reward: 5 ETH to miner plus the ommer rewards
+      (`Evm.Frontier.Vm.Block.payRewards`).
+    * `processTransaction` takes the sender as an argument; `applyBlock`
+      recovers it.
 -/
 
 import Evm.Frontier.Vm.Block

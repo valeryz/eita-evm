@@ -1,10 +1,9 @@
 /*
- * tx_state.h — native per-transaction transient state (Slice 3).
+ * tx_state.h — native per-transaction transient state.
  *
  * Holds the EIP-2929 accessed sets, EIP-1153 transient storage, the
  * EIP-3529 refund counter, the EIP-6780 created-this-tx set, and the
- * EIP-2200 original-value snapshot — everything the Lisp host used to
- * keep in per-tx hash tables and that opcode handlers had to reach via
+ * EIP-2200 original-value snapshot, so opcode handlers reach them without
  * CFFI callbacks. One TxState is shared by every frame in a tx; the
  * world maps (storage/balance/code) stay host-owned.
  *

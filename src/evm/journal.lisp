@@ -29,8 +29,8 @@
    PRE-BERLIN FAST PATH: EIP-2929 warm/cold is gas-neutral before Berlin
    (ord 10) — every pre-Berlin gas plan ignores the cold bit, and access-cost's
    cold/warm table entries are equal. So skip the native set-insert + its
-   journal entry entirely and report cold=T. This was ~13% of replay time on
-   the (all pre-Berlin) 0–5M range; the work was pure waste there."
+   journal entry entirely and report cold=T (that work would be ~13% of replay
+   time on the all-pre-Berlin 0–5M range)."
   (declare (inline u256-write))
   (if (< *fork-ord* 10)
       t
@@ -78,7 +78,7 @@
 (defun ts-refund ()
   (mem-ref *tx-state* :int64 0))
 
-;;; Incremental state-root dirty hook (#237). mpt-live.lisp (loaded only under
+;;; Incremental state-root dirty hook. mpt-live.lisp (loaded only under
 ;;; EITA_MPT_CHECK) redefines *mpt-tracking* / mpt-touch! to union the addr into
 ;;; the per-block dirty set on a worker thread. These stubs make a normal replay
 ;;; pay nothing (the inlined `when` folds away) and let replay-cl call the hook
@@ -121,7 +121,7 @@
 ;;   accounts_to_delete — originators selfdestructed this tx (pre-Cancun semantics: deleted
 ;;     at end of tx; pre-London: 24000 refund on first selfdestruct of each address).
 ;;     Journaled as host type 3 so a reverting frame's selfdestructs are forgotten.
-;;   touched — EIP-161 (Spurious Dragon+), swept of empty accounts at end of tx (#252); the
+;;   touched — EIP-161 (Spurious Dragon+), swept of empty accounts at end of tx; the
 ;;     touch!/sweep helpers are with the other account helpers below.
 (defconstant +acct-destroyed+ 8 "In this tx's accounts_to_delete (per tx; never persisted).")
 (defconstant +acct-touched+ 16 "In this tx's EIP-161 touched set (per tx; never persisted).")
@@ -165,7 +165,7 @@
 ;; Host-only journal entry type for an EIP-161 touch (beyond the native enum
 ;; 0..8; the native `eita_ts_revert` skips it via its `default:` arm, and the
 ;; CL revert loop maps it to `untouch!`). Lets a frame revert un-touch
-;; accounts touched inside it (#271 revert-scoping).
+;; accounts touched inside it (revert-scoping).
 (defconstant +j-touch+ 12)
 
 (defun revert-journal-to (arena target)
@@ -173,7 +173,7 @@
    host-replays world-state types (0 sstore, 2 balance, 3 selfdestruct
    mark) here, then %ts-revert undoes the native types (warm-ups,
    tstores, refund, created) and rewinds journal_count to TARGET."
-  (%sh-revert-storage arena target)       ; the SSTORE entries the native path can restore (255 after)
+  (%sh-revert-storage arena target)       ; the SSTORE entries above the first un-create (255 after)
   (let ((count (mem-ref arena :uint64 0))
         (jdata (mem-ref arena :pointer 16)))
     (loop for n downfrom count above target do
@@ -190,7 +190,7 @@
         ;; CL-side restore dispatch is emitted from the Lean spec
         ;; (Evm.CL.HostEmit.revertDispatch → spec-restore-journal-entry):
         ;; 0 sstore, 2 balance, 3 selfdestruct-mark, 9 nonce, 10 created,
-        ;; 11 existence-insert, 12 EIP-161 touch-undo (#271 revert-scoping).
+        ;; 11 existence-insert, 12 EIP-161 touch-undo (revert-scoping).
         ;; Native types (tstore/warm/refund/created) are undone by %ts-revert.
         (spec-restore-journal-entry
          (mem-ref e :uint64 0)                  ; entry_type
@@ -245,4 +245,4 @@
             (mem-ref ts :uint64 48) (mask 1900 +ts-orig-cap+))))
   (%ts-reset *tx-state*)
   (storage-host-sync!)                  ; the native storage path: this tx's world (never a freed one)
-  (forget-tx-sets!))                    ; EIP-161 touched set is per-tx (#252)
+  (forget-tx-sets!))                    ; EIP-161 touched set is per-tx

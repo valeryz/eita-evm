@@ -4,8 +4,7 @@
 Gas formulas and constants come from Lean (Evm.CL.GasEmit / HostEmit, emitted to
 src/generated/host.lisp by `lake exe emitHostCL`). The CL around them is a SEAM: it
 reads inputs (byte counts, warmth, fork) and calls a `spec-*` function. A gas-schedule
-number written straight into that code is a second, unproved copy of the schedule; the
-EIP-7623 floor and the refund cap lived that way in evm/run-tx.lisp (now src/evm/run-tx.lisp) until 2026-10-20.
+number written straight into that code is a second, unproved copy of the schedule.
 
 This scans the hand-written runtime Lisp with comments and string literals stripped, and
 fails on any of the distinctive EVM gas-schedule constants below unless the line is

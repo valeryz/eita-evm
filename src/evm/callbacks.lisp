@@ -107,40 +107,43 @@
   (declare (ignore ctx))
   ;; EELS extcodehash (EIP-1052): 0 iff the account is the EMPTY_ACCOUNT
   ;; sentinel (dead = absent or all-zero), else keccak256(code). The "is zero"
-  ;; decision is now DERIVED: `spec-extcodehash-zero-p` is emitted from
+  ;; decision is DERIVED: `spec-extcodehash-zero-p` is emitted from
   ;; Evm.CL.HostEmit.extcodehashZero (= the `empty` world-seam query), so the
   ;; EIP-161 dead-account test can't drift from the one the new-account charge
   ;; uses. A LIVE account with no code returns keccak256("")=+empty-code-hash+
   ;; (EELS computes it; we shortcut the hash of empty input). The hash is the
   ;; code's one owner, `code-hash-int`: seeded from the snapshot's codehash when
   ;; the code is faulted, hashed once per code object otherwise — never per access.
+  ;; The read stream sees one :codehash read (the account's leaf: hash and emptiness), not
+  ;; the code bytes the hash is computed from (a stateless input needs only the leaf).
   (let* ((a (read-addr addr))
-         (code (progn (fault-account! a)
-                      (code-of *current-world* a))))
-    (cond
-      ((spec-extcodehash-zero-p a)
-       (u256-write out 0))              ; dead account → 0
-      ((plusp (length code))            ; live with code → keccak256(code)
-       (u256-write out (code-hash-int code)))
-      (t                                ; live, no code → keccak256("")
-       (u256-write out +empty-code-hash+)))
+         (h (let ((*view-log* nil))
+              (let ((code (progn (fault-account! a) (code-of *current-world* a))))
+                (cond ((spec-extcodehash-zero-p a) 0)                 ; dead account → 0
+                      ((plusp (length code)) (code-hash-int code))    ; live with code → keccak256(code)
+                      (t +empty-code-hash+))))))                       ; live, no code → keccak256("")
+    (when *view-log* (eita.state::view-log-read :codehash a 0 h))
+    (u256-write out h)
     (cb-gas-check "extcodehash" (addr-access-gas a 3) :addr a)))
 
 (defcallback cb-block-hash :void
     ((ctx :pointer) (blk :pointer) (out :pointer))
   (declare (ignore ctx))
   ;; BLOCKHASH gas is fixed 20; charged via exitWithGas in the handler.
-  ;; The validity window is now DERIVED: `spec-blockhash-valid` is emitted from
+  ;; The validity window is DERIVED: `spec-blockhash-valid` is emitted from
   ;; Evm.CL.HostEmit.blockhashValid (src/generated/host.lisp), the EELS
   ;; predicate `n < cur AND cur <= n+256` (oldest valid = cur-256, inclusive),
-  ;; with kernel-checked boundary examples — so the #265 off-by-one (the old
-  ;; hand-written `(> n (- cur 256))` excluded cur-256) is unrepresentable. The
+  ;; with kernel-checked boundary examples, so an off-by-one that excludes
+  ;; cur-256 is unrepresentable. The
   ;; hash LOOKUP (*block-hashes*) stays the runtime-pluggable world seam.
   (let* ((n (u256-read blk))
          (cur *current-block-number*))
     (u256-write out
                 (if (spec-blockhash-valid n cur)
-                    (gethash n *block-hashes* 0)
+                    (let ((h (gethash n *block-hashes* 0)))
+                      ;; the read stream: (:read :blockhash block tx 0 N hash)
+                      (when *view-log* (eita.state::view-log-read :blockhash 0 n h))
+                      h)
                     0))))
 
 (defcallback cb-ext-code-copy :uint64

@@ -144,11 +144,8 @@ def encodeDesignator (addr : Evm.Address) : Evm.Bytes :=
     else the designator), `increment_nonce`. An invalid authorization changes
     nothing but the warm set (and not even that before recovery).
 
-    Restated 2026-11-09 over `Environment` (state, warm set, refund counter —
-    where the implementation `Tx.authorize` works): the relation used to
-    refund on "not empty", skip the nonce bound and `r < N`, take its
-    hypotheses as implications (vacuous when false), and recover through an
-    `axiom`. -/
+    Stated over `Environment` (state, warm set, refund counter — where the
+    implementation `Tx.authorize` works). -/
 
 /-- The checks before recovery (`validate_authorization` 166-170 and
     `recover_authority` 98-103). -/

@@ -20,8 +20,9 @@
 ;;;;      files are in addr order, so a chunk is a contiguous range of each). An
 ;;;;      account's slot keys are keccak'd straight out of the mapping, sorted (72 B per
 ;;;;      slot, in the worker) and streamed into a stack trie; a storage over *BIG* slots
-;;;;      is split by its hashed keys' top byte and built by a pool of its own (GIANT-ROOT:
-;;;;      4 B per slot off the heap, one 1/256 bucket per thread in it).
+;;;;      is built by a pool of its own (GIANT-ROOT): one pass partitions its slots into
+;;;;      bucket files by their hashed keys' top bits, then each bucket is sorted and
+;;;;      streamed, the 256 top-byte subtries in parallel.
 ;;;;      Each account leaves one 136-byte record — keccak(addr), nonce, balance,
 ;;;;      codehash, storage root — in one of 256 (2048 past 2^26 accounts) BUCKET FILES by the
 ;;;;      top bits of its hashed key, beside the snapshot (.root-N/, removed at the end).
@@ -47,7 +48,7 @@
 (defconstant +chunk+ 4096)              ; accounts per pass-1 work item
 (defconstant +large+ 262144)            ; slots: buffers this large are exact and dropped after use
 (defparameter *big* 1000000)           ; slots: a storage this large is built by GIANT-ROOT (tests: lower)
-(defconstant +slice+ 262144)            ; records per GIANT-ROOT partition task
+(defconstant +slice+ 65536)             ; records per GIANT-ROOT partition task
 (defconstant +wbuf+ 65536)
 
 (deftype octets () '(simple-array (unsigned-byte 8) (*)))
@@ -188,12 +189,11 @@
   (ib (make-array 0 :element-type '(unsigned-byte 32)) :type (simple-array (unsigned-byte 32) (*)))
   (counts (make-array 65537 :element-type 'fixnum) :type (simple-array fixnum (*))))
 
-;;; ALLOCATE FIRST, THEN STORE. SBCL 2.5.2 (production) marks an object's GC card once
+;;; ALLOCATE FIRST, THEN STORE. SBCL 2.5.2 marks an object's GC card once
 ;;; for several slot stores in one function, even when an allocation — a possible GC —
 ;;; falls between them: a GC there unmarks the card, the later stores leave the old
 ;;; struct pointing at young arrays the next GC cannot see, and those are freed under it
-;;; ("no transport function", "heap_scavenge failure"; disassembly and verify_gens in
-;;; the commit). Every multi-slot refill of a long-lived struct here builds its values
+;;; ("no transport function", "heap_scavenge failure"). Every multi-slot refill of a long-lived struct here builds its values
 ;;; first, so its stores have no allocation between them. 2.5.8 re-marks per store.
 (defun sorter-ensure (s n)
   (when (< (length (sorter-ka s)) n)
@@ -303,7 +303,8 @@
   (bkeys (make-array 0 :element-type '(unsigned-byte 8)) :type octets)   ; a chunk's base address hashes
   (obuf (eita.state.snapshot:make-obuf))                                            ; a layered address's slots
   (big 0 :type fixnum) (slots 0 :type fixnum)
-  (threads 1 :type fixnum))                                               ; its pool's size
+  (threads 1 :type fixnum)                                                ; its pool's size
+  (scratch nil) (slot-map nil))                 ; storage pass: the bucket directory, the base's slot mapping
 
 (defun worker-ensure (w n)
   "Room for N keys (32 bytes each) and N hash jobs: doubling for small sets, exact for large."
@@ -336,7 +337,10 @@
    records there (layers composed, tombstones kept) are laid over them. A worker keeps its
    buffers up to +LARGE+ slots; past that they are exact and dropped after the account;
    past *BIG* (or with DSAP) GIANT-ROOT builds the trie with the worker's pool size."
-  (cond ((or dsap (> count *big*)) (giant-root (worker-threads w) ssap si count dsap dcount))
+  (cond ((or dsap (> count *big*))
+         (let ((m (worker-slot-map w)))
+           (giant-root (worker-threads w) (worker-scratch w) ssap si count :dsap dsap :nd dcount
+                       :release (and m (sb-sys:sap= ssap (eita.state.snapshot:mapping-sap m)) m))))
         ((zerop count) (values (eita.mpt:empty-root-bytes) 0))
         ((> count +large+) (multiple-value-prog1 (values (storage-root-1 w ssap si count) count) (worker-drop w)))
         (t (values (storage-root-1 w ssap si count) count))))
@@ -354,42 +358,166 @@
                     (eita.mpt:rlp-bytes (minimal-be ssap (+ +header+ (* (+ si i) +slot+) 52) 32))))))
       (st-root-bytes (st-finish st)))))
 
+;;; ------------------------------------------------------------ bucket files
+;;;
+;;; A radix partition on disk: fixed-size records whose first 32 bytes are a hashed key go
+;;; to one of 256 (2048) files by its top 8 (11) bits, so that the files, in order and each
+;;; sorted, are the keys' order. The account pass (136-byte account records) and a giant
+;;; storage (64-byte slot records) both partition through these. A file is created at its
+;;; first flush: a small partition touches only the buckets it fills.
+
+(defun open-file-limit (want)
+  "The soft open-file limit, raised to WANT (within the hard limit) if below it."
+  (let ((nofile #+darwin 8 #-darwin 7))          ; RLIMIT_NOFILE
+    (sb-alien:with-alien ((lim (sb-alien:array sb-alien:unsigned-long 2)))   ; rlim_cur rlim_max
+      (sb-alien:alien-funcall
+       (sb-alien:extern-alien "getrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
+       nofile (sb-alien:addr lim))
+      (when (< (sb-alien:deref lim 0) want)
+        (setf (sb-alien:deref lim 0) (min want (sb-alien:deref lim 1)))
+        (sb-alien:alien-funcall
+         (sb-alien:extern-alien "setrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
+         nofile (sb-alien:addr lim))
+        (sb-alien:alien-funcall
+         (sb-alien:extern-alien "getrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
+         nofile (sb-alien:addr lim)))
+      (sb-alien:deref lim 0))))
+
+(defconstant +open-files+ 4400)         ; two 2048-way partitions open at once (the account
+                                        ; pass's and a giant storage's), and the mappings
+
+(defstruct (bucket (:constructor make-bucket (path)))
+  (stream nil) path (buf (make-array +wbuf+ :element-type '(unsigned-byte 8)) :type octets) (pos 0 :type fixnum)
+  (count 0 :type fixnum))
+
+(defun open-buckets (prefix n)
+  "The bucket files PREFIX<3 hex digits> for N records: 256 (the first byte of the hashed
+   key), or 2048 (11 bits) past 2^26 so a bucket stays under ~150K records (accounts) or
+   ~260K (slots) at any state size. 2048 need the soft descriptor limit raised; when that is
+   refused, 256."
+  (let ((nb (if (> n (expt 2 26)) 2048 256)))
+    (when (and (= nb 2048) (< (open-file-limit +open-files+) +open-files+))
+      (format *error-output* "~&[snapshot-root] 256 buckets: the open-file limit stays under ~D~%" +open-files+)
+      (setf nb 256))
+    (let ((buckets (make-array nb)))
+      (dotimes (b nb buckets)
+        (setf (aref buckets b) (make-bucket (format nil "~A~(~3,'0X~)" prefix b)))))))
+
+(declaim (inline bucket-of))
+(defun bucket-of (nbuckets recs off)
+  "The bucket of the hashed key at RECS[OFF..]: its top log2(NBUCKETS) bits."
+  (declare (type octets recs) (type fixnum nbuckets off))
+  (if (= nbuckets 256)
+      (aref recs off)
+      (logior (ash (aref recs off) 3) (ash (aref recs (1+ off)) -5))))
+
+(defun bucket-flush (b)
+  (when (plusp (bucket-pos b))
+    (unless (bucket-stream b)
+      (setf (bucket-stream b) (open (bucket-path b) :direction :output :element-type '(unsigned-byte 8)
+                                                    :if-exists :supersede :if-does-not-exist :create)))
+    (write-sequence (bucket-buf b) (bucket-stream b) :end (bucket-pos b))
+    (setf (bucket-pos b) 0)))
+
+(defun bucket-put (b recs start size)
+  "Append the SIZE-byte record at RECS[START..] to bucket B."
+  (declare (type octets recs) (type fixnum start size))
+  (when (> (+ (bucket-pos b) size) +wbuf+) (bucket-flush b))
+  (replace (bucket-buf b) recs :start1 (bucket-pos b) :start2 start :end2 (+ start size))
+  (incf (bucket-pos b) size)
+  (incf (bucket-count b)))
+
+(defun partition (buckets recs n size)
+  "Append the N SIZE-byte records of RECS to their buckets (the caller holds the lock)."
+  (dotimes (k n)
+    (bucket-put (aref buckets (bucket-of (length buckets) recs (* k size))) recs (* k size) size)))
+
+(defun close-buckets (buckets)
+  "Written: flush and close every bucket file, for reading."
+  (loop for b across buckets
+        do (bucket-flush b)
+           (when (bucket-stream b) (close (bucket-stream b)))))
+
+(defun remove-buckets (buckets)
+  (loop for b across buckets
+        when (and b (bucket-stream b))
+          do (ignore-errors (close (bucket-stream b) :abort t))
+             (ignore-errors (delete-file (bucket-path b)))))
+
+(defun read-bucket (w b size)
+  "Bucket B's SIZE-byte records, in the worker's (grow-only) buffer; returns their count."
+  (with-open-file (in (bucket-path b) :element-type '(unsigned-byte 8))
+    (let ((len (file-length in)))
+      (when (< (length (worker-bucket w)) len)
+        (setf (worker-bucket w) (make-array len :element-type '(unsigned-byte 8))))
+      (unless (= (read-sequence (worker-bucket w) in :end len) len)
+        (error "bucket ~A: short read" (bucket-path b)))
+      (floor len size))))
+
+(defun feed-bucket (st w b size leaf)
+  "Push bucket B's SIZE-byte records into ST in key order, (LEAF recs off) the value of
+   the record at RECS[OFF..]."
+  (when (plusp (bucket-count b))
+    (let* ((n (read-bucket w b size)) (recs (worker-bucket w))
+           (order (sort-keys (worker-sorter w) recs n size)))
+      (unless (= n (bucket-count b)) (error "bucket ~A: ~D records on disk, ~D written" (bucket-path b) n (bucket-count b)))
+      (dotimes (r n)
+        (let ((o (* size (aref order r))))
+          (st-push st recs o (funcall leaf recs o)))))))
+
+(defun feed-split (buckets ngroups nthreads leaf size)
+  "The root item over BUCKETS by SPLIT-ROOT over NGROUPS (16 top nibbles, 256 top bytes),
+   a group's buckets in order."
+  (let ((per (floor (length buckets) ngroups)))
+    (split-root ngroups
+                (lambda (g) (loop for b from (* per g) below (* per (1+ g)) thereis (plusp (bucket-count (aref buckets b)))))
+                (lambda (st g w) (loop for b from (* per g) below (* per (1+ g)) do (feed-bucket st w (aref buckets b) size leaf)))
+                nthreads)))
+
 ;;; ------------------------------------------------------------ a giant storage
 ;;;
 ;;; A storage over *BIG* slots (XEN: 116.6M at 24M blocks, ~50M more per 1M blocks) is
-;;; built by a pool of its own in two passes over its records, with no per-slot buffer in
-;;; the heap: (1) per slice of records, keccak the keys and sort the record numbers by
-;;; their hashed key's top byte (a counting sort) into the slice's part of IDX, leaving out
-;;; the records not in the storage (a tombstone, a base slot a layer rewrites); (2) per
-;;; top byte, gather its records from every slice, hash, sort and stack their keys (base
-;;; depth 2), SPLIT-ROOT assembling the two branch levels above the 256 subtries. Off the
-;;; heap: IDX, 4 B a record; in the heap, per pool thread, one top byte's buffers (72 B a
-;;; slot of 1/256 of the storage). Records are read in place (the mapping, the composition
-;;; buffer) by absolute address. *BIG-LOCK* is the memory budget: one giant at a time (a
-;;; worker that meets a second one waits while the first one's pool keeps the cores busy).
+;;; built by a pool of its own in two bounded passes: (1) ONE pass over its records, a
+;;; slice at a time per thread: keccak the keys and append each slot that is in the
+;;; storage (not a tombstone, not a base slot a layer rewrites) as a 64-byte (hashed key,
+;;; value) record to its bucket file (OPEN-BUCKETS), the slice's mapped pages released
+;;; behind it; (2) per top byte, its buckets sorted and streamed into a stack trie (base
+;;; depth 2), SPLIT-ROOT assembling the two branch levels above the 256 subtries. Records
+;;; are read once, in place (the mapping, the composition buffer), by absolute address.
+;;; Memory, per pool thread: a slice's buffers (~100 B a record) in pass 1, one bucket's
+;;; (88 B a slot of 1/256, 1/2048 past 2^26) in pass 2; disk: 64 B a slot, beside the
+;;; account buckets. *BIG-LOCK* is the memory budget: one giant at a time (a worker that
+;;; meets a second one waits while the first one's pool keeps the cores busy).
 
 (defvar *big-lock* (sb-thread:make-mutex :name "one giant storage at a time"))
+(defconstant +grec+ 64)                 ; giant bucket record: hashed key32 value32
 
 (declaim (inline cmp-abs))
 (defun cmp-abs (a b n)
   "-1 / 0 / 1 comparing the N bytes at absolute addresses A and B."
   (cmp-sap (sb-sys:int-sap 0) a (sb-sys:int-sap 0) b n))
 
-(defun giant-root (nthreads bsap bi nb &optional dsap (nd 0))
+(defun slot-leaf (recs o)
+  (declare (type octets recs) (type fixnum o))
+  (eita.mpt:rlp-encode (eita.mpt:rlp-bytes (minimal-vec recs (+ o 32) (+ o 64)))))
+
+(defun giant-root (nthreads scratch bsap bi nb &key dsap (nd 0) release buckets)
   "(values root slots) of the storage over base slot records BI..BI+NB-1 at BSAP with,
    when DSAP, the ND composed layer records there (ascending, zeros kept) laid over them:
-   on an equal key the layer's record wins; a zero value is no slot (Lean `apply`)."
+   on an equal key the layer's record wins; a zero value is no slot (Lean `apply`). Its
+   bucket files go in the directory SCRATCH; RELEASE is the mapping BSAP is (its pages are
+   released behind pass 1); BUCKETS, a bucket count instead of the one N picks (tests)."
+  (when (zerop (+ nb nd)) (return-from giant-root (values (eita.mpt:empty-root-bytes) 0)))
   (sb-thread:with-mutex (*big-lock*)
     (let* ((n (+ nb nd))
-           (nslices (max 1 (ceiling n +slice+)))
+           (nslices (ceiling n +slice+))
            (b0 (+ (sb-sys:sap-int bsap) +header+ (* bi +slot+)))
            (d0 (if dsap (+ (sb-sys:sap-int dsap) +header+) 0))
            (zero (sb-sys:int-sap 0))
-           ;; slice C's records of top byte B: IDX[C*+SLICE+ + STARTS[257C+B], .. + STARTS[257C+B+1])
-           (starts (make-array (* 257 nslices) :element-type 'fixnum :initial-element 0))
-           (idx nil))
+           (lock (sb-thread:make-mutex))
+           (parts (open-buckets (format nil "~Ag" scratch)
+                                (cond ((null buckets) n) ((= buckets 256) 0) (t (expt 2 27))))))
       (declare (type fixnum n nb nd b0 d0))
-      (when (>= n (expt 2 32)) (error "giant storage: ~D records (record numbers are 32-bit)" n))
       (flet ((rec (e)
                (declare (type fixnum e))
                (if (< e nb) (+ b0 (* e +slot+)) (+ d0 (* (- e nb) +slot+))))
@@ -397,16 +525,16 @@
         (declare (inline rec d-key))
         (unwind-protect
              (progn
-               (setf idx (cffi:foreign-alloc :uint32 :count (max 1 n)))
-               ;; 1. per slice: its records by top byte (256: not in the storage)
+               ;; 1. one pass: each slot of the storage into its bucket
                (run-pool
                 nthreads nslices
                 (lambda (c w)
-                  (let* ((e0 (* c +slice+)) (m (- (min n (+ e0 +slice+)) e0)) (row (* 257 c)) (j -1)
-                         (tags (make-array m :element-type '(unsigned-byte 16))))
-                    (declare (type fixnum e0 m row j))
+                  (let* ((e0 (* c +slice+)) (m (- (min n (+ e0 +slice+)) e0)) (j -1) (k 0))
+                    (declare (type fixnum e0 m j k))
                     (worker-ensure w m)
-                    (let ((offs (worker-offs w)) (lens (worker-lens w)) (keys (worker-keys w)))
+                    (when (< (length (worker-bucket w)) (* m +grec+))
+                      (setf (worker-bucket w) (make-array (* m +grec+) :element-type '(unsigned-byte 8))))
+                    (let ((offs (worker-offs w)) (lens (worker-lens w)) (keys (worker-keys w)) (out (worker-bucket w)))
                       (dotimes (i m) (setf (aref offs i) (+ (rec (+ e0 i)) 20) (aref lens i) 32))
                       (keccak-into zero offs lens m keys)
                       (dotimes (i m)
@@ -422,80 +550,89 @@
                                                            (if (minusp (cmp-abs (d-key mid) a 32)) (setf lo (1+ mid)) (setf hi mid))))
                                                 (setf j lo)))
                                             (loop while (and (< j nd) (minusp (cmp-abs (d-key j) a 32))) do (incf j))
-                                            (and (< j nd) (zerop (cmp-abs (d-key j) a 32))))))
-                               (tag (if gone 256 (aref keys (* 32 i)))))
-                          (setf (aref tags i) tag)
-                          (incf (aref starts (+ row tag))))))
-                    (let ((acc 0))              ; counts -> starts
-                      (declare (type fixnum acc))
-                      (dotimes (b 257) (let ((x (aref starts (+ row b)))) (setf (aref starts (+ row b)) acc) (incf acc x))))
-                    (let ((pos (subseq starts row (+ row 256))))
-                      (dotimes (i m)
-                        (let ((tag (aref tags i)))
-                          (unless (= tag 256)
-                            (setf (sb-sys:sap-ref-32 idx (* 4 (+ e0 (aref pos tag)))) (+ e0 i))
-                            (incf (aref pos tag)))))))))
+                                            (and (< j nd) (zerop (cmp-abs (d-key j) a 32)))))))
+                          (unless gone
+                            (replace out keys :start1 (* k +grec+) :start2 (* 32 i) :end2 (* 32 (1+ i)))
+                            (copy-sap zero (+ a 32) 32 out (+ (* k +grec+) 32))
+                            (incf k))))
+                      ;; the slice's base records are done with
+                      (when (and release (< e0 nb))
+                        (eita.state.snapshot:release-range release (+ +header+ (* (+ bi e0) +slot+))
+                                                           (+ +header+ (* (+ bi (min nb (+ e0 m))) +slot+))))
+                      (sb-thread:with-mutex (lock) (partition parts out k +grec+))))))
+               (close-buckets parts)
                ;; 2. per top byte: its subtrie; the branches above them
-               (flet ((size (b) (loop for c below nslices sum (- (aref starts (+ (* 257 c) b 1)) (aref starts (+ (* 257 c) b))))))
-                 (let ((most (loop for b below 256 maximize (size b))))
-                   (values
-                    (st-root-bytes
-                     (split-root
-                      256 (lambda (b) (plusp (size b)))
-                      (lambda (st b w)
-                        (worker-ensure w most)              ; once per thread: no regrowth
-                        (sorter-ensure (worker-sorter w) most)
-                        (let ((offs (worker-offs w)) (lens (worker-lens w)) (keys (worker-keys w)) (m 0))
-                          (declare (type fixnum m))
-                          (dotimes (c nslices)
-                            (loop for p from (aref starts (+ (* 257 c) b)) below (aref starts (+ (* 257 c) b 1))
-                                  do (setf (aref offs m) (+ (rec (sb-sys:sap-ref-32 idx (* 4 (+ (* c +slice+) p)))) 20)
-                                           (aref lens m) 32)
-                                     (incf m)))
-                          (keccak-into zero offs lens m keys)
-                          (let ((order (sort-keys (worker-sorter w) keys m 32)))
-                            (dotimes (r m)
-                              (let ((i (aref order r)))
-                                (st-push st keys (* 32 i)
-                                         (eita.mpt:rlp-encode
-                                          (eita.mpt:rlp-bytes (minimal-be zero (+ (aref offs i) 32) 32)))))))))
-                      nthreads))
-                    (loop for c below nslices sum (aref starts (+ (* 257 c) 256)))))))
-          (when idx (cffi:foreign-free idx)))))))
+               (values (st-root-bytes (feed-split parts 256 nthreads #'slot-leaf +grec+))
+                       (loop for b across parts sum (bucket-count b))))
+          (remove-buckets parts))))))
+
+;;; ------------------------------------------------------------ the frontier
+;;;
+;;; lean/Evm/Trie/Frontier.lean, one to one. A trie's frontier at depth D is the reference to
+;;; the subtrie under every D-nibble prefix (`subRef`; NIL where no key has the prefix). Under
+;;; DenseAbove D (every prefix shorter than D with keys under it is a branch with two or more
+;;; children) the root node is the dense branches over the frontier (`assemble` over `refAt`;
+;;; `patricialise_assemble`, stated in Lean, is checked by tests/frontier.lisp against
+;;; `eita.mpt:trie-root`). Prefixes are integers, frontier vectors are indexed by them.
+
+(defun frontier-subref (st)
+  "Lean `subRef`: the reference a parent branch holds for the subtrie of the keys ST was
+   fed (a stack trie whose base depth is the prefix's length), NIL when it was fed none."
+  (let ((item (st-finish st)))
+    (and item (eita.mpt:node-ref item))))
+
+(defun dense-above-p (d nonempty)
+  "Lean `DenseAbove D`, from the frontier's shape: NONEMPTY (16^D generalized booleans, by
+   prefix) has, at every level above D, no prefix with exactly one non-empty child."
+  (let ((level nonempty))
+    (loop for k from d downto 1
+          do (let ((up (make-array (expt 16 (1- k)) :initial-element nil)))
+               (dotimes (q (length up))
+                 (let ((n (loop for i below 16 count (aref level (+ (* 16 q) i)))))
+                   (when (= n 1) (return-from dense-above-p nil))
+                   (setf (aref up q) (plusp n))))
+               (setf level up)))
+    t))
+
+(defun assemble (d refs)
+  "Lean `assemble`: the root node over the frontier REFS (16^D references by prefix, NIL
+   for none, D >= 1): the branch over the references one level down, where the reference at
+   a prefix above the frontier is the branch over its 16 children, referenced, or NIL when
+   they are all absent (Lean `refAt`)."
+  (flet ((branch (v start)
+           (eita.mpt:rlp-list* (nconc (loop for i from start below (+ start 16) collect (or (aref v i) *empty-item*))
+                                      (list *empty-item*)))))
+    (let ((level refs))
+      (loop for k from d above 1
+            do (let ((up (make-array (expt 16 (1- k)) :initial-element nil)))
+                 (dotimes (q (length up))
+                   (when (loop for i below 16 thereis (aref level (+ (* 16 q) i)))
+                     (setf (aref up q) (eita.mpt:node-ref (branch level (* 16 q))))))
+                 (setf level up)))
+      (branch level 0))))
 
 ;;; ------------------------------------------------------------ split roots
 
 (defun split-root (ngroups nonempty feed nthreads)
   "The root item of a trie whose keys come in NGROUPS groups, by their top nibble (16) or
    top byte (256), in key order: (FEED st g w) pushes group G's keys into the stack trie
-   ST in order, (NONEMPTY g) says it has some. When every branch above the groups has 2+
-   non-empty children (the root; with 256 groups, each non-empty top nibble's node too),
-   the groups' subtries (base depth 1 or 2) are built in parallel and the branches above
-   them assembled; otherwise one stack trie (base 0) takes the groups in order."
-  (let* ((levels (if (= ngroups 16) 1 2)) (per (floor ngroups 16))
-         (under (loop for v below 16
-                      collect (loop for g from (* per v) below (* per (1+ v)) count (funcall nonempty g)))))
-    (flet ((branch (items start)
-             (eita.mpt:rlp-list*
-              (nconc (loop for i from start below (+ start 16)
-                           collect (let ((x (aref items i))) (if x (eita.mpt:node-ref x) *empty-item*)))
-                     (list *empty-item*)))))
-      (if (and (>= (count-if #'plusp under) 2) (or (= levels 1) (not (member 1 under))))
-          (let ((items (make-array ngroups :initial-element nil)))
-            (run-pool nthreads ngroups
-                      (lambda (g w)
-                        (when (funcall nonempty g)
-                          (let ((st (st-reset (worker-trie w) levels)))
-                            (funcall feed st g w)
-                            (setf (aref items g) (st-finish st))))))
-            (if (= levels 1)
-                (branch items 0)
-                (let ((mids (make-array 16 :initial-element nil)))
-                  (dotimes (v 16) (when (plusp (nth v under)) (setf (aref mids v) (branch items (* 16 v)))))
-                  (branch mids 0))))
-          (let ((w (make-worker)) (st (make-stack-trie 0)))
-            (dotimes (g ngroups) (when (funcall nonempty g) (funcall feed st g w)))
-            (st-finish st))))))
+   ST in order, (NONEMPTY g) says it has some. Under DenseAbove at the groups' depth (1 or
+   2) the groups' subtries are built in parallel, the frontier, and the root assembled over
+   it; otherwise one stack trie (base 0) takes the groups in order."
+  (let* ((d (if (= ngroups 16) 1 2))
+         (flags (let ((v (make-array ngroups))) (dotimes (g ngroups v) (setf (aref v g) (and (funcall nonempty g) t))))))
+    (if (and (find t flags) (dense-above-p d flags))
+        (let ((refs (make-array ngroups :initial-element nil)))
+          (run-pool nthreads ngroups
+                    (lambda (g w)
+                      (when (aref flags g)
+                        (let ((st (st-reset (worker-trie w) d)))
+                          (funcall feed st g w)
+                          (setf (aref refs g) (frontier-subref st))))))
+          (assemble d refs))
+        (let ((w (make-worker)) (st (make-stack-trie 0)))
+          (dotimes (g ngroups) (when (aref flags g) (funcall feed st g w)))
+          (st-finish st)))))
 
 ;;; ------------------------------------------------------------ the worker pool
 
@@ -524,63 +661,6 @@
 
 ;;; ------------------------------------------------------------ pass 1: storage roots -> buckets
 
-(defun open-file-limit (want)
-  "The soft open-file limit, raised to WANT (within the hard limit) if below it."
-  (let ((nofile #+darwin 8 #-darwin 7))          ; RLIMIT_NOFILE
-    (sb-alien:with-alien ((lim (sb-alien:array sb-alien:unsigned-long 2)))   ; rlim_cur rlim_max
-      (sb-alien:alien-funcall
-       (sb-alien:extern-alien "getrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
-       nofile (sb-alien:addr lim))
-      (when (< (sb-alien:deref lim 0) want)
-        (setf (sb-alien:deref lim 0) (min want (sb-alien:deref lim 1)))
-        (sb-alien:alien-funcall
-         (sb-alien:extern-alien "setrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
-         nofile (sb-alien:addr lim))
-        (sb-alien:alien-funcall
-         (sb-alien:extern-alien "getrlimit" (function sb-alien:int sb-alien:int (* (sb-alien:array sb-alien:unsigned-long 2))))
-         nofile (sb-alien:addr lim)))
-      (sb-alien:deref lim 0))))
-
-(defun open-buckets (scratch na)
-  "The bucket files: 256 (the first byte of the hashed key), or 2048 (11 bits) past 2^26
-   accounts so a bucket stays under ~150K records at any state size. 2048 open files need
-   the soft descriptor limit raised; when that is refused, 256."
-  (let ((n (if (> na (expt 2 26)) 2048 256)))
-    (when (and (= n 2048) (< (open-file-limit 2200) 2200))
-      (format *error-output* "~&[snapshot-root] 256 buckets: the open-file limit stays under 2200~%")
-      (setf n 256))
-    (let ((buckets (make-array n)))
-      (dotimes (b n buckets)
-        (let ((path (format nil "~Ab~(~3,'0X~)" scratch b)))
-          (setf (aref buckets b)
-                (make-bucket (open path :direction :output :element-type '(unsigned-byte 8)
-                                        :if-exists :supersede :if-does-not-exist :create)
-                             path)))))))
-
-(declaim (inline bucket-of))
-(defun bucket-of (nbuckets recs off)
-  "The bucket of the hashed key at RECS[OFF..]: its top log2(NBUCKETS) bits."
-  (declare (type octets recs) (type fixnum nbuckets off))
-  (if (= nbuckets 256)
-      (aref recs off)
-      (logior (ash (aref recs off) 3) (ash (aref recs (1+ off)) -5))))
-
-(defstruct (bucket (:constructor make-bucket (stream path)))
-  stream path (buf (make-array +wbuf+ :element-type '(unsigned-byte 8)) :type octets) (pos 0 :type fixnum)
-  (count 0 :type fixnum))
-
-(defun bucket-flush (b)
-  (when (plusp (bucket-pos b))
-    (write-sequence (bucket-buf b) (bucket-stream b) :end (bucket-pos b))
-    (setf (bucket-pos b) 0)))
-
-(defun bucket-put (b recs start)
-  (declare (type octets recs) (type fixnum start))
-  (when (> (+ (bucket-pos b) +rec+) +wbuf+) (bucket-flush b))
-  (replace (bucket-buf b) recs :start1 (bucket-pos b) :start2 start :end2 (+ start +rec+))
-  (incf (bucket-pos b) +rec+)
-  (incf (bucket-count b)))
-
 (defun slot-lower-bound (ssap ns asap aoff)
   "Index of the first storage record whose address is >= the 20 bytes at ASAP+AOFF."
   (let ((lo 0) (hi ns))
@@ -600,22 +680,21 @@
   (setf (worker-big w) (max (worker-big w) (- sj si)))
   (incf (worker-slots w) (- sj si)))
 
-(defun layered-record (w recs r layers s addr &optional (si 0) (base-count 0))
+(defun layered-record (w recs r layers s addr ai si base-count)
   "Bucket record R for ADDR from the stack (Lean `view` at ADDR), or NIL when S1 leaves
-   the address out of the state. Unlike a base account, whose slots are read in place,
-   ADDR's slots are composed into the worker's buffer (88 B a slot), and a large buffer is
-   dropped after use (at 11.5M, with ten threads each keeping its largest copy, 16 GB ran
-   out). Over a giant base storage (BASE-COUNT > *BIG* slots from SI) only the layers are
-   composed, tombstones kept, and GIANT-ROOT lays them over the base's slots in place —
-   unless a layer wiped the storage, when the base's slots are not part of it."
+   the address out of the state. The scan of S is at ADDR: base account AI (NIL: none),
+   BASE-COUNT slots from SI (S has no fence). ADDR's slots are composed into the worker's
+   buffer (88 B a slot), a large one dropped after use (at 11.5M, ten threads each keeping
+   its largest copy ran out of 16 GB). Over a giant base storage (BASE-COUNT > *BIG*) only
+   the layers are composed, tombstones kept, and GIANT-ROOT lays them over the base's
+   slots in place — unless a layer wiped the storage: then the base's slots are not in it."
   (let ((out (worker-obuf w)) (giant (> base-count *big*)) (fields nil) (root nil) (count 0))
     (multiple-value-bind (lfields wiped) (and giant (eita.state.snapshot:compose-address layers nil addr out))
       (if (or wiped (not giant))
           (progn
-            (setf fields (eita.state.snapshot:compose-address layers s addr out :final t))
+            (setf fields (eita.state.snapshot:compose-address layers s addr out :final t :base-at (list ai si (+ si base-count))))
             (multiple-value-setq (root count) (storage-root w (eita.state.snapshot:obuf-sap out) 0 (eita.state.snapshot:obuf-count out))))
-          (multiple-value-bind (found nonce balance codehash flag) (eita.state.snapshot:snap-account s addr)
-            (setf fields (or lfields (and found (list nonce balance codehash flag))))
+          (progn (setf fields (or lfields (eita.state.snapshot:acct-fields s ai)))
             (multiple-value-setq (root count)
               (storage-root w (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-slot-map s)) si base-count
                             (eita.state.snapshot:obuf-sap out) (eita.state.snapshot:obuf-count out))))))
@@ -640,9 +719,12 @@
   (let* ((asap (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-acct s)))
          (ssap (eita.state.snapshot:mapping-sap (eita.state.snapshot:snap-slot-map s)))
          (n (- a1 a0))
-         (touched (and layers
-                       (let ((l '()))
-                         (eita.state.snapshot:map-touched-addresses layers (lambda (a) (push a l)) :lo lo :hi hi)
+         (touched (and layers   ; the addresses the layers mention in [LO, HI), ascending
+                       (let ((l '()) (klo (and lo (eita.state.snapshot:int->octets lo 20)))
+                             (khi (and hi (eita.state.snapshot:int->octets hi 20))))
+                         (eita.state.snapshot:compose-range
+                          (mapcar (lambda (l) (eita.state.snapshot:snap-run l :accounts klo khi)) layers)
+                          (lambda (sap off) (push (eita.state.snapshot:sap-be sap off 20) l)))
                          (nreverse l))))
          (cap (* +rec+ (+ n (length touched)))))
     (declare (type fixnum a0 a1 s0 s1 n))
@@ -659,42 +741,53 @@
                ;; the end of the base account at AOFF's slots, from SI
                (when (and (< si s1) (minusp (cmp-sap ssap (+ +header+ (* si +slot+)) asap aoff 20)))
                  (error "~A: storage record ~D belongs to no account (S5)" (eita.state.snapshot:snap-dir s) si))
-               (let ((sj si))
-                 (declare (type fixnum sj))
-                 (loop while (and (< sj s1) (zerop (cmp-sap ssap (+ +header+ (* sj +slot+)) asap aoff 20)))
-                       do (incf sj))
-                 sj)))
+               ;; galloping, then bisecting: a giant storage's records are not all read here
+               (flet ((same (k) (zerop (cmp-sap ssap (+ +header+ (* k +slot+)) asap aoff 20))))
+                 (if (or (>= si s1) (not (same si)))
+                     si
+                     (let ((lo si) (step 1))   ; LO is the account's
+                       (declare (type fixnum lo step))
+                       (loop while (and (< (+ lo step) s1) (same (+ lo step)))
+                             do (setf lo (+ lo step) step (* 2 step)))
+                       (let ((hi (min s1 (+ lo step))))   ; HI is past it
+                         (declare (type fixnum hi))
+                         (loop while (> (- hi lo) 1)
+                               do (let ((mid (ash (+ lo hi) -1))) (if (same mid) (setf lo mid) (setf hi mid))))
+                         hi))))))
         (dotimes (k n)
           (let* ((aoff (+ +header+ (* (+ a0 k) +acct+)))
                  (base-key (eita.state.snapshot:sap-be asap aoff 20)))
             ;; layered addresses below this base account come first
-            (loop while (and touched (< (first touched) base-key))
-                  do (when (layered-record w recs r layers s (pop touched)) (incf r)))
+            (loop while (and touched (< (first touched) base-key))   ; not in the base: no slots there (S5)
+                  do (when (layered-record w recs r layers s (pop touched) nil si 0) (incf r)))
             (let ((sj (slots-end aoff)))
               (if (and touched (= (first touched) base-key))
-                  (when (layered-record w recs r layers s (pop touched) si (- sj si)) (incf r))
+                  (when (layered-record w recs r layers s (pop touched) (+ a0 k) si (- sj si)) (incf r))
                   (progn
                     (replace recs (worker-bkeys w) :start1 (* r +rec+) :start2 (* 32 k) :end2 (* 32 (1+ k)))
                     (base-record w recs r asap aoff ssap si sj)
                     (incf r)))
               (setf si sj))))
         (dolist (addr touched)
-          (when (layered-record w recs r layers s addr) (incf r)))
+          (when (layered-record w recs r layers s addr nil si 0) (incf r)))
         (unless (= si s1)
           (error "~A: ~D storage records belong to no account (S5)" (eita.state.snapshot:snap-dir s) (- s1 si))))
       r)))
 
-(defun storage-pass (s buckets lock nthreads &optional layers)
+(defun storage-pass (s buckets lock nthreads scratch &optional layers)
   "Every account's storage root and hashed key, into the buckets: the base S, or with
-   LAYERS (layer snaps, newest first) the stack's merged state. Returns (values
-   largest-storage slots-seen)."
+   LAYERS (layer snaps, newest first) the stack's merged state. A giant storage's buckets
+   go in SCRATCH too. Returns (values largest-storage slots-seen)."
   (let* ((acct (eita.state.snapshot:snap-acct s)) (slots (eita.state.snapshot:snap-slot-map s))
          (asap (eita.state.snapshot:mapping-sap acct)) (ssap (eita.state.snapshot:mapping-sap slots))
          (na (eita.state.snapshot:snap-n-accounts s)) (ns (eita.state.snapshot:snap-n-slots s))
          (nchunks (max 1 (ceiling na +chunk+))) (big 0) (seen 0))
+    (eita.state.snapshot:advise-sequential acct)   ; chunks are taken in address order
+    (eita.state.snapshot:advise-sequential slots)
     (run-pool
      nthreads nchunks
      (lambda (c w)
+       (setf (worker-scratch w) scratch (worker-slot-map w) slots)
        (let* ((a0 (min na (* c +chunk+))) (a1 (min na (+ a0 +chunk+)))
               (s0 (if (zerop c) 0 (slot-lower-bound ssap ns asap (+ +header+ (* a0 +acct+)))))
               (s1 (if (= a1 na) ns (slot-lower-bound ssap ns asap (+ +header+ (* a1 +acct+)))))
@@ -708,7 +801,7 @@
          (eita.state.snapshot:release-range acct (+ +header+ (* a0 +acct+)) (+ +header+ (* a1 +acct+)))
          (eita.state.snapshot:release-range slots (+ +header+ (* s0 +slot+)) (+ +header+ (* s1 +slot+)))
          (sb-thread:with-mutex (lock)
-           (dotimes (k n) (bucket-put (aref buckets (bucket-of (length buckets) recs (* k +rec+))) recs (* k +rec+)))
+           (partition buckets recs n +rec+)
            (setf big (max big (worker-big w)))
            (incf seen (worker-slots w))
            (setf (worker-slots w) 0)))))
@@ -716,39 +809,86 @@
 
 ;;; ------------------------------------------------------------ pass 2: buckets -> account trie
 
-(defun read-bucket (w b)
-  "Bucket B's records, in the worker's (grow-only) buffer; returns their count."
-  (with-open-file (in (bucket-path b) :element-type '(unsigned-byte 8))
-    (let ((len (file-length in)))
-      (when (< (length (worker-bucket w)) len)
-        (setf (worker-bucket w) (make-array len :element-type '(unsigned-byte 8))))
-      (unless (= (read-sequence (worker-bucket w) in :end len) len)
-        (error "bucket ~A: short read" (bucket-path b)))
-      (floor len +rec+))))
-
-(defun feed-bucket (st w b)
-  "Push bucket B's records into ST in key order."
-  (when (plusp (bucket-count b))
-    (let* ((n (read-bucket w b)) (recs (worker-bucket w))
-           (order (sort-keys (worker-sorter w) recs n +rec+)))
-      (unless (= n (bucket-count b)) (error "bucket ~A: ~D records on disk, ~D written" (bucket-path b) n (bucket-count b)))
-      (dotimes (r n)
-        (let ((o (* +rec+ (aref order r))))
-          (st-push st recs o
-                   (eita.mpt:account-leaf-value (minimal-vec recs (+ o 32) (+ o 40))
-                                                 (minimal-vec recs (+ o 40) (+ o 72))
-                                                 (subseq recs (+ o 104) (+ o 136))
-                                                 (subseq recs (+ o 72) (+ o 104)))))))))
+(defun account-leaf (recs o)
+  (declare (type octets recs) (type fixnum o))
+  (eita.mpt:account-leaf-value (minimal-vec recs (+ o 32) (+ o 40))
+                                (minimal-vec recs (+ o 40) (+ o 72))
+                                (subseq recs (+ o 104) (+ o 136))
+                                (subseq recs (+ o 72) (+ o 104))))
 
 (defun account-pass (buckets nthreads)
-  "The state root over the bucket files: SPLIT-ROOT over the 16 top nibbles, a nibble's
-   buckets in order."
-  (let ((per (floor (length buckets) 16)))   ; buckets per top nibble
-    (st-root-bytes
-     (split-root 16
-                 (lambda (v) (loop for b from (* per v) below (* per (1+ v)) thereis (plusp (bucket-count (aref buckets b)))))
-                 (lambda (st v w) (loop for b from (* per v) below (* per (1+ v)) do (feed-bucket st w (aref buckets b))))
-                 nthreads))))
+  "The state root over the bucket files: SPLIT-ROOT over the 16 top nibbles."
+  (st-root-bytes (feed-split buckets 16 nthreads #'account-leaf +rec+)))
+
+;;; ------------------------------------------------------------ version 2: hashed key order
+;;;
+;;; A version 2 base is the trie's own order: accounts.dat by keccak(addr), storage.dat by
+;;; (keccak(addr), keccak(slot)), each account's slots one run right where its record sits.
+;;; So nothing is hashed, sorted or partitioned: each of the 16 top-nibble groups of
+;;; accounts.dat, with the same group of storage.dat, streams through two stack tries, an
+;;; account's storage trie first, then its leaf in the account trie, and SPLIT-ROOT
+;;; combines the groups. Memory per thread: the two tries' 64 frames; the mapped pages are
+;;; released behind the scan.
+
+(defconstant +acct-2+ 128)
+(defconstant +slot-2+ 96)
+
+(defun nibble-start (sap n recsize g)
+  "The first of the N records at SAP whose key's top nibble is G or more."
+  (let ((lo 0) (hi n))
+    (declare (type fixnum lo hi))
+    (loop while (< lo hi)
+          do (let ((mid (ash (+ lo hi) -1)))
+               (if (< (ash (sb-sys:sap-ref-8 sap (+ +header+ (* mid recsize))) -4) g)
+                   (setf lo (1+ mid))
+                   (setf hi mid))))
+    lo))
+
+(defun snapshot-root-2 (s threads)
+  "(values root-bytes n-slots) of the version 2 base S. Checks S5 (every slot run sits
+   right before its account) on the way."
+  (let* ((am (eita.state.snapshot:snap-acct s)) (sm (eita.state.snapshot:snap-slot-map s))
+         (asap (eita.state.snapshot:mapping-sap am)) (ssap (eita.state.snapshot:mapping-sap sm))
+         (na (eita.state.snapshot:snap-n-accounts s)) (ns (eita.state.snapshot:snap-n-slots s))
+         (seen 0) (lock (sb-thread:make-mutex)))
+    (flet ((feed (st g w)
+             (declare (ignore w))
+             (let ((a0 (nibble-start asap na +acct-2+ g)) (a1 (nibble-start asap na +acct-2+ (1+ g)))
+                   (si (nibble-start ssap ns +slot-2+ g)) (s1 (nibble-start ssap ns +slot-2+ (1+ g)))
+                   (sst (make-stack-trie 0)) (key (make-array 32 :element-type '(unsigned-byte 8)))
+                   (n 0) (arel 0) (srel 0))
+               (declare (type fixnum a0 a1 si s1 n arel srel))
+               (setf arel (+ +header+ (* a0 +acct-2+)) srel (+ +header+ (* si +slot-2+)))
+               (flet ((release (m from to)
+                        (if (>= (- to from) (* 64 1024 1024)) (progn (eita.state.snapshot:release-range m from to) to) from)))
+                 (loop for a of-type fixnum from a0 below a1
+                       do (let ((aoff (+ +header+ (* a +acct-2+))))
+                            (st-reset sst 0)
+                            (loop while (< si s1)
+                                  do (let* ((off (+ +header+ (* si +slot-2+))) (c (cmp-sap ssap off asap aoff 32)))
+                                       (when (minusp c)
+                                         (error "~A: storage record ~D belongs to no account (S5)" (eita.state.snapshot:snap-dir s) si))
+                                       (when (plusp c) (return))
+                                       (copy-sap ssap (+ off 32) 32 key)
+                                       (st-push sst key 0 (eita.mpt:rlp-encode (eita.mpt:rlp-bytes (minimal-be ssap (+ off 64) 32))))
+                                       (incf si) (incf n)
+                                       (setf srel (release sm srel off))))
+                            (copy-sap asap aoff 32 key)
+                            (st-push st key 0 (eita.mpt:account-leaf-value
+                                               (minimal-be asap (+ aoff 56) 8) (minimal-be asap (+ aoff 64) 32)
+                                               (st-root-bytes (st-finish sst))
+                                               (copy-sap asap (+ aoff 96) 32 (make-array 32 :element-type '(unsigned-byte 8)))))
+                            (setf arel (release am arel aoff))))
+                 (unless (= si s1)
+                   (error "~A: ~D storage records belong to no account (S5)" (eita.state.snapshot:snap-dir s) (- s1 si)))
+                 (eita.state.snapshot:release-range am arel (+ +header+ (* a1 +acct-2+)))
+                 (eita.state.snapshot:release-range sm srel (+ +header+ (* s1 +slot-2+))))
+               (sb-thread:with-mutex (lock) (incf seen n)))))
+      (values (if (zerop na)
+                  (eita.mpt:empty-root-bytes)
+                  (st-root-bytes (split-root 16 (lambda (g) (< (nibble-start asap na +acct-2+ g) (nibble-start asap na +acct-2+ (1+ g))))
+                                             #'feed threads)))
+              seen))))
 
 ;;; ------------------------------------------------------------ the state root
 
@@ -760,13 +900,29 @@
          (parent (subseq dir 0 (1+ (or (position #\/ dir :from-end t) -1)))))
     (format nil "~A.root-~D-~D/" parent (eita.state.snapshot:snap-block s) (sb-posix:getpid))))
 
+(defun manifest-root (s)
+  "The :state-root of S's manifest, lower-case hex without 0x, or NIL."
+  (let ((r (getf (eita.state.snapshot:snap-manifest s) :state-root)))
+    (and r (string-downcase (if (and (> (length r) 1) (string-equal "0x" r :end2 2)) (subseq r 2) r)))))
+
 (defun snapshot-root (dir &key (threads (eita.state.snapshot:hardware-threads)) buckets layers)
   "(values root-hex expected-hex n-accounts n-slots) for the snapshot at DIR, or with
    LAYERS (layer directories, oldest first) for the state of that stack over it (Lean
    `view`): no merged snapshot is written. BUCKETS: the bucket count to use instead of
    the one the state size picks (tests)."
-  (let* ((s (eita.state.snapshot:snap-open dir :fence (and layers t)))  ; point lookups only under layers
-         (ls (reverse (mapcar #'eita.state.snapshot:snap-open layers)))   ; newest first
+  (when (eql 2 (getf (eita.state.snapshot:read-manifest dir) :version))
+    (when layers (error "~A: the root of a version 2 stack is the root worker's (no layers here)" dir))
+    (let ((s (eita.state.snapshot:snap-open dir)))
+      (unwind-protect
+           (multiple-value-bind (root ns) (snapshot-root-2 s (max 1 threads))
+             (unless (= ns (eita.state.snapshot:snap-n-slots s))
+               (error "~A: ~D storage records seen, manifest says ~D" dir ns (eita.state.snapshot:snap-n-slots s)))
+             (return-from snapshot-root
+               (values (eita.mpt:bytes->hex root) (manifest-root s)
+                       (eita.state.snapshot:snap-n-accounts s) ns)))
+        (eita.state.snapshot:snap-close s))))
+  (let* ((s (eita.state.snapshot:snap-open dir :fence nil))   ; scanned, never looked up: see LAYERED-RECORD
+         (ls (reverse (mapcar (lambda (l) (eita.state.snapshot:snap-open l :fence :scan)) layers)))   ; newest first
          (top (or (first ls) s))
          (na (+ (eita.state.snapshot:snap-n-accounts s) (reduce #'+ ls :key #'eita.state.snapshot:snap-n-accounts)))
          (ns (eita.state.snapshot:snap-n-slots s))
@@ -776,7 +932,7 @@
          (lock (sb-thread:make-mutex))
          (t0 (get-internal-real-time)))
     ;; The nursery defaults to 5% of the heap reservation (800 MB of garbage between
-    ;; collections at the 16 GB production setting); the footprint must not follow it.
+    ;; collections at a 16 GB heap); the footprint must not follow it.
     ;; The large transients (a bucket, a big contract's sort buffers) live across a few
     ;; collections: promoted after one they would pile up in an older generation until it
     ;; is collected, so they stay in the nursery longer and die there.
@@ -786,8 +942,8 @@
       (ensure-directories-exist scratch)
       (unwind-protect
            (progn
-             (setf buckets (open-buckets scratch (if buckets (if (= (length buckets) 256) 0 (expt 2 27)) na)))
-             (multiple-value-bind (big seen) (storage-pass s buckets lock threads ls)
+             (setf buckets (open-buckets (format nil "~Ab" scratch) (if buckets (if (= (length buckets) 256) 0 (expt 2 27)) na)))
+             (multiple-value-bind (big seen) (storage-pass s buckets lock threads scratch ls)
                (unless (or ls (= seen ns))
                  (error "~A: ~D storage records seen, manifest says ~D" dir seen ns))
                (setf ns seen)
@@ -795,20 +951,16 @@
                (format t "~&storage roots: ~D accounts, ~D slots (largest ~D) in ~,1Fs~%" na ns big (elapsed))
                (finish-output)
                (format *error-output* "~&[snapshot-root] ~D threads; storage pass ~,1Fs~%" threads (elapsed)))
-             (loop for b across buckets do (bucket-flush b) (close (bucket-stream b)))
+             (close-buckets buckets)
              (sb-ext:gc :full t)
              (let ((root (if (zerop (loop for b across buckets sum (bucket-count b)))
                              (eita.mpt:empty-root-bytes)
                              (account-pass buckets threads))))
                (format *error-output* "~&[snapshot-root] account trie done at ~,1Fs~%" (elapsed))
                (values (eita.mpt:bytes->hex root)
-                       (let ((r (getf (eita.state.snapshot:snap-manifest top) :state-root)))
-                         (and r (string-downcase (if (and (> (length r) 1) (string-equal "0x" r :end2 2)) (subseq r 2) r))))
+                       (manifest-root top)
                        na ns)))
-        (when buckets
-          (loop for b across buckets
-                when b do (ignore-errors (close (bucket-stream b) :abort t))
-                          (ignore-errors (delete-file (bucket-path b)))))
+        (when buckets (remove-buckets buckets))
         (ignore-errors (sb-posix:rmdir (string-right-trim "/" scratch)))
         (mapc #'eita.state.snapshot:snap-close ls)
         (eita.state.snapshot:snap-close s)))))

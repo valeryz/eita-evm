@@ -1,11 +1,21 @@
 # Eita
 
-**An open-source EVM engine for Ethereum (non-validating at this point): it executes and
-verifies every block from genesis, with EVM semantics written in Lean 4 — translated clause
-by clause from the Ethereum execution specs (EELS) and proved — and native execution code
-emitted from that spec, not written by hand. It is built so that turning it into a full
-execution client is a small step: an Engine API block source (see Roadmap), plus the usual
-client scaffolding.**
+**An open-source EVM engine and validating execution client for Ethereum: it executes and
+verifies every block, with EVM semantics written in Lean 4 — translated clause by clause
+from the Ethereum execution specs (EELS) and proved — and native execution code emitted
+from that spec, not written by hand. Blocks come from a consensus client over the Engine
+API ([docs/run-a-node.md](docs/run-a-node.md)), or, to replay history, from blocks you
+supply.**
+
+> **Here from the post on the Lean spec?** The proofs held; the specification was the weak
+> link. Deriving the Lean effect layer and checking it against the tested Lisp host found
+> about a dozen places where the AI-translated spec disagreed with EELS (a contract that
+> self-destructed in its own constructor survived in the spec, not on Ethereum), listed in
+> [docs/effect-layer-derivation.md §5](docs/effect-layer-derivation.md#5-spec-bugs-found-by-deriving-spec-fidelity-fixes-the-cl-was-right).
+> The engine replays Ethereum and Arc live at [eita.run](https://eita.run), every block
+> checked against the chain; what is proved, checked or trusted: [eita.run/verified](https://eita.run/verified/).
+> To follow along, watch this repository (Custom → Releases) or get the
+> [build notes](https://eitanotes.substack.com) on the vericoding journey: building a formally specified EVM with AI agents.
 
 **EITA** — **E**VM **I**nline-**T**hreaded **A**rchitecture.
 *(Alternatively unpacked as **E**VM **I**nductive **T**race **A**ccelerator —
@@ -21,10 +31,20 @@ two execution tiers. Load it into a Lisp REPL and you can execute transactions a
 world you build, or against a test's pre-state, and inspect balances, storage, logs and the
 state root.
 
-**What it is not (yet).** Eita has no p2p networking and no Engine API: it does not sync
-from peers or follow a consensus client. Blocks come from you, through a documented
-block-source interface (`docs/block-input.md`); this repository ships a reader for
-per-block JSON files you produce with your own node or tools.
+**Where blocks come from.** Eita has two block sources:
+
+- **A consensus client, over the Engine API** (`bin/eita engine`, [docs/run-a-node.md](docs/run-a-node.md)).
+  Eita runs as an execution client beside Nimbus or another CL: each new block the CL sends
+  is executed and answered VALID only after its header, transactions, gas, receipts and
+  state root match; a block that fails is INVALID and rolled back. Validate-only (it builds
+  no blocks), for Prague and Osaka chains: mainnet, Hoodi, devnets on mainnet's rules.
+- **Blocks you supply, to replay history** (`bin/eita replay`, [docs/block-input.md](docs/block-input.md)):
+  per-block JSON files, the objects your own node's JSON-RPC returns, read through a
+  documented block-source interface that other sources plug into.
+
+**What it is not (yet).** Eita has no p2p networking: it does not sync from peers, so the
+state a node starts on comes from a replay or the genesis. It builds no blocks and does
+not follow reorgs.
 
 ## See it running: [eita.run](https://eita.run)
 
@@ -39,15 +59,11 @@ This engine is not a demo. It runs in production at **[eita.run](https://eita.ru
   revm** (the EVM inside reth) measured on the same machines with the same inputs, at about
   two cents per teragas on a spot VM. Method, every run and the caveats:
   [eita.run/benchmark](https://eita.run/benchmark/).
-- **Verified metrics, live.** Re-execution produces facts (state changes, value moves, logs,
-  calls), and metrics are incremental *folds* over them, updated the moment a block lands and
-  served with their provenance: the anchor whose state root was checked, the block range,
-  the code that computed them. Because the folds see execution, not just logs, they show what
-  log-based tools can't: ERC-20 Transfer events that the token's storage contradicts, upgrades
-  and role changes made with no event, value moved inside calls that emit nothing, gas
-  attributed to the contracts that actually ran. Open a chain's page from
-  [eita.run](https://eita.run), and see what is proved, checked as it runs, or trusted at
-  [eita.run/verified](https://eita.run/verified/).
+- **Verified metrics, live:** incremental *folds* over the facts re-execution produces,
+  served with their provenance (the checked anchor, the block range, the code). They see
+  execution, not just logs: Transfer events the token's storage contradicts, upgrades made
+  with no event, value moved inside calls that emit nothing. Open a chain from
+  [eita.run](https://eita.run).
 
 The metrics service and the node scaffolding around this engine live outside this
 repository; the engine, the spec, the proofs and the emitters are all here.
@@ -78,14 +94,21 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 
 - **The spec** (`lean/Evm/`): every fork from Frontier to Osaka as a delta over its
   predecessor (a fork's directory holds only what changed), EELS-faithful — EELS is the
-  reference, not the Yellow Paper. Chain specs on top: OP Stack (Bedrock … Isthmus) and
-  Arc (its native-coin and post-quantum precompiles and system rules).
+  reference, not the Yellow Paper. Chain specs on top: OP Stack (Bedrock … Jovian; Base's
+  Azul, Beryl, Cobalt and Denim) and Arc (its native-coin and post-quantum precompiles and
+  system rules).
 - **The proofs**: the IR compiler's soundness against the spec; the emitted handlers'
   denotations (ARM64 and x86-64 instruction semantics in Lean); the effect layer against
   each fork's `processTransaction`, `SELFDESTRUCT`, system calls and block rewards; the
   call-gas and SSTORE gas routines; PUSH-n wide loads; the JIT code arena's safety; the
   header-validity rules. The axiom closure of the audited theorems is checked against a
-  committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms only.
+  committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms, plus, for the theorems proved by
+  evaluation, `native_decide`'s auxiliary axioms (listed; docs/trusted-surface.md). The statements
+  of 41 headline theorems are pinned to an owner-reviewed file and judged by the Lean comparator
+  (`scripts/verify-comparator.sh`; docs/trusted-surface.md). The native
+  slot table is proved in Velvet for every capacity and printed to C (`verify/velvet-slots/`). The state layer's
+  concurrent protocols (layer GC, compaction, root checks, rollback) are Veil models whose citations of the Lisp are
+  checked (`verify/protocols/`).
 - **Generated, not hand-written**: `c/handlers.S`, `c/handlers-x86-elf.S` and
   `src/generated/host.lisp` are committed and must be byte-identical to what the
   emitters produce (`scripts/verify-host-emit.sh`).
@@ -96,6 +119,8 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 
 ## Status
 
+- **What is proved, checked and trusted**: [`docs/VERIFIED.md`](docs/VERIFIED.md); the numbers per
+  component in [`scripts/generated/verification-stats.md`](scripts/generated/verification-stats.md).
 - **ethereum/tests**: the Cancun battery (`LegacyTests/Cancun/BlockchainTests`, 111,983
   tests, Frontier..Cancun) passes on both tiers, the threaded interpreter and the JIT:
   `pass=111835 fail=0 skip=40 xfail=108`, every expected failure listed with its reason
@@ -107,15 +132,17 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   of EELS `validate_header`/`validate_ommers`, senders recovered from signatures) and the
   state root checked against the header at periodic anchors. Arc has been replayed from
   its genesis the same way; OP Stack chains (Base, OP Mainnet, World Chain) run in
-  lazy-state mode.
-- **Open proof obligations**, tracked rather than hidden: 19 `sorry` remain in the spec
-  layer (per-fork refinement theorems and three `Trie.Stack` lemmas; none in an executable
-  definition), and several forks' refinement statements are still shape placeholders.
+  full-state mode from genesis (Base: tested over its first blocks) or lazy-state mode.
+- **Open proof obligations**, tracked rather than hidden: 11 `sorry` remain in the spec
+  layer (per-fork refinement theorems, three `Trie.Stack` lemmas and four `Trie.Frontier`
+  statements of the per-block root; none in an executable definition), and several forks'
+  refinement statements are still shape placeholders.
   `scripts/generated/refinement-coverage.md` lists every obligation; the debt may only go
   down (`scripts/verify-coverage.sh`).
 - **Trusted, not proved**: the SBCL host code around the emitted functions (world tables,
   journal, frame plumbing), the C runtime and the precompile libraries (secp256k1, mcl,
-  blst, OpenSSL), the Lean compiler and SBCL. The battery and mainnet replay are the
+  blst, OpenSSL; base/base's native-precompile logic for Base from Beryl), the Lean compiler
+  and SBCL. The battery and mainnet replay are the
   evidence there, not a proof.
 - **Not checked**: the proof-of-work seal (ethash); RLP-level block defects (the decoder
   reads JSON-RPC block objects, not raw RLP).
@@ -132,7 +159,8 @@ Prerequisites:
   digest in `ocicl.csv`; `build.sh` installs exactly those.
 - **C libraries**: libsecp256k1, OpenSSL (libcrypto), zlib, and
   [mcl](https://github.com/herumi/mcl) built with `MCL_FP_BIT=384`.
-- **Rust** (cargo) for `rust/pq`, the SLH-DSA shim for Arc's post-quantum precompile.
+- **Rust** (cargo) for `rust/pq`, the SLH-DSA shim for Arc's post-quantum precompile, and
+  `rust/base`, the shim over Base's native precompiles (base/base, fetched by cargo).
 - `vendor/blst` is a git submodule: clone with `--recurse-submodules`.
 
 macOS (Apple Silicon):
@@ -202,7 +230,8 @@ bin/eita repl
 `docs/quickstart.md` walks through a session, including running a BlockchainTest's
 pre-state; `examples/quickstart.lisp` is the same as a script
 (`bin/eita repl --load examples/quickstart.lisp`). The API (`src/eita.lisp`, package `eita`)
-is a thin layer over the functions every replay runs.
+is a thin layer over the functions every replay runs. `docs/hooks.md` shows how to run your
+own folds and notifications on the verified blocks of a replay.
 
 ## Tests, and replaying a chain
 
@@ -211,11 +240,14 @@ bin/eita fixtures <BlockchainTests file or directory>...   # docs/testing.md
 EITA_NO_JIT=1 bin/eita fixtures <...>                      # interpreter tier
 scripts/verify-host-emit.sh                                # generated code == emitters
 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   # docs/block-input.md
+bin/eita engine --chain hoodi --state DIR --jwt FILE            # docs/run-a-node.md
 ```
 
-Eita replays blocks you supply as files — the JSON-RPC block objects your own node returns —
-from genesis with full state and state-root checks: `docs/block-input.md`. Other block
-sources (following a node, importing archives, lazy RPC-backed state) plug in through one
+As an execution client, Eita takes each new block from a consensus client over the Engine
+API and answers VALID once its state root matches: `docs/run-a-node.md`. To replay history,
+it runs blocks you supply as files — the JSON-RPC block objects your own node returns — from
+genesis with full state and state-root checks: `docs/block-input.md`. Other block sources
+(following a node, importing archives, lazy RPC-backed state) plug in through the same
 interface, documented there.
 
 ## Layout
@@ -227,6 +259,8 @@ interface, documented there.
 | `lean/Evm/Optimism`, `lean/Evm/Arc` | chain specs |
 | `lean/Evm/Trie`, `Persist`, `Parallel` | state trie (streaming root), layered snapshots and recovery, Block-STM (spec + proofs) |
 | `lean/*.lean` | executables: emitters, test-vector generators, the Lean interpreter's own replay (`lake exe replay`, `lean/REPLAY.md`) |
+| `verify/velvet-slots/` | the slot table's Velvet proofs and its C printer (own Lake package; `scripts/verify-velvet-slots.sh`) |
+| `verify/protocols/` | Veil models of the state layer's concurrent protocols and their code check (`; @veil` markers); own Lake package; `scripts/verify-protocols.sh` |
 | `c/`, `lean/c/` | libeita: the emitted handlers, per-tx state tables, precompiles |
 | `eita.asd`, `ocicl.csv` | the ASDF systems (`eita`, `eita/chains`, `eita/fixtures`, `eita/cli`, `eita/test`), the pinned Lisp dependencies |
 | `src/native/`, `src/core/` | where the native libraries are and their FFI; u256, hex, RLP, keccak |
@@ -236,15 +270,15 @@ interface, documented there.
 | `src/input/` | block decoding and the block-source seam |
 | `src/chains/` | the block pipeline (system calls, receipts and header gates), the chain-spec record, the driver; Ethereum, Arc, OP Stack |
 | `src/fixtures/` | the BlockchainTests runner (`scripts/run-battery.sh` runs a tree) |
+| `src/engine/`, `rust/engine-api/` | the Engine API: the engine thread (`bin/eita engine`) and its HTTP/JWT edge (`bin/eita-engine-api`) |
 | `src/eita.lisp`, `src/cli.lisp` | the API package `eita`; `bin/eita` |
 | `tests/` | the test suites of `(asdf:test-system "eita")` |
 | `docs/` | design notes: start with `replay-architecture.md`, `effect-layer-derivation.md`, `x86-64-backend.md` |
 
 ## Roadmap
 
-- **An Engine API block source**: `engine_newPayload` / `engine_forkchoiceUpdated` from a
-  consensus client, plugged into the same block-source interface — the natural public path
-  from a verifying replayer to a full execution client.
+- **The Engine API beyond validate-only**: sync to the CL's head, reorgs, an incremental
+  state root per block — from a verifying replayer to a full execution client.
 - The proof obligations listed in `scripts/generated/refinement-coverage.md`, down to zero.
 - The x86-64 JIT's proofs at parity with ARM64: the chunk's head charge, op sites,
   terminators and trampolines under the x86-64 semantics (the handlers, gas routines and

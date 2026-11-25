@@ -1,7 +1,6 @@
-;;;; recovery.lisp — the recovery decisions over the durable artifacts (P0, rev. 2 §2.4).
+;;;; recovery.lisp — the recovery decisions over the durable artifacts.
 ;;;;
-;;;; One owner for what used to be split between arc-follow.sh (latest_anchor,
-;;;; prune_dumps, the genesis guard) and state/anchors.lisp (prune-dumps!):
+;;;; The one owner of the resume point, the dump GC and the genesis guard:
 ;;;;
 ;;;;   eita recovery resume <state-dir>   prints N | genesis | refuse
 ;;;;   eita recovery gc <state-dir>       deletes the GC set, prints it
@@ -11,7 +10,7 @@
 ;;;; replay code: it starts in milliseconds and reads only anchors.sexp and the directory.
 ;;;;
 ;;;; The decisions are pure functions of a VIEW of the durable state, so the Lean model
-;;;; (P1, lean/Evm/Persist/Recovery.lean; layered files: lean/Evm/Persist/Layered.lean,
+;;;; (lean/Evm/Persist/Recovery.lean; layered files: lean/Evm/Persist/Layered.lean,
 ;;;; Part D) can state and prove them over the same inputs:
 ;;;;   anchors : list of (block ok hash-or-nil)      from anchors.sexp (torn lines skipped)
 ;;;;   files   : list of (component . status)        status :sealed | :torn | :corrupt
@@ -230,12 +229,12 @@
    say). Deleting less never moves the resume point (Lean `gcFiles_preserves_resume`
    holds for any subset). Prints and returns their names."
   (sync-view dir)
-  (multiple-value-bind (anchors dumps files points) (read-view dir)
+  (multiple-value-bind (anchors dumps files points) (read-view dir) ; @veil run-gc/scan
     (declare (ignore dumps))
-    (let ((gone (set-difference (gc-files anchors files points) pinned :test #'equal)))
+    (let ((gone (set-difference (gc-files anchors files points) pinned :test #'equal))) ; @veil run-gc/victims
       (dolist (c gone)
         (let ((sp (eita.state.snapshot:component-path dir c)))
           (when (probe-file sp)
-            (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring sp))) :search t))))
+            (sb-ext:run-program "rm" (list "-rf" (string-right-trim "/" (namestring sp))) :search t)))) ; @veil run-gc/rm
       (format t "~{~A~^ ~}~%" (mapcar #'component-name gone))
       (mapcar #'component-name gone))))

@@ -1,12 +1,11 @@
-/-! # CL/JournalSpec — provably-correct storage journal & revert (#236 / GH #15)
+/-! # CL/JournalSpec — provably-correct storage journal & revert
 
 The replay's per-frame revert engine (`cb-sstore` journals `(addr, slot, old)`,
-`revert-journal-to` replays it backward) is hand-written, unverified CL — Tier A
-in `docs/vericoding-host-layer.md`. Its bug class has now bitten THREE times:
-#256 (apply-tx revert order, block 1,936,837), #264 (CREATE deposit rollback),
-and the state-root drift at block 4,085,884 (a failed/OOG `addHashes` tx whose
-`hashes`-array SSTORE we kept and mainnet reverted — contract 0xfb4ebcf2, slot
-0x1cf6a0c3, [[project_stateroot_4m_pin]]).
+`revert-journal-to` replays it backward) is hand-written, unverified CL. Its bug
+class — a write that survives a failed frame — shows up as revert ordering in apply-tx (block 1,936,837), CREATE
+deposit rollback, and state-root drift (block 4,085,884: a failed/OOG `addHashes`
+tx whose `hashes`-array SSTORE mainnet reverts — contract 0xfb4ebcf2, slot
+0x1cf6a0c3).
 
 This module models the storage journal the same way `Evm.CL.Arena` models the
 call-frame arena: ONE term, with the structural property a correct revert MUST

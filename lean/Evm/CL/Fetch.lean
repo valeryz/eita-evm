@@ -1,8 +1,7 @@
 /-
   Evm.CL.Fetch — `_eita_next`: fetch, pre-increment, dispatch.
 
-  Stage 1 of #238. `DispatchTable` checked the table; this is the loop that
-  indexes it:
+  `DispatchTable` checks the table; this is the loop that indexes it:
 
       ldrb w14, [x26, x21]          ; code[pc]
       add  x21, x21, #1             ; pc++  — BEFORE the handler runs
@@ -77,7 +76,7 @@ def codeSlack : Nat := 64
 theorem slack_suffices : maxStep ≤ codeSlack := by decide
 
 /-- The margin is 31 bytes — comfortable, but NOT room for a second overshoot
-    (2 × 33 = 66 > 64, which I first claimed and `decide` refuted). So the
+    (2 × 33 = 66 > 64). So the
     invariant that makes this sound is "at most one step past the end", not "the
     slack is huge". -/
 theorem slack_margin : codeSlack - maxStep = 31 := by decide

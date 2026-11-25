@@ -1,8 +1,8 @@
 /-
   Evm.Arc.Spec.NativeCoin — Circle Arc's native-USDC precompiles.
 
-  Source of truth: `circlefin/arc-node` (Apache-2.0, reth/revm fork), HEAD
-  6e76402 (2026-09-25):
+  Source of truth: `circlefin/arc-node` (Apache-2.0, reth/revm fork); line
+  numbers at commit 6e76402:
     crates/precompiles/src/precompile_provider.rs       registration (L43-70)
     crates/precompiles/src/native_coin_authority.rs     NativeCoinAuthority 0x1800…0000
     crates/precompiles/src/native_coin_control.rs       NativeCoinControl   0x1800…0001

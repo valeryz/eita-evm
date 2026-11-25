@@ -27,9 +27,6 @@
                  * (16*l1BaseFee*baseFeeScalar + l1BlobBaseFee*blobBaseFeeScalar)
                  / 10^12
 
-  (Until 2026-11-02 the replay dispatch divided the estimate by 10^6 first
-  and fed it to the — then wrong — Ecotone function as a byte count.)
-
   (intercept can be negative in raw int64 arithmetic; spec clamps the
   estimated_size_scaled at ≥ minTxSizeScaled which dominates for
   small txs and keeps the result ≥ 0 wei.)

@@ -7,7 +7,7 @@
 (in-package #:eita.chain)
 
 (defparameter +replay-chains+
-  '(("ethereum" :ethereum) ("arc" :arc) ("arc-testnet" :arc "testnet") ("arc-mainnet" :arc "mainnet")
+  '(("ethereum" :ethereum) ("hoodi" :ethereum "hoodi") ("devnet" :ethereum "devnet") ("arc" :arc) ("arc-testnet" :arc "testnet") ("arc-mainnet" :arc "mainnet")
     ("base" :op "base") ("opt" :op "opt") ("world" :op "world"))
   "The chains REPLAY runs: name, driver, and the driver's network.")
 
@@ -18,17 +18,18 @@
 
 (defun eita:replay (chain from &key to blocks source observer state checkpoint-every
                                     (full-state nil full-state-p) resume genesis)
-  "Replay CHAIN (\"ethereum\", \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
+  "Replay CHAIN (\"ethereum\", \"hoodi\", \"devnet\" (GENESIS: its genesis.json), \"arc\" | \"arc-testnet\" | \"arc-mainnet\", \"base\" | \"opt\" |
    \"world\") from block FROM to TO (default FROM; :tip follows the head, when the source can).
    BLOCKS: a directory of block files (docs/block-input.md); SOURCE: a Lisp file installing a
-   block source; OBSERVER: a Lisp file installing an observer; STATE: the state directory
-   (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default:
-   true but on the OP chains) runs from the genesis alloc (GENESIS overrides the chain's) or
+   block source; OBSERVER: a Lisp file loaded before the first block (subscriptions,
+   docs/hooks.md, or an observer); STATE: the state directory
+   (snapshots, layers, anchors); CHECKPOINT-EVERY: the anchor interval. FULL-STATE (default
+   true, every chain) runs from the genesis alloc (GENESIS overrides the chain's) or
    from the anchored snapshot at RESUME; without it the source serves state lazily."
   (let* ((row (or (assoc chain +replay-chains+ :test #'string-equal)
                   (error "unknown chain ~S (~{~A~^, ~})" chain (mapcar #'first +replay-chains+))))
          (driver (second row)) (net (third row))
-         (full (if full-state-p full-state (not (eq driver :op)))))
+         (full (if full-state-p full-state t)))
     (when blocks (setenv! "EITA_BLOCKS_DIR" blocks))
     (when source (setenv! "EITA_SOURCE" source))
     (when observer (setenv! "EITA_OBSERVER" observer))
@@ -43,6 +44,6 @@
       (cond ((member to '(:tip "tip") :test #'equalp) (setf args (append args (list "tip"))))
             (to (setf args (append args (list (princ-to-string to))))))
       (ecase driver
-        (:ethereum (eita.chain.ethereum::main-ethereum args))
+        (:ethereum (eita.chain.ethereum::main-ethereum args (or net "mainnet")))
         (:arc (eita.chain.arc::main-arc args (or net eita.chain.arc::*arc-net*)))
         (:op (eita.chain.op::main-base args net))))))

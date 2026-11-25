@@ -8,20 +8,20 @@
   "When non-nil, cb-call logs each sub-frame's (depth, kind, to, forwarded
    gas, gasUsed) so the per-frame gas can be diffed against a geth callTracer.")
 
-;; #250: a sub-call's RETURN output is copied into a malloc'd `out-copy` buffer
+;; A sub-call's RETURN output is copied into a malloc'd `out-copy` buffer
 ;; (cb-call's `result.output_ptr`), which the native CALL handler installs as the
 ;; caller frame's state->returndata (EvmState offset 96, set in AsmCore.lean:642).
 ;; That buffer is the ONLY thing written to offset 96, so a non-null returndata is
-;; ALWAYS a malloc'd out-copy — safe to free. Nothing freed it, so every CALL that
-;; returns leaked one buffer; harmless at normal call density but catastrophic in
-;; the 2.28M–2.46M DoS region (millions of nested cheap calls → ~28G → swap death).
-;; Lifetime: returndata is valid only until the frame's NEXT call, so we free a
-;; frame's old returndata when it makes another call (cb-call entry) and when the
+;; ALWAYS a malloc'd out-copy — safe to free. Unfreed, every CALL that returns would
+;; leak one buffer, which the 2.28M–2.46M DoS region (millions of nested cheap calls)
+;; turns into tens of GB.
+;; Lifetime: returndata is valid only until the frame's NEXT call, so a frame's old
+;; returndata is freed when it makes another call (cb-call entry) and when the
 ;; frame ends (sub-frame return in cb-call/cb-create; top frame in apply-tx). The
 ;; field is nulled on free and at frame setup, so a reused arena slot never holds a
 ;; stale (freed) pointer — no double free.
-;; Debug toggle (read once): EITA_NO_RD_FREE=1 disables the #250 returndata free
-;; to A/B the leak. Default: enabled.
+;; Debug toggle (read once): EITA_NO_RD_FREE=1 disables the returndata free
+;; (to measure the leak). Default: enabled.
 (defstartup *rd-free-enabled* (not (sb-posix:getenv "EITA_NO_RD_FREE")))
 (declaim (inline free-frame-returndata))
 (defun free-frame-returndata (state)
@@ -125,11 +125,11 @@
       (let* ((*stack-arena-base*  sub-stack-base)
              (*memory-arena-base* sub-memory-base))
         (let* ((sub-depth (1+ *call-depth*))
-               (sub-state (substate-slot sub-depth))    ; arena slot, not malloc (#248)
+               (sub-state (substate-slot sub-depth))    ; arena slot, not malloc
                (sub-stack (inc-pointer *stack-arena*  *stack-arena-base*))
                (sub-mem   (inc-pointer *memory-arena* *memory-arena-base*))
                (sub-mem-cap (- +memory-arena-bytes+ *memory-arena-base*))
-               (sub-arena (subarena-slot sub-depth))    ; arena slot, not malloc (#248)
+               (sub-arena (subarena-slot sub-depth))    ; arena slot, not malloc
                ;; The child reads its input in place when it lies in the caller's memory
                ;; (below the caller's memory size: the child's memory slice starts above
                ;; it, and the caller's memory does not change while the child runs); a
@@ -148,7 +148,7 @@
           (setf (mem-ref sub-state :pointer 32) sub-stack)
           (setf (mem-ref sub-state :pointer 40) sub-mem)
           (setf (mem-ref sub-state :uint64 56)  sub-mem-cap)
-          ;; #250: fresh frame starts with no returndata (this arena slot may hold a stale
+          ;; A fresh frame starts with no returndata (this arena slot may hold a stale
           ;; freed ptr from a prior frame at this depth).
           (setf (mem-ref sub-state :pointer 96) (null-pointer))
           (setf (mem-ref sub-state :uint64 104) 0)
@@ -184,8 +184,8 @@
               (setf *current-state*   parent-state)
               (setf *current-address* saved-addr)))
           ;; Copy the child's output BEFORE scrubbing its memory slice (output_ptr points
-          ;; into it). An exceptional halt is not a :revert (frame-status; stop #16: calling
-          ;; those :revert made Arc CallFrom refund its retained 1/64 after an OOG child).
+          ;; into it). An exceptional halt is not a :revert (frame-status; treating it as
+          ;; :revert would make Arc CallFrom refund its retained 1/64 after an OOG child).
           (let* ((output-ptr (mem-ref sub-state :pointer 112))
                  (output-len (mem-ref sub-state :uint64 120))
                  (gas-left (mem-ref sub-state :uint64 8))
@@ -203,7 +203,7 @@
               (when (plusp used)
                 (zero-bytes *memory-arena* *memory-arena-base* used)))
             (unless in-place (foreign-free sub-input))
-            ;; #250: the child ended — free the returndata left by the LAST call it made.
+            ;; The child ended — free the returndata left by the LAST call it made.
             (free-frame-returndata sub-state)
             (list status (if (eq status :halt) 0 gas-left) output))))))))
 
@@ -217,7 +217,7 @@
    Lean-emitted spec-call-effect. Its return data becomes the frame's returndata (the
    handler copies it into memory and pushes the flag)."
   (declare (ignore ctx))
-  ;; #250: this CALL replaces the caller frame's returndata — free the previous one.
+  ;; This CALL replaces the caller frame's returndata — free the previous one.
   (free-frame-returndata *current-state*)
   (let* ((kind (mem-ref params :int 0))
          ;; CALL masks its target to the low 160 bits; mask defensively so a divergent path
@@ -324,18 +324,18 @@
     (let* ((*stack-arena-base*  sub-stack-base)
            (*memory-arena-base* sub-memory-base))
       (let* ((sub-depth (1+ *call-depth*))
-             (sub-state (substate-slot sub-depth))    ; arena slot, not malloc (#248)
+             (sub-state (substate-slot sub-depth))    ; arena slot, not malloc
              (sub-stack (inc-pointer *stack-arena*  *stack-arena-base*))
              (sub-mem   (inc-pointer *memory-arena* *memory-arena-base*))
              (sub-mem-cap (- +memory-arena-bytes+ *memory-arena-base*))
-             (sub-arena (subarena-slot sub-depth))    ; arena slot, not malloc (#248)
+             (sub-arena (subarena-slot sub-depth))    ; arena slot, not malloc
              (saved-addr *current-address*))
         (with-frame-code (sub-state init-code input-len)
         (setf (mem-ref sub-state :uint64 8)   fwd)
         (setf (mem-ref sub-state :pointer 32) sub-stack)
         (setf (mem-ref sub-state :pointer 40) sub-mem)
         (setf (mem-ref sub-state :uint64 56)  sub-mem-cap)
-        ;; #250: fresh init frame — clear any stale returndata in this arena slot.
+        ;; Fresh init frame — clear any stale returndata in this arena slot.
         (setf (mem-ref sub-state :pointer 96) (null-pointer))
         (setf (mem-ref sub-state :uint64 104) 0)
         (u256-write (inc-pointer sub-state 144) new-addr)
@@ -376,7 +376,7 @@
           (let ((used (mem-ref sub-state :uint64 48)))
             (when (plusp used)
               (zero-bytes *memory-arena* *memory-arena-base* used)))
-          ;; #250: the init frame ended — free the returndata left by the last call its
+          ;; The init frame ended — free the returndata left by the last call its
           ;; constructor made (intermediate ones were freed at each cb-call entry).
           (free-frame-returndata sub-state)
           (list status gas-left output)))))))
@@ -594,8 +594,8 @@
 (defstartup *shared-callbacks* nil
   "Process-wide callbacks vtable. The table is CONSTANT — the same CFFI callback
    pointers every frame — so all frames share ONE instead of foreign-alloc'ing
-   (and, in the sub-frame path, leaking) a fresh 16-pointer table per call
-   (#248/#250). Only the rare per-block/tx step-trace path needs a private copy.")
+   a fresh 16-pointer table per call. Only the rare per-block/tx step-trace path needs
+   a private copy.")
 
 (defun callbacks-vtable ()
   "Return the shared callbacks vtable (built once). Falls back to a fresh

@@ -106,8 +106,19 @@
   "Blocks a reorg may undo (the chain-spec's; Ethereum finality is two epochs). At the tip
    every block within it is a layer; compaction never touches those layers, and an anchor
    there is root-checked only once its block is this deep."
-  (if *chain-spec* (chain-spec-reorg-depth *chain-spec*) 64))
-(defvar *tip-freeze* nil "True while following the tip: freeze after every block (reorgs).")
+  (if *chain-spec* (chain-spec-reorg-depth *chain-spec*) 64)) ; @veil reorg-window/depth
+(defvar *tip-freeze* nil
+  "True within `reorg-window` of the head while following it: freeze after every block (a
+   reorg rolls layers back). Not \"at the tip\" (`at-tip-p`): NIL throughout on a chain final
+   at once (reorg-depth 0, Arc).")
+(defvar *chain-head* nil
+  "The chain's head as the block source following it last saw it (newHeads, the RPC's block
+   number); NIL when not following (a bounded run: every block is catch-up).")
+(defconstant +tip-distance+ 8 "Blocks below the head that are still at the tip.")
+(defun at-tip-p (n)
+  "Block N is at the chain's tip: within +tip-distance+ of the head the source follows. The one
+   owner of \"at the tip\" (the fact log's durability cadence, the node's)."
+  (and *chain-head* (<= (- *chain-head* n) +tip-distance+)))
 (defvar *compacting-base* nil
   "A compacted base waiting for its root check (a snap, opened by the compactor).")
 (defvar *no-new-compaction* nil "True while a bounded run winds down: finish, start nothing.")
@@ -162,7 +173,7 @@
    every base or layer that no kept resume point (the two newest verified, up to two
    unverified above them) is made of."
   ;; not while a compacted base waits for its root check: no point names it yet
-  (unless *compacting-base*
+  (unless *compacting-base* ; @veil prune-dumps!/not-compacting
     (let ((gone (eita.state.recovery:run-gc (state-dir) :pinned (live-components))))
       (when gone (format t "~&[anchor] gc: deleted ~{~A~^ ~}~%" gone) (force-output)))))
 
@@ -174,6 +185,40 @@
       (sb-ext:process-wait (third p))
       (ignore-errors (delete-file (fourth p))))))
 
+;;; Retained anchors: the GC keeps the two newest verified points (recovery.lisp), so a
+;;; replay from an older point meant a rebuild from genesis (Arc 0 -> 21M: 11 h). With
+;;; EITA_RETAIN_EVERY=K the first verified stack anchor of every K-block bucket is kept
+;;; outside the GC's view: <state>/retained/<N>/ holds hard links to its components (immutable
+;;; once published: no bytes copied while the originals live; a base the GC drops stays as
+;;; the retained copy), its anchors.sexp line, and the observer's part (the fact log's shard
+;;; files at N). A resume from it: link it into a fresh state dir, EITA_RESUME_FROM=N. Never
+;;; deleted automatically. Arc's anchor at 28.05M is 9.4 GB (base 8.7 + layers 0.7), shared
+;;; with every point over the same base.
+(defstartup *retain-every*
+  (let ((v (sb-ext:posix-getenv "EITA_RETAIN_EVERY"))) (if (and v (plusp (length v))) (parse-integer v) 0)))
+
+(defun retain-anchor! (n record comps)
+  (flet ((sub (dir name) (merge-pathnames (make-pathname :directory (list :relative name)) dir))
+         (bucket (name) (and (every #'digit-char-p name) (floor (parse-integer name) *retain-every*))))
+    (let ((root (sub (state-dir) "retained")))
+      (when (and (plusp *retain-every*) (plusp n)
+                 (not (member (floor n *retain-every*) (directory (merge-pathnames "*/" root))
+                              :key (lambda (d) (bucket (car (last (pathname-directory d))))))))
+        (let ((tmp (sub root (format nil "~D.tmp" n))))
+          (when (probe-file tmp) (sb-ext:delete-directory tmp :recursive t))   ; a crash's leftover
+          (dolist (c comps)              ; a link per file of each component (a snap-/layer- dir)
+            (let* ((src (eita.state.snapshot:component-path (snapshot-dir) c))
+                   (dst (sub tmp (car (last (pathname-directory src))))))
+              (ensure-directories-exist dst)
+              (dolist (f (directory (merge-pathnames "*.*" src)))
+                (sb-posix:link (namestring f) (namestring (merge-pathnames (file-namestring f) dst))))))
+          (with-open-file (a (merge-pathnames "anchors.sexp" tmp) :direction :output :if-exists :supersede)
+            (let ((*print-pretty* nil)) (prin1 record a) (terpri a)))
+          (eita.evm::observe retain n tmp)
+          (sb-posix:rename (string-right-trim "/" (namestring tmp)) (string-right-trim "/" (namestring (sub root (format nil "~D" n)))))
+          (format t "~&[anchor] block ~D retained in ~A (one per ~D blocks)~%" n root *retain-every*)
+          (force-output))))))
+
 (defun root-check-finish! (&key force)
   "Collect the in-flight root check if it has finished (or FORCE a wait): append
    (N expected computed ok composition) to the anchors file, prune, error on mismatch.
@@ -183,7 +228,7 @@
     (when (and pending (or force (not (sb-ext:process-alive-p (third pending)))))
       (destructuring-bind (n expected-hex proc out comps kind t0) pending
         ;; a forced wait says so, then every 5 min: the replay is paused, not hung (a
-        ;; 25-min check at an x86-64 Linux anchor looked like a stall, 2026-11-01)
+        ;; root check can take 25 min, which otherwise looks like a stall)
         (loop while (sb-ext:process-alive-p proc)
               do (format t "~&[anchor] waiting for the root check of block ~D (pid ~D, running ~D min)~%"
                          n (sb-ext:process-pid proc) (floor (- (get-universal-time) t0) 60))
@@ -206,12 +251,12 @@
                (ok (and cl-root (string-equal cl-root (root-strip-0x expected-hex))))
                (computed (or cl-root text)))
           ;; `eita check-root` exits 1 on a mismatch, so its root line decides, not the code
-          (unless cl-root
+          (unless cl-root ; @veil root-check-finish!/norun
             (ignore-errors (delete-file out))
             (format t "~&[anchor] block ~D root check could NOT RUN (eita check-root exited ~A) — not a root mismatch (its stderr: state-~D.rootout.err). Anchor UNVERIFIED, no anchors line written; replay continues.~%"
                     n code n)
             (force-output)
-            (when (eq kind :base)                                 ; a later compaction retries
+            (when (eq kind :base)                                 ; a later compaction retries; @veil root-check-finish!/norun-base
               (eita.state.snapshot:snap-close (shiftf *compacting-base* nil)))
             (prune-dumps!)
             (return-from root-check-finish! nil))
@@ -219,22 +264,25 @@
           ;; the composition rides with the verdict: resume maps only the exact bytes whose
           ;; root was checked (I3)
           (append-anchor! (list n expected-hex computed (if ok t nil) (eita.state.snapshot:composition-string comps)))
+          (when (and ok (eq kind :stack))   ; a failed copy costs the copy, not the run
+            (handler-case (retain-anchor! n (list n expected-hex computed t (eita.state.snapshot:composition-string comps)) comps)
+              (error (e) (format t "~&[anchor] block ~D NOT retained: ~A~%" n e))))
           (format t "~&[anchor] block ~D~:[~; (compacted base)~] root ~A ~A~%" n (eq kind :base)
                   (if ok "OK" "MISMATCH") (string-trim '(#\Newline) text))
           (force-output)
-          (unless ok
+          (unless ok ; @veil root-check-finish!/mismatch
             (error "state-root MISMATCH at block ~D~:[~; in a COMPACTED BASE (the stack checked fine: a compaction bug)~] (last good anchor ~A): densify+bisect the range ~A..~D"
                    n (eq kind :base) *last-good-anchor* *last-good-anchor* n))
-          (if (eq kind :base)
+          (if (eq kind :base) ; @veil root-check-finish!/swap
               (compaction-swap! n)
               (setf *last-good-anchor* n))
           (prune-dumps!)
           t)))))
 
 (defparameter *mpt-armed* nil
-  "Incremental state-root validation (src/state/mpt-live.lisp, #237): the account trie
-   maintained per block on a worker thread. Never T today — chains/driver.lisp refuses
-   to arm it until step F gives it the snapshot (seeding and the anchor verdict); the
+  "Incremental state-root validation (src/state/mpt-live.lisp): the account trie
+   maintained per block on a worker thread. Never T — chains/driver.lisp refuses to arm
+   it until it reads snapshots (seeding and the anchor verdict); the
    per-block hook sites stay wired on this flag.")
 
 (defun drop-stale-rootouts! ()
@@ -266,7 +314,7 @@
 (defun root-check-command (argv)
   "The program and arguments that run ARGV (the checker's own command line) at background priority:
    the root check reads the whole state from disk while the replay runs, and on a busy disk it must
-   not take the replay's reads' place (GCP 2026-11-04: the replay fell behind during a root check).
+   not take the replay's reads' place (otherwise the replay falls behind during a root check).
    On Linux, through `ionice -c2 -n7` (best effort, lowest; not idle, which a busy replay could
    starve) and `nice -n 10`, when ionice exists; elsewhere ARGV as is."
   (if (and (member :linux *features*) (probe-file "/usr/bin/ionice") (probe-file "/usr/bin/nice"))
@@ -302,23 +350,23 @@
    layer, a compaction), collect a finished root check, start the next one, prune."
   (writer-check!)
   (root-check-finish!)
-  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*))))
+  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*)))) ; @veil root-check-poll!/compact
     (when m (setf *base-check-due* m)))
-  (unless *pending-root*
-    (if *base-check-due*
+  (unless *pending-root* ; @veil root-check-poll!/idle
+    (if *base-check-due* ; @veil root-check-poll!/base-due
         (let* ((m (shiftf *base-check-due* nil))
                (path (eita.state.snapshot:snap-path (snapshot-dir) m))
                (manifest (eita.state.snapshot:read-manifest path)))
-          (spawn-root-check! m (getf manifest :state-root)
+          (spawn-root-check! m (getf manifest :state-root) ; @veil root-check-poll!/manifest-root
                              (list (list :base m (getf manifest :content-hash))) :base))
-        (let ((a (first *anchor-queue*)))
+        (let ((a (first *anchor-queue*))) ; @veil root-check-poll!/anchor
           (when a
             (destructuring-bind (b expected) a
               (let ((comps (and (or (not *tip-freeze*) (>= n (+ b (reorg-window))))
-                                (stack-composition b))))
+                                (stack-composition b)))) ; @veil root-check-poll!/compose
                 (when comps
                   (pop *anchor-queue*)
-                  (spawn-root-check! b expected comps :stack))))))))
+                  (spawn-root-check! b expected comps :stack)))))))) ; @veil root-check-poll!/spawn-stack
   (close-retired!)
   (collect-written!))
 

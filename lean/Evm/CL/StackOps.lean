@@ -2,18 +2,16 @@
   Evm.CL.StackOps — PUSH / DUP / SWAP against the stack, and the register-cache
   invariant they have to maintain.
 
-  Stage 1 of #238. The per-op handlers are all structured `AsmCore.Prog`s
-  already, but the stack shuffles had no theorem — and they are the ops whose
-  correctness is not about arithmetic at all. It is about an INVARIANT:
+  The stack shuffles are the ops whose correctness is not about arithmetic at
+  all. It is about an INVARIANT:
 
       sp ≥ 1 → stack[sp-1] = TOS registers (x6-x9)
       sp ≥ 2 → stack[sp-2] = NOS registers (x10-x13)
 
   The handlers keep the top two stack words in registers, so every op that
-  moves the stack must leave both the memory and the cache consistent. #272 was
-  precisely this invariant broken in the other direction — the interpreter
-  speculatively read `stack[depth-2]` one slot BELOW the live stack and faulted
-  the guard arena.
+  moves the stack must leave both the memory and the cache consistent. Breaking
+  it in the other direction — a speculative read of `stack[depth-2]` one slot
+  BELOW the live stack — faults the guard arena.
 
   The sharp case is SWAP-1, which exchanges TOS with `stack[sp-2]` — the very
   slot the NOS cache mirrors. `swapBody` reloads NOS for `n = 1` only, and

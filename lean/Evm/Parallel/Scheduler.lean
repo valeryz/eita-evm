@@ -1,4 +1,4 @@
-/-! # Evm/Parallel/Scheduler — the optimistic re-execution loop TERMINATES (liveness, #255)
+/-! # Evm/Parallel/Scheduler — the optimistic re-execution loop TERMINATES (liveness)
 
 `BlockSTM.lean` proves SAFETY: a settled multi-version memory commits exactly `seqExec`.
 Safety says nothing about reaching a settled memory — per the safety ≠ liveness
@@ -22,7 +22,7 @@ step re-executes some `i < n` that is `Justified`. We prove:
     hence there is no infinite run (`no_infinite_run`).
 
 The bound is the paper's finiteness argument, not a performance statement: the real
-re-execution count is set by the conflict rate (#257). The executor discharges the
+re-execution count is set by the conflict rate. The executor discharges the
 `Justified` hypothesis by re-executing ONLY on a failed validation (see
 `Reads.version_validation_sound` for why a passed version check means the values the
 tx read are unchanged). Import-free; core tactics only. -/

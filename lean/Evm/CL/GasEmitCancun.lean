@@ -12,8 +12,8 @@ BLOBBASEFEE pushes (EvmState #568). `nextExcessBlobGas` (a clause of `spec-heade
 BPO2) and EELS `calculate_blob_gas_price` / `calculate_excess_blob_gas` (with EIP-7918's
 reserve-price clause from Osaka) over it. This file proves the emitted terms the same
 functions of the fork and the parent fields, so the executable can neither price one
-schedule's blobs on another's curve (which the hand-written Cancun-only formula did until
-2026-10-25) nor skip EIP-7918. Same pattern as `GasEmitParis` / `GasEmitShanghai`. -/
+schedule's blobs on another's curve (as a Cancun-only formula would) nor skip EIP-7918.
+Same pattern as `GasEmitParis` / `GasEmitShanghai`. -/
 
 namespace Evm.CL.GasEmitCancun
 
@@ -101,6 +101,23 @@ theorem maxBlobGasPerBlock_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord"
   simp only [maxBlobGasPerBlock, Evm.Osaka.Spec.maxBlobGasPerBlockAt]
   rw [bySchedule_eq ρ f hf 786432 1179648 1966080 2752512
         (fun p => p.max * Evm.Cancun.Spec.gasPerBlob) rfl rfl rfl rfl]
+
+/-- **The emitted schedule entry is the spec's**, field by field: target and max (blobs) and
+    the update fraction of `blobParamsAt f`. -/
+theorem blobScheduleTarget_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobScheduleTarget.eval ρ = (blobParamsAt f).target := by
+  simp only [blobScheduleTarget]
+  rw [bySchedule_eq ρ f hf 3 6 10 14 (fun p => p.target) rfl rfl rfl rfl]
+
+theorem blobScheduleMax_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobScheduleMax.eval ρ = (blobParamsAt f).max := by
+  simp only [blobScheduleMax]
+  rw [bySchedule_eq ρ f hf 6 9 15 21 (fun p => p.max) rfl rfl rfl rfl]
+
+theorem blobBaseFeeUpdateFraction_eq_spec (ρ : Env) (f : Evm.Fork) (hf : ρ "fork-ord" = f.ord) :
+    blobBaseFeeUpdateFraction.eval ρ = (blobParamsAt f).fraction := by
+  simp only [blobBaseFeeUpdateFraction]
+  rw [bySchedule_eq ρ f hf 3338477 5007716 8346193 11684671 (fun p => p.fraction) rfl rfl rfl rfl]
 
 /-- EIP-7825: the emitted cap is `Evm.Osaka.Spec.txMaxGasLimit`. -/
 theorem txMaxGasLimit_eq_spec (ρ : Env) : txMaxGasLimit.eval ρ = Evm.Osaka.Spec.txMaxGasLimit := by

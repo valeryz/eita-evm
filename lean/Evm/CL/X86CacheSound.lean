@@ -1129,9 +1129,9 @@ theorem xrun_ret_coherent (HX : Evm.CL.X86Sem.XHelpers) (its : List XItem) (h : 
 
 /-! ## What the soundness proof made the check reject
 
-The check this replaced read the `AInstr` body under ARM names (`OpInstrs.cacheIncoherent
-… true`). It accepted each of the first four groups of bodies below, and on x86-64 each
-breaks the cache on some run: -/
+A check that reads the `AInstr` body under ARM names (`OpInstrs.cacheIncoherent … true`)
+accepts each of the first four groups of bodies below, and on x86-64 each breaks the
+cache on some run: -/
 
 open Evm.CL.AsmCore in
 /-- NOS read as a register after sp moved: x86-64 reads x10-x13 from memory at the

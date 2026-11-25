@@ -1,7 +1,7 @@
 /-
   EmitX86Interp.lean — `lake exe emitX86Interp [macho|elf]` writes the x86-64
   threaded interpreter (`Evm.CL.X86Interp`): Mach-O text for the clang gate on
-  the Mac, ELF text for `libeita.so` on Linux/x86-64.
+  macOS, ELF text for `libeita.so` on Linux/x86-64.
 -/
 
 import Evm.CL.X86Interp

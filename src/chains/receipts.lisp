@@ -3,12 +3,13 @@
 ;;;; Chain-neutral: EIP-658 status receipts in EIP-2718 envelopes, as every post-Byzantium
 ;;;; EVM chain encodes them: receipt = rlp([status, cumulativeGasUsed, logsBloom, logs]),
 ;;;; prefixed by the tx type byte when type > 0; receiptsRoot = trie root over
-;;;; (rlp(index) -> receipt). A chain whose receipts carry extra fields (OP-Stack deposit
-;;;; receipts: depositNonce, depositReceiptVersion) supplies `*chain-receipt-encode-hook*`.
+;;;; (rlp(index) -> receipt). A chain whose receipts hash extra fields after the logs (OP-Stack
+;;;; deposit receipts from Canyon: depositNonce, depositReceiptVersion) sets the tx's
+;;;; `*tx-receipt-extension*` (integers, appended in order) as it runs the tx.
 ;;;;
-;;;; Why it exists: the header gate compared only Σ gas and the logs bloom. A tx that
-;;;; FAILED on-chain but succeeded for us at equal gas and with no logs was invisible —
-;;;; Arc block 21 418 236 tx 9 drifted the state that way and surfaced 235k blocks later.
+;;;; Why it exists: a header gate on Σ gas and the logs bloom alone misses a tx that
+;;;; FAILED on-chain but succeeds in the replay at equal gas and with no logs (Arc block
+;;;; 21 418 236 tx 9 is such a case; its state drift surfaces 235k blocks later).
 ;;;; The receipts root commits to every receipt's status, cumulative gas, bloom and logs,
 ;;;; so that class is caught in the block where it happens.
 ;;;;
@@ -19,16 +20,18 @@
 
 (in-package #:eita.chain)
 
-(defvar *chain-receipt-encode-hook* nil
-  "Optional (lambda (type status cumulative bloom logs) ...) returning the receipt bytes,
-   or NIL for the standard encoding. Chain-specific receipt formats plug in here.")
+(defvar *tx-receipt-extension* nil
+  "Integers the current tx's receipt hashes after its logs (NIL: none). Reset by the driver
+   before each tx; set by a chain's tx hook (OP deposits: (depositNonce 1) from Canyon).")
 
 (defvar *chain-header-foreign* '()
   "Header fields this chain defines otherwise than Ethereum, which verify-block-header does
    not compare (OP-Stack: withdrawalsRoot is the L2ToL1MessagePasser's storage root from
-   Isthmus, blobGasUsed the DA footprint from Jovian). The driver's banner names them.")
+   Isthmus). A chain's block-setup may set it per block; each block's verification reads
+   the value its block ran with (block-verify-inputs). The driver's banner names them.")
 (defvar *block-receipts* '()
-  "The current block's receipts as executed, newest first: (type status cumulative-gas logs);
+  "The current block's receipts as executed, newest first: (type status cumulative-gas logs
+   extension);
    encoded by verify-block-header (in a replay, on the verifier thread).")
 (defvar *receipts-unverifiable* nil
   "No receiptsRoot to compare: T before Byzantium (receipts carry a per-tx state root),
@@ -56,12 +59,10 @@
       (bloom-add! bloom (u256->octets (first l) 20))
       (dolist (tp (second l)) (bloom-add! bloom (u256->octets tp 32))))))
 
-(defun receipt-encode (type status cumulative logs)
-  "One receipt's bytes, and its bloom."
+(defun receipt-encode (type status cumulative logs &optional extension)
+  "One receipt's bytes, and its bloom. EXTENSION: integers hashed after the logs."
   (let ((bloom (logs-bloom logs)))
     (values
-     (or (and *chain-receipt-encode-hook*
-             (funcall *chain-receipt-encode-hook* type status cumulative bloom logs))
         (let* ((rlp-logs (eita.mpt:rlp-list*
                           (mapcar (lambda (l)
                                     (eita.mpt:rlp-list
@@ -71,17 +72,18 @@
                                      (eita.mpt:rlp-bytes (third l))))
                                   logs)))
                (body (eita.mpt:rlp-encode
-                      (eita.mpt:rlp-list (eita.mpt:rlp-uint status)
-                                          (eita.mpt:rlp-uint cumulative)
-                                          (eita.mpt:rlp-bytes bloom)
-                                          rlp-logs))))
+                      (eita.mpt:rlp-list* (list* (eita.mpt:rlp-uint status)
+                                                  (eita.mpt:rlp-uint cumulative)
+                                                  (eita.mpt:rlp-bytes bloom)
+                                                  rlp-logs
+                                                  (mapcar #'eita.mpt:rlp-uint extension))))))
           (if (and type (plusp type))
               (let ((out (make-array (1+ (length body)) :element-type '(unsigned-byte 8))))
                 (setf (aref out 0) type) (replace out body :start1 1) out)
-              body)))
+              body))
      bloom)))
 
-(defun receipts-push! (type status gas-used logs)
+(defun receipts-push! (type status gas-used logs &optional extension)
   "Record one executed tx's receipt (STATUS 1/0, GAS-USED after refunds/floor). The
    deposit contract's DepositEvent logs are kept for the EIP-6110 requests (EELS prague
    requests.py parse_deposit_requests reads them from the receipts, as here)."
@@ -89,13 +91,14 @@
   (dolist (l logs)
     (when (and (= (first l) +deposit-contract-address+) (second l) (= (first (second l)) +deposit-event-signature+))
       (push (third l) *block-deposit-logs*)))
-  (push (list type status *receipt-cumulative-gas* logs) *block-receipts*))
+  (push (list type status *receipt-cumulative-gas* logs extension) *block-receipts*))
 
 (defun block-verify-inputs ()
   "What verify-block-header reads of the current block's execution, as its keyword
    arguments: captured, for the verifier thread."
   (list :receipts (reverse *block-receipts*) :unverifiable *receipts-unverifiable*
-        :blob-gas *block-blob-gas* :requests-hash *block-requests-hash*))
+        :blob-gas *block-blob-gas* :requests-hash *block-requests-hash*
+        :foreign *chain-header-foreign*))
 
 ;;; --- The block body's roots: what transactionsRoot / withdrawalsRoot commit to ----------
 ;;; The header hash (fetch-verified-block) covers the header only; these tie the body we
@@ -155,21 +158,22 @@
                             r s))))
 
 (defun tx-sender-verified-p (tx)
-  "TX names the sender its signature recovers. An OP deposit (0x7e) is unsigned: its
-   sender is in its envelope, which transactionsRoot covers."
-  (or (= (tx-type tx) #x7e) (eql (tx-sender tx) (recover-tx-sender tx))))
+  "TX names the sender its signature recovers: a sender the source gave is compared with
+   the recovery here, one that `recover-senders!` set is the recovery. An OP deposit (0x7e)
+   is unsigned: its sender is in its envelope, which transactionsRoot covers."
+  (or (= (tx-type tx) #x7e) (tx-sender-recovered tx) (eql (tx-sender tx) (recover-tx-sender tx))))
 
 ;;; Sender recovery is half the verifier's CPU (one secp256k1 recovery per tx) and the
 ;;; verifier is one thread: at ~50 blocks/s it saturated and the replay waited on its pipe.
 ;;; The txs are independent, so a fixed pool checks a block's txs in parallel (tx k on
 ;;; worker k mod n). The answer is the same as a sequential scan's: the LOWEST failing index.
 (defconstant +sender-workers+ 4)
-(defvar *sender-pool* nil "(txs results go-semaphores done-semaphore), started on first use.")
+(defvar *sender-pool* nil "(txs results go-semaphores done-semaphore test), started on first use.")
 
 (defun sender-pool ()
   (or *sender-pool*
       (let* ((go (loop repeat +sender-workers+ collect (sb-thread:make-semaphore)))
-             (pool (list (vector) (make-array +sender-workers+) go (sb-thread:make-semaphore))))
+             (pool (list (vector) (make-array +sender-workers+) go (sb-thread:make-semaphore) nil)))
         (loop for sem in go for k from 0
               do (let ((sem sem) (k k))
                    (sb-thread:make-thread
@@ -177,26 +181,41 @@
                       (loop (sb-thread:wait-on-semaphore sem)
                             (setf (svref (second pool) k)
                                   (handler-case
-                                      (let ((txs (first pool)))
+                                      (let ((txs (first pool)) (test (fifth pool)))
                                         (loop for i from k below (length txs) by +sender-workers+
-                                              unless (tx-sender-verified-p (svref txs i)) return i))
+                                              unless (funcall test (svref txs i)) return i))
                                     (error (e) e)))
                             (sb-thread:signal-semaphore (fourth pool))))
                     :name (format nil "sender check ~D" k))))
         (setf *sender-pool* pool))))
 
-(defun first-unverified-sender (txs)
-  "The index of the first tx in TXS whose sender its signature does not recover, or NIL."
+(defun first-failing-tx (txs test)
+  "The index of the first tx in TXS that TEST (one tx's signature work) fails, or NIL; on the
+   pool from 8 txs. Callers are the replay thread and the verifier, never both at once: the
+   replay recovers a block's senders before it runs, the verifier checks them after."
   (if (< (length txs) 8)
-      (position-if-not #'tx-sender-verified-p txs)
+      (position-if-not test txs)
       (let ((pool (sender-pool)))
-        (setf (first pool) (coerce txs 'simple-vector))
+        (setf (first pool) (coerce txs 'simple-vector) (fifth pool) test)
         (dolist (sem (third pool)) (sb-thread:signal-semaphore sem))
         (sb-thread:wait-on-semaphore (fourth pool) :n +sender-workers+)
         (setf (first pool) (vector))
         (let ((rs (coerce (second pool) 'list)))
           (dolist (r rs) (when (typep r 'error) (error r)))
           (let ((fails (remove nil rs))) (and fails (reduce #'min fails)))))))
+
+(defun first-unverified-sender (txs)
+  "The index of the first tx in TXS whose sender its signature does not recover, or NIL."
+  (first-failing-tx txs #'tx-sender-verified-p))
+
+(defun recover-senders! (txs)
+  "Each tx's sender from its signature, for a source that carries none (Engine API payloads,
+   fixtures): the one recovery of that sender (marked, so the verifier does not repeat it).
+   The index of the first tx whose signature does not recover, or NIL."
+  (first-failing-tx txs (lambda (tx)
+                          (let ((s (recover-tx-sender tx)))
+                            (when s (setf (tx-sender tx) s (tx-sender-recovered tx) t))
+                            s))))
 
 ;; eita_ecrecover creates its secp256k1 context on first use, unlocked: create it here, on
 ;; the loading (or starting) thread, before the verifier and the replay thread can race to.
@@ -219,7 +238,8 @@
 (defun verify-block-header (blk total-gas &key (receipts (reverse *block-receipts*))
                                                 (unverifiable *receipts-unverifiable*)
                                                 (blob-gas *block-blob-gas*)
-                                                (requests-hash *block-requests-hash*))
+                                                (requests-hash *block-requests-hash*)
+                                                (foreign *chain-header-foreign*))
   "Compare our execution of the decoded block BLK (by default the current block's: `block-verify-inputs`) with
    its header: Σ gas used, the logs bloom, the receiptsRoot (not when UNVERIFIABLE:
    pre-Byzantium per-tx roots; nor the bloom after a skipped tx), the
@@ -227,7 +247,7 @@
    runs no request calls has none, i.e. the empty hash), and the body against the header:
    transactionsRoot, withdrawalsRoot, every tx's sender (its signature's). Returns the header fields we do NOT reproduce — NIL
    when the block reproduced. A field the header lacks must be one we have nothing for; a
-   field the chain defines otherwise (*chain-header-foreign*) is not compared."
+   field the chain defines otherwise (FOREIGN, the block's *chain-header-foreign*) is not compared."
   (let* ((bad '())
          (bloom (make-array 256 :element-type '(unsigned-byte 8) :initial-element 0))
          (encoded (loop for r in receipts
@@ -236,7 +256,7 @@
          (hdr-requests (blk-requests-hash blk))
          (hdr-wroot (blk-withdrawals-root blk))
          (withdrawals (blk-withdrawals blk)))
-    (flet ((check (field ok) (unless (or ok (member field *chain-header-foreign* :test #'string=)) (push field bad))))
+    (flet ((check (field ok) (unless (or ok (member field foreign :test #'string=)) (push field bad))))
       (check "gasUsed" (= total-gas (blk-gas-used blk)))
       (check "logsBloom" (or (eq unverifiable :skipped) (equalp bloom (blk-logs-bloom blk))))
       (check "receiptsRoot" (or unverifiable (equalp (list-root encoded) (blk-receipts-root blk))))

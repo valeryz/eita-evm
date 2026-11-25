@@ -47,6 +47,7 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `bls12381.cpp` (415) | precompiles 0x0b–0x11, EIP-2537 BLS12-381; and the Lean oracle `lean_bls_oracle_*` (the same blst calls) | blst (vendored) |
 | `p256verify.c` (124) | secp256r1 verify (RIP-7212 / EIP-7951) | OpenSSL libcrypto |
 | `rust/pq` (separate `libeita_pq`) | Arc's post-quantum precompile: SLH-DSA-SHA2-128s verify | the `slh-dsa` crate at the version arc-node pins |
+| `rust/base` (separate `libeita_base`) | Base's native precompiles from Beryl: the B-20 factory and tokens, the policy and activation registries, from Cobalt the transaction-context and nonce-manager precompiles. Their logic is not restated: it is base/base's `base-common-precompiles` at the release Base runs, linked with base/base's own `Cargo.lock`; the shim forwards and holds no rule. Which addresses they are, the call boundary and the price of every world operation they perform are Lean (`Evm.Optimism.Beryl.Spec.NativePrecompiles`), emitted into `src/chains/op.lisp`'s host | base/base `crates/common/precompiles` @ v1.5.6 |
 
 **How they are checked:** the ethereum/tests precompile fixtures on both tiers, the EIP test
 vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), `lake exe
@@ -113,6 +114,66 @@ was unsound five ways (`rejects_*`). It assumes, and does not prove:
 harness), `lean/c/csu_shim.c` (a glibc ≥ 2.34 link shim). A bug here can crash a run but cannot
 change a result silently.
 
+## Concurrency protocols of the state layer: modelled in Veil (`verify/protocols/`)
+
+**Modelled, not derived.** The layer stack's protocols (freeze, the layer writer and GC's pins, minor and major
+compaction and their swaps, background root checks, `rollback-to!`, the background fence) are Veil transition systems,
+one action per step of the code they cite.
+
+- **Proved:** `LayerGcFixed` (`ic3_safe`, kernel-checked); `Compaction` and `CompactionDeepReorg` (an inductive
+  invariant, every verification condition a proof term rebuilt by lean-smt with `veil.smt.trust false`,
+  kernel-checked). Axioms: propext, Classical.choice, Quot.sound only.
+- **Violations of the old variants:** `LayerGcOld` has a kernel-checked `ic3_unsafe`; `LayerGcSwapped` and
+  `CompactionDeepReorgOld` rest on Veil's explicit-state model checker and cvc5 1.3.2's `sat trace` (trusted).
+- **Trusted, not proved:** that each action faithfully abstracts its code (kept current by `CheckCode.lean`: the
+  `; @veil` markers in the Lisp and 9 structural ordering checks); the atomicity each action assumes; sequential
+  consistency (ARM64 publication order is argued from the write barriers, which an ordering check enforces); for
+  `Compaction` only, the caller's fork bound (`CompactionDeepReorg` holds without it).
+- `scripts/verify-protocols.sh --quick` runs in CI (the code check and six models, under 14 GB); `CompactionDeepReorg`
+  (over 32 GB) runs by hand on a large machine.
+- **Design models, ahead of their code:** `RootWorker` and `CompactionV2` (snapshot v2's per-block root worker and
+  its layer stack, `docs/state-snapshot-format.md`) are proved the same way, against the specification: their changed
+  steps cite `@planned` names, which `CheckCode.lean` fails on once the code exists, so each becomes a checked `@code`
+  citation in the change that writes it.
+
+## The per-block state root (snapshot v2, specified)
+
+The root worker (`docs/state-snapshot-format.md`, "The root worker"; its code is not yet written) mirrors
+`lean/Evm/Trie/Frontier.lean` by hand, as `src/state/root.lisp` mirrors `Trie.Stack`. The gap is stated:
+`layered_frontier_root_eq` (R, `sorry`) says the worker's two-level step over the layered store's composition yields
+the fork's `stateRootBytes`. It assembles the proved lemmas F1–F3 with three stated ones (`patricialise_assemble`, L2;
+`build_emits_frontier`, L1′; `stateRoot_two_levels`, L4), which wait on the total trie spec. Until R is proved, the
+run-time checks are the header root of every block (every catch-up interval, bisected on mismatch), DenseAbove on
+every recomputed dense branch, 32-byte references, the compaction's in-pass root with its entry-by-entry frontier
+comparison, and the resume self-check.
+
+## Statements pinned by the Lean comparator
+
+A proof is only as good as the statement it proves. Forty-one headline theorems have their
+statements written out in `lean/Comparator/Challenge.lean`, which is the human-reviewed record
+(CODEOWNERS routes it for review, and `scripts/generated/comparator-challenge.sha256` must change
+with it). They cover Block-STM, the IR compiler, the effect layer, the stack-cache
+check (ARM64, x86-64), the ARM64 call and SSTORE gas routines, the op semantics of JUMP/JUMPI and
+the memory-expansion prologue, the precompile wrappers (BLAKE2F, BLS12-381, P-256), and recent-fork
+opcodes. `scripts/verify-comparator.sh` (in CI) runs `lake comparator`, the judge built into Lean
+since v4.35.0 (the former `leanprover/comparator`), which builds and exports the challenge
+and `lean/Comparator/Solution.lean` (each statement proved by the real theorem, at the real theorem's own type) in a
+`bwrap` sandbox, with no network. It accepts only if every real theorem's kernel statement is the reviewed
+one, every constant the statement mentions is the same in both, no proof uses `sorry` or an axiom outside the
+config's list, and the kernel accepts the whole proof closure. So a weakened statement, an added
+hypothesis, a `sorry` or a new axiom fails CI. Two lists:
+
+- `comparator.json` (33 theorems): `propext`, `Quot.sound` and `Classical.choice` only.
+- `comparator-native.json` (8 theorems: the handler cache-coherence verdicts and the gas routines'
+  machine-code runs): those three plus 34 auxiliary axioms, each named, that `native_decide` /
+  `bv_decide` generate. Each one states `decide p = true` for a closed `p` that Lean's compiled
+  evaluator computed. Here the compiler is trusted, not the kernel. The script also rejects any
+  source that names something `_native`, so no hand-written axiom can pass as one of them.
+
+What it does not pin: the **definitions** the statements mention (`Refines`, `IsFrameRun`,
+`IsClzStep`, …). The challenge imports them from `Evm.*`, so they are judged by reading them, and
+the modules the challenge imports are trusted not to run hostile code at build time.
+
 ## Third-party libraries
 
 | Library | Used for | License |
@@ -124,27 +185,37 @@ change a result silently.
 | GMP (libgmp10, linked dynamically) | MODEXP for moduli ≤ 64 bytes | LGPL-3 / GPL-2 |
 | zlib | compressed block files | zlib |
 | `slh-dsa` (Rust) | Arc's SLH-DSA precompile | Apache-2.0 OR MIT |
+| `base-common-precompiles` and its dependencies (Rust, base/base) | Base's native precompiles | MIT |
 
 Other trusted pieces outside C, for completeness: the SBCL runtime and compiler, the Lean kernel
 and the emitters' printers (the emitted text is what runs), and the Common Lisp host code that is
 not yet emitted from Lean (listed in `scripts/generated/refinement-coverage.md`).
 
-## Planned: the native storage path (owner note 6; docs/native-storage.md)
+## `native_decide`
 
-Each section is filled in as its step lands. The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
+A proof by `native_decide` trusts the Lean compiler: the decision procedure is compiled and run, and its
+answer is admitted through an auxiliary axiom (`…._native.native_decide.ax_…` in an axiom closure). Eita uses
+it for finite checks over emitted code and tables (counts per component in
+`scripts/generated/verification-stats.md`); `lean/AxiomAudit.lean`'s extern rule fails if such a proof
+runs an `@[extern]` / `@[implemented_by]` constant outside its short reviewed list, so what is evaluated is
+Lean code, not a C library.
+
+## The native storage path
+
+The design is [`native-storage.md`](native-storage.md). The effect logic (warm/cold, gas, refunds, original values, the journal entry) is not on this list: it is generated
 from the effect IR, whose semantics (`Stmt.run`) carry the effect proofs. What is trusted is (1) the IR -> C printer,
-the same class as today's IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. Unlike the Lisp it
-replaces, C has no bounds or type checks: memory safety is an obligation of its own.
+the same class as the IR -> Lisp printer (`EffectIR.toCL`), and (2) the C primitives below. C has no bounds or type
+checks: memory safety is an obligation of its own.
 
 Classes: **derived** (emitted from a verified source), **proved** (a Lean theorem about the definition the C is emitted
 from), **model-checked** (CBMC: memory safety, and equivalence to the Lean model at small sizes), **tested** (randomized
 differential tests, sanitizer builds, the replay).
 
-### Limb primitives — proved, emitted (built: step 3)
+### Limb primitives — proved, emitted
 
 `lean/Evm/CL/LimbC.lean`: each primitive is a term of a small limb language (expressions, conditions,
 four-limb assignments) with a meaning, proved equal to its 256-bit operation through `Evm.CL.WordOps`
-(core def68c3: `eq_ofBV`, `isZero_ofBV`, `toBV_ofBV`), and PRINTED to `c/generated/limb_ops.h` from the same
+(`eq_ofBV`, `isZero_ofBV`, `toBV_ofBV`), and PRINTED to `c/generated/limb_ops.h` from the same
 term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No hand transcription.
 
 | primitive | contract | theorem |
@@ -154,17 +225,17 @@ term by `lake exe emitLimbC`; `scripts/verify-host-emit.sh` fails on drift. No h
 | `limb_copy(dst, src)` | dst := src | `copyA_spec` |
 | `limb_zero(dst)` | dst := 0 | `zeroA_spec` |
 
-### The SLOAD effect in C — derived (built: step 3)
+### The SLOAD effect in C — derived
 
 `c/generated/storage_effect.c` (`eita_spec_sload_effect`) is `Evm.CL.EffectSload.term` printed as C by
 `Evm.CL.EffectC` (`lake exe emitStorageC`, drift-checked); the term and its proof (`sload_refines`) are
-untouched, and since step 6 this is the term's only printing. Trusted: the printer (the same class as `toCL`;
+untouched, and this is the term's only printing. Trusted: the printer (the same class as `toCL`;
 it fails on any construct outside its subset rather than skipping it) and the primitives below.
 
-### The SLOAD/SSTORE host — tested (built: steps 3-6)
+### The SLOAD/SSTORE host — tested
 
 `c/storage_host.{h,c}`: `eita_cb_sload` / `eita_cb_sstore` in the callbacks vtable's SLOAD/SSTORE slots are the
-opcodes' one execution path (step 6). Each binds the frame account and key (the account's id from a 64-entry
+opcodes' one execution path. Each binds the frame account and key (the account's id from a 64-entry
 cache keyed by the slot tables' serial, a freed table's address may be reused; an address not in it is
 learned once from Lisp, `cb-storage-learn`), runs the emitted effect, then calls the Lisp hook
 (`cb-storage-hook`) when the read stream is on, the account is watched, or (SSTORE) the slot changed while the
@@ -172,17 +243,15 @@ incremental root checker tracks dirty slots. Its primitives: `eita_sh_fault` (`e
 lazy world is loaded through `cb-storage-fault`, the world's fault hook, and read again; absent = zero; the
 observers' first touch), `eita_sh_sload` (`limb_copy`, and the value kept as the current one),
 `eita_sh_access_slot` / `eita_sh_orig_record` (the native TxState, unchanged). **Checked by** the fixtures
-(every GeneralStateTests storage directory), the differential (JIT vs interpreter), the 30k replay, the fact
-log and storage view of the 30k range compared with the ones step 5's Lisp path wrote, and
-`tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
+(every GeneralStateTests storage directory), the differential (JIT vs interpreter), a 30,000-block mainnet replay,
+and `tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
 emitted file).
 
-### Table primitives — proved in Velvet for every capacity, emitted (built: owner note 6 step 2; emitted since the Velvet swap)
+### Table primitives — proved in Velvet for every capacity, emitted
 
 `c/world_slots.h` (the ABI) over `c/world_slots_emit.c` (generated, do not edit) and `c/world_slots.c` (glue):
 per account id, one open-addressed table of slot -> value, under a directory per account table. The Lean model is
-a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put / remove / drop / copy). Until this swap the table was
-164 lines of hand-written C (126 of code), model-checked by CBMC at capacities 4 and 8 only.
+a finite map (`lean/Evm/CL/WorldSlotsModel.lean`: get / put / remove / drop / copy).
 
 | primitive | contract (on the model) | memory-safety obligations |
 |---|---|---|
@@ -204,9 +273,10 @@ the 4-entry fresh table, the directory size rule (aborts only for an id >= 2^40)
 level, the glue's operations (touch, put, remove, drop, get, has-table, copy) are proved equal to the model's
 under the abstraction, the walk visits exactly the present (key, value) pairs in index order, and every abort
 condition is stated exactly. The printer indexes arrays only under a proved bound, so every array access in the
-emitted C is in bounds by proof. The proofs, the printer and a drift check that regenerates
-`c/world_slots_emit.c` and fails on any difference live in Eita's separate Velvet package (its own Lean toolchain;
-core gains no Lean dependency); they will be published.
+emitted C is in bounds by proof. The proofs and the printer are `verify/velvet-slots/`, a Lake
+package of its own (Velvet, on core's toolchain; `lean/` gains no dependency) that compiles core's
+`WorldSlotsModel.lean` in place; `scripts/verify-velvet-slots.sh` (in CI) builds every proof, checks the axioms,
+regenerates `c/world_slots_emit.c` and fails on any difference.
 
 **Still trusted.**
 - The Velvet C printer: Lean method bodies -> C, the same class as the effect IR's printers.
@@ -214,20 +284,20 @@ core gains no Lean dependency); they will be published.
   aborts keep capacities and ids below 2^40, so `8·cap`, `4·(used+1)` and the directory size cannot wrap.
 - The glue `c/world_slots.c` (135 lines, 90 of code): packs and unpacks the struct, frees the arrays a grow replaced,
   keeps the directory's pointer array, calls the map callback. It makes no table decision; the package's
-  world-level proofs mirror it line by line, but the glue itself is hand-written C.
+  world-level proofs (`verify/velvet-slots/Slots/World.lean`) mirror it line by line, but the glue itself is hand-written C.
 
-**Still checked** (unchanged, now on the emitted C). CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
+**Also checked.** CBMC (`c/cbmc/run.sh`, 11 proofs, in CI): for an arbitrary
 table of capacity 4 or 8 satisfying the probing invariant, get, place, remove and grow are memory-safe (bounds,
 pointers, frees, leaks, overflow, conversions) and agree with the model; the directory with concrete ids. Since
-the Velvet proofs cover every capacity, CBMC is now a cross-check of the C as compiled (the printer, the glue, the
-`Nat`/`uint64_t` gap) rather than the only evidence. Randomized: `c/test_world_slots` under ASan + UBSan and on a
+the Velvet proofs cover every capacity, CBMC is a cross-check of the C as compiled (the printer, the glue, the
+`Nat`/`uint64_t` gap). Randomized: `c/test_world_slots` under ASan + UBSan and on a
 trace of the Lean model itself (`lake exe worldSlotsVectors`); `tests/world-slots.lisp`; the fixtures (every
-GeneralStateTests storage directory) and the 30k replay.
+GeneralStateTests storage directory) and the mainnet replay.
 
-### The SSTORE effect in C, its journal entry and the native revert — derived + tested (built: step 4)
+### The SSTORE effect in C, its journal entry and the native revert — derived + tested
 
 `eita_spec_sstore_effect` and `eita_spec_sstore_plan` (c/generated/storage_effect.c) are
-`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (their only printing since step 6;
+`Evm.CL.EffectSstore.term` and `SstoreSched.ofFork` printed as C (their only printing;
 `sstore_refines` untouched); the schedules themselves are the
 emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasSem`). The host primitives
 (c/storage_host.c, tested):
@@ -235,26 +305,24 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 | primitive | contract |
 |---|---|
 | `eita_sh_orig_get` | the slot's original value (the native TxState's record, else the current value) |
-| `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as the Lisp's `refund-add!`); returns the cost |
+| `eita_sh_sstore_gas` | runs the fork's schedule on (refund, original, current, new, cold); refund counter := its new refund via `eita_ts_refund_add` (journaled, as `refund-add!`); returns the cost |
 | `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
-| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry of an account with a known id restored into the slot table and retyped 255 (skipped by the host loop and `eita_ts_revert`); stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
+| `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry restored into the slot table (the id from the cache, or from learn on a miss) and retyped 255 (skipped by the host loop and `eita_ts_revert`); returns the count; stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
-**Checked by** the fixtures (every SSTORE/refund/revert directory), the differential (to step 5 native vs the
-Lisp effect, journal entries byte for byte, on every tx of the storage fixtures and sampled on the 30k replay;
-from step 6 JIT vs interpreter on the one path) and the replay.
+**Checked by** the fixtures (every SSTORE/refund/revert directory), the tier differential (JIT vs interpreter on
+the one path), `c/test_storage_host.c` (the native revert alone restores a slice whose accounts
+collide in the cache) and the replay.
 
-### Lisp accessors and hook tiers — tested (built: steps 2, 5 and 6)
+### Lisp accessors and hook tiers — tested
 
 The routed Lisp accessors (the routing list in docs/native-storage.md) and the hook tiers:
 (a) the observers' first-touch log (c/storage_host.c `eita_sh_touch`: one ordered log of every slot's first
 touch in a tx with its value then, written by the native effects and by `observe-slot-touch!`, read by
 `do-storage-changes`); (b) the watch filter (up to 16 accounts whose SLOAD/SSTOREs call the hook, which calls
 `*storage-access-hook*`); (c) the hook mode: the native effect plus `cb-storage-hook` per access while the read
-stream is on (step 5 swapped the vtable to the Lisp callbacks instead; step 6 deleted them). **Checked by** the
-differential, the fixtures, the 30k replay, `tests/native-storage-hooks.lisp` (observed fixtures: rows equal with
-and without the watch; rows and watched accesses equal a digest recorded from step 5's Lisp path), and the fact
-log and storage view of the 30k range compared with the ones the Lisp path wrote (step 5: rows and content
-hashes in every sealed segment; step 6: against step 5's Lisp-path outputs).
+stream is on. **Checked by** the differential, the fixtures, the mainnet replay and
+`tests/native-storage-hooks.lisp` (observed fixtures: rows equal with and without the watch; rows and watched
+accesses equal a recorded digest).
 
 ## The gas formulas in C, for hosts with no Lisp — derived + tested
 

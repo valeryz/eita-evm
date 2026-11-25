@@ -7,7 +7,7 @@
   (`X86Lower.form`). The two are gated against each other through the
   assembler — `scripts/verify-x86-items.sh` requires `encode (x86Items i)` to
   equal clang's bytes for `emitX86 i`, instruction by instruction over the
-  gadget set — which is the check that was missing on ARM64 until `AsmItems`.
+  gadget set (on ARM64, `AsmItems` is the same check).
 
       AInstr ──emitX86──▶ text   ──clang──▶ bytes ─┐
              ──x86Items─▶ XItem ──encode─▶ bytes ─┴─ must agree

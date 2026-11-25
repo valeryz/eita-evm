@@ -1,7 +1,7 @@
 /-
   Evm.CL.X86SstoreGas — `_eita_sstore_gas_*` for x86-64.
 
-  Stage 4w of #238. The ARM64 routines keep the six predicates in x10–x15
+  The ARM64 routines keep the six predicates in x10–x15
   and the three pointers, the counter, the cold flag and the out pointer
   besides — thirteen registers. x86-64 has nine caller-saved ones under the
   SysV convention (the six argument registers and rax, r10, r11), so the

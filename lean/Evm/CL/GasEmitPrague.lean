@@ -5,10 +5,9 @@ import Evm.Prague.Spec.CalldataCost
 
 `GasEmit` holds the formulas the replay runs (emitted to `src/generated/host.lisp`);
 `Evm.Prague.Spec.CalldataCost` holds the EIP-7623 spec, cited clause by clause against
-EELS. They used to be two independent definitions with nothing between them, and the
-spec one was wrong for months without anything noticing (40/10 per byte, a floor with
-the create/access-list extras in it). These theorems make them one definition: from
-Prague on, every emitted cost equals the spec's for ALL inputs, not just test vectors. -/
+EELS. Two independent definitions can drift apart unnoticed (e.g. 40/10 per byte, or a
+floor with the create/access-list extras in it). These theorems make them one definition:
+from Prague on, every emitted cost equals the spec's for ALL inputs, not just test vectors. -/
 
 namespace Evm.CL.GasEmitPrague
 

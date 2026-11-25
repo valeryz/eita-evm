@@ -22,9 +22,7 @@
 
   This file states the relation for tracking only — i.e., what
   the implementation's `Evm.SpuriousDragon.Vm.Interpreter.touchAddr`
-  function (also referenced in the Frontier impl post-mortem of
-  2026-05-29 as the omission that caused the divergence at block
-  46,383) does on the state.
+  function does on the state.
 
   The frontier `State.touchAccount` (lines 73-75 of
   `Frontier/State.lean`) adds an *empty account* to state if absent;
@@ -120,11 +118,9 @@ theorem touch_preserves_state (evm evm' : Evm) (addr : Evm.Address)
     - Composes with `SweepEmpty.lean`: the touched set populated
       here is what `IsSweepEmptyStep` consumes at end of tx.
 
-    - The 2026-05-29 post-mortem of the Frontier mainnet divergence
-      at block 46,383 found that the impl had been doing
-      `IsTouchAccountStep` on a *frame-local* `touched` list; the
-      fix moved it to `Environment.touched` so cross-frame call
-      chains accumulate correctly. The relation here is implicitly
-      against the cross-frame-shared `env.touched`. -/
+    - The touched set is `Environment.touched`, shared across frames,
+      not a frame-local list: cross-frame call chains must accumulate
+      into one set. The relation here is implicitly against the
+      cross-frame-shared `env.touched`. -/
 
 end Evm.SpuriousDragon.Spec

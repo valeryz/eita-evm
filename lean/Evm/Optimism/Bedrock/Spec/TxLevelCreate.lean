@@ -2,15 +2,15 @@
   Evm.Optimism.Bedrock.Spec.TxLevelCreate — gas obligations for a
   tx-level (tx.to = none) CREATE in the OP user-tx pipeline.
 
-  This file pins TWO impl invariants that bit us empirically:
+  This file pins TWO implementation invariants:
 
   1. `IsCodeDepositCharged` — when the constructor RETURNs runtime
      code, the per-byte deposit (`Gas.codeDeposit = 200`) is paid
      from the sub-EVM's `gasLeft`. The Cancun trampoline `.createLike`
      branch charges this for opcode-level CREATE; the OP tx-level
-     pipeline must do the same. Caught by tx 48 of Base 0x2c98e00,
-     where omission left every tx-CREATE 200 * runtime_size short
-     on receipt gas.
+     pipeline must do the same (tx 48 of Base block 0x2c98e00:
+     omitting it leaves a tx-CREATE 200 * runtime_size short on
+     receipt gas).
 
   2. `IsInitCodePreserved` — when a tx-level CREATE invokes
      `applyMessage`, the message's `code` (the init bytecode) must

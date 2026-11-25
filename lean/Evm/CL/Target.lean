@@ -1,11 +1,10 @@
 /-
   Evm.CL.Target — the register allocation, as roles rather than register names.
 
-  Stage 0 of the x86-64 backend (#238). Today's emitters name ARM64 registers
-  directly (`AsmCore.Reg` is `x6 | x7 | … | x24`, `AInstr` is an ARM64
-  instruction subset), so there is nothing a second target could instantiate.
-  The first thing that has to become target-parametric is not the instruction
-  encoding — it is the ROLE ASSIGNMENT, because that is what decides whether a
+  The emitters name ARM64 registers directly (`AsmCore.Reg` is
+  `x6 | x7 | … | x24`, `AInstr` is an ARM64 instruction subset). What has to be
+  target-parametric first is not the instruction encoding — it is the ROLE
+  ASSIGNMENT, because that is what decides whether a
   target can afford the register caches the handlers assume.
 
   The question this module settles: ARM64 pins 20 registers (TOS 4, NOS 4,
@@ -31,14 +30,13 @@
   less. Hence: `x86_64` pins TOS and drops NOS — reading the second stack item
   from memory at `[stackBase + 32·(sp-2)]`.
 
-  ## What dropping NOS costs, and the bug it retires
+  ## What dropping NOS costs, and the bug class it removes
 
   The ARM64 handlers may read NOS registers only under the invariant "if sp ≥ 2
   then stack memory at sp-2 equals x10-x13". A target without the NOS cache has
   nothing to keep in step, so a whole class of divergence cannot arise there —
-  including #272, where the interpreter's speculative `stack[depth-2]`
-  register-cache read went one slot BELOW the live stack and faulted the guard
-  arena. Note the direction: the register cache is an optimisation that must be
+  e.g. a speculative `stack[depth-2]` register-cache read one slot BELOW the
+  live stack, which faults the guard arena. Note the direction: the register cache is an optimisation that must be
   PROVED equivalent to the memory read, so the memory form is the specification
   and the cache is the refinement. Writing the roles down this way makes the
   x86-64 backend the simpler instantiation, not a second special case.

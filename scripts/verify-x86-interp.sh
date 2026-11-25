@@ -6,7 +6,7 @@
 # must assemble with no «unlowered» marker: Mach-O with the Mac's clang (the
 # same oracle as verify-x86-emit.sh), ELF cross-assembled for x86_64-linux-gnu
 # (what libeita.so on x86-64 Linux is built from). The frame's bytes are covered by
-# verify-x86-asm.sh (frame_* blocks). #238 stage 4.
+# verify-x86-asm.sh (frame_* blocks).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${TMPDIR:-/tmp}/eita-x86-interp"

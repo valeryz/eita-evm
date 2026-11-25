@@ -9,9 +9,9 @@
 
   The check walks the `XItem` list `x86Items` produces (the instructions
   `X86Sem.xstep` gives a meaning to, and `xskipTo`'s forward labels), every path
-  separately, with the x86 register file. It replaced a mode of the ARM64 check
-  (`OpInstrs.cacheIncoherent … true`) that read the `AInstr` body under ARM names,
-  which was unsound on x86-64 five ways (`X86CacheSound.rejects_*`): registers that
+  separately, with the x86 register file. Reading the `AInstr` body under ARM names
+  with the ARM64 check (`OpInstrs.cacheIncoherent … true`) is unsound on x86-64 five
+  ways (`X86CacheSound.rejects_*`): registers that
   share an x86 home (x1/x15 = rdx, x2/x17 = rsi, x3/x4/x16 = rdi; a register with no
   home is written through rax), the temporaries the lowering writes (a NOS-source
   store's, `csinv`'s rax), the NOS names read as registers although x86-64 reads them

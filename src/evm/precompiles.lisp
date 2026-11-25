@@ -17,8 +17,8 @@
   "MODEXP (0x05) gas. Reads the input header (the hand-written CL SEAM) and defers
    the gas FORMULA to the Lean-emitted `spec-modexp-gas` (src/generated/host.lisp,
    from Evm.CL.GasEmit.modexpGas — fork-aware EIP-198 pre-Berlin / EIP-2565 Berlin+,
-   eval kernel-checked against the EIPs' own numbers). #260/#261: there is no
-   hand-written gas curve here anymore — it is derived from the verified spec."
+   eval kernel-checked against the EIPs' own numbers). There is no
+   hand-written gas curve here — it is derived from the verified spec."
   (let* ((base-sz  (read-input-be-u64 input-ptr input-len 0 32))
          (exp-sz   (read-input-be-u64 input-ptr input-len 32 32))
          (mod-sz   (read-input-be-u64 input-ptr input-len 64 32))
@@ -33,7 +33,7 @@
    cost and output bytes (possibly empty)."
   (let ((cost
           ;; Precompile gas is DERIVED from the Lean spec (Evm.CL.GasEmit, emitted to
-          ;; src/generated/host.lisp). #261: no hand-written precompile gas here.
+          ;; src/generated/host.lisp); no hand-written precompile gas here.
           (case addr
             (1 (spec-ecrecover-gas))                                ; ECRECOVER
             (2 (spec-sha256-gas input-len))                         ; SHA256

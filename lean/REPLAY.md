@@ -197,37 +197,6 @@ Natural next steps:
 - Real mainnet replay via geth's `geth export` RLP stream — needs an
   RLP block-stream decoder and a genesis-allocation loader.
 
-## Mainnet genesis + header replay
-
-`Mainnet.lean` + `lake exe mainnet`. Two modes:
-
-1. **`genesis <genesis.json>`** — load the alloc, compute state root,
-   compare to the canonical mainnet genesis state root
-   `d7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544`.
-
-   ```
-   $ lake exe mainnet genesis ../chains/ethereum/genesis.json
-   loaded 8893 genesis accounts
-   computed: 0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544
-   mainnet:  0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544
-   match:    true
-   ```
-
-   This is end-to-end validation of keccak + RLP + the MPT + state
-   encoding against the actual hash every Ethereum client computes.
-
-2. **`headers <genesis> <jsonl> <max>`** — replay empty mainnet blocks
-   from the JSONL header dump in `data/blocks/headers/`. For each
-   block with `transaction_count = 0` AND empty `sha3_uncles`, apply
-   the 5 ETH miner reward and verify that the resulting state root
-   matches `header.state_root`. Stops at the first block that isn't
-   pure-miner-reward.
-
-   On mainnet, blocks 0–2 fit (block 3 already has uncles). All three
-   verify successfully. To extend past block 3, the JSONL needs to
-   include uncle headers (sha3_uncles is just a hash; we can't compute
-   uncle rewards from a hash).
-
 ## Source of truth
 
 ## What we want

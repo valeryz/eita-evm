@@ -158,19 +158,22 @@ def processDepositedTx
   -- Step 4+5: pack the result. On hard error (exception thrown by
   -- the EVM beyond REVERT — e.g. invalid opcode), roll back ALL
   -- execution-side state changes but keep `stateWithMint`.
-  let (newState, gasLeft, logs, success) :=
+  let (newState, gasLeft, refund, logs, success) :=
     match runResult with
-    | .ok subEvm => (subEvm.env.state, subEvm.gasLeft, subEvm.env.logs, !subEvm.reverted)
-    | .error _   => (stateWithMint, 0, ([] : List Log), false)
+    | .ok subEvm => (subEvm.env.state, subEvm.gasLeft,
+                     (if subEvm.reverted then 0 else subEvm.env.refundCounter),
+                     subEvm.env.logs, !subEvm.reverted)
+    | .error _   => (stateWithMint, 0, 0, ([] : List Log), false)
 
-  -- Post-Regolith (Bedrock launch on Base mainnet): deposited tx's
-  -- gasUsed = tx.gas - gasLeft, same as a normal user tx. The full
-  -- `tx.gas` was reserved against the block pool at tx start, but
-  -- the receipt's gasUsed reflects only what the message actually
-  -- consumed. See op-geth `core/state_transition.go::TransitionDb`
-  -- for deposited tx after Regolith.
+  -- Post-Regolith (Bedrock launch on Base mainnet) a deposit is metered as a type-2 tx
+  -- (specs `deposits.md` §Execution: "processed exactly like a type-2 (EIP-1559)
+  -- transaction … gas metering is the same"): the receipt's gasUsed is the gas used less
+  -- the refund, capped at a fifth (EIP-3529; every OP fork is London+). No ETH moves for
+  -- it — the gas price is 0. op-geth `innerExecute` (state_transition.go@79e9d24 610-690)
+  -- adds `calcRefund` for deposits too.
+  let used := tx.gas.toNat - gasLeft
   return { state   := newState
-           gasUsed := tx.gas.toNat - gasLeft
+           gasUsed := used - min refund (used / 5)
            logs    := logs
            success := success }
 
@@ -301,9 +304,9 @@ def processUserTx
   -- (EIP-3651) — see L1Block's warmCoinbase plumbing on the
   -- per-fork applyMessage adapter. Bedrock pre-Shanghai never set
   -- it; Canyon-onwards (= every Base mainnet block) DOES want it,
-  -- so we include coinbase unconditionally here. (Caught by tx 8
-  -- of block 0x800000 — DELEGATECALL to tx.to was treated as
-  -- cold (+2500 gas) when op-geth's pre-warm makes it warm.)
+  -- so coinbase is included unconditionally here. (Tx 8 of block
+  -- 0x800000: op-geth's pre-warm makes a DELEGATECALL to tx.to warm,
+  -- not cold (+2500 gas).)
   let txToWarm : List Evm.Address :=
     match tx.to with
     | some t => [t]
@@ -369,8 +372,7 @@ def processUserTx
           -- EIP-170 / EIP-3860 code deposit: charge 200 gas per byte
           -- of returned runtime code. The opcode-level CREATE handler
           -- (Cancun trampoline `.createLike` branch) does this too;
-          -- tx-level CREATE was previously skipping it, leaving us
-          -- ~200 * runtime_size short on every deploy.
+          -- tx-level CREATE must charge it as well.
           let depositCost :=
             Evm.Frontier.Vm.Gas.codeDeposit * subEvm.output.size
           if subEvm.gasLeft < depositCost then
@@ -501,9 +503,7 @@ private partial def applyAll
 /-- Bedrock block driver. Run all txs in order; produce post-state.
 
     Takes the four block-context numerics directly (instead of a
-    parsed `BaseHeader`) so this module doesn't pull a hard dep on
-    `Replay.Parse`. The wiring layer (`Replay.lean` for mainnet's
-    analog) plumbs the header for us. -/
+    header type), so the caller plumbs whatever header it parsed. -/
 def applyBlock
     (state          : State)
     (blockHashes    : List Evm.Hash32)

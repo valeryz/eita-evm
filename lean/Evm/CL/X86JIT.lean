@@ -1,5 +1,5 @@
 /-
-  Evm.CL.X86JIT — the chunk JIT at x86-64 (#238, stage 6).
+  Evm.CL.X86JIT — the chunk JIT at x86-64.
 
   `ARM64.JIT.emitChunkGen` is one algorithm over a `ChunkOut` algebra; this is
   its x86-64 instance, at `List XItem`, and the loader image around it. The
@@ -206,7 +206,7 @@ theorem x86_chunks_only_abs64 :
      | none => false) = true := by native_decide
 
 /-- …and no piece stages two ARM names into one x86-64 home while both are
-    live (`X86Alias`, the stage-5 register-aliasing gate). -/
+    live (`X86Alias`, the register-aliasing gate). -/
 theorem x86_chunks_no_alias :
     (match corpusChunks with
      | some cs => cs.all (fun c => (chunkPieces .cancun c).all (fun p => (Evm.CL.X86Alias.hazards p).isEmpty))

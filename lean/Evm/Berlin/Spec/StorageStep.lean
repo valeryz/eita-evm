@@ -153,9 +153,8 @@ def IsSloadStep (evm evm' : Evm) : Prop :=
         `COLD_STORAGE_WRITE - COLD_STORAGE_ACCESS - WARM_ACCESS = 2800`.
 
     EELS `forks/berlin/vm/instructions/storage.py::sstore` 78-115
-    (execution-specs 636b5f1). Corrected 2026-11-09: this relation
-    used to charge 5000 and refund 4900 on the reset path (the EIP-2200
-    numbers without EIP-2929's subtraction); the implementation was right.
+    (execution-specs 636b5f1). The reset path charges and refunds the
+    EIP-2200 numbers minus EIP-2929's cold-access subtraction.
 
     Trip-wire (`gasLeft > 2300` else `OutOfGas`) and static-context
     check are inherited from Istanbul; EELS preserves them at
@@ -164,8 +163,6 @@ def IsSloadStep (evm evm' : Evm) : Prop :=
     Refund counter: EELS's `int` arithmetic — the relation states
     `R' = R + delta` with `0 ≤ R + delta` (no clamp); the refinement gets
     the bound from the tx-level `Evm.Constantinople.Spec.RefundInv`.
-    Corrected 2026-11-09: the relation used to clamp each delta in turn
-    (the implementation's discipline), not EELS's integer sum.
 
     `original` is EELS's tx-start value (`originalState`); the
     implementation's cache must agree (`OrigInv`, a precondition of the

@@ -2,19 +2,19 @@
   Evm.CL.Boundary — the frame boundary: caching EvmState into registers on
   entry, flushing it back on exit, and the ABI save/restore around it.
 
-  Stage 1 of #238, and the last high-stakes raw asm. `_eita_run_one` (and the
+  `_eita_run_one` (and the
   JIT's `_eita_run_chunk`) caches pc/gas/sp/stack-base/code-base into x20-x26
   and the top two stack words into x6-x13; `_eita_sync_and_ret` writes them
   back. Every handler runs between those two, so a bug here is not one opcode
-  wrong — it is every frame wrong, and #272 was already one slot off in this
-  exact arithmetic.
+  wrong — it is every frame wrong, and a slot off by one in this arithmetic is
+  the classic shape.
 
-  Three things have to hold, and none of them was written down:
+  Three things have to hold:
 
    1. **Round trip.** Entry-then-exit with no handler in between must leave the
       EvmState as it was, except for the pre-incremented pc. That is what says
       the load address and the store address are the same function of `sp` — an
-      off-by-one in either direction is the #272 shape.
+      off-by-one in either direction breaks it.
    2. **Matching guards.** Entry loads TOS only when `sp ≥ 1` and NOS only when
       `sp ≥ 2`; exit must store under exactly the same thresholds. Store with a
       weaker guard and an uninitialised register lands in a live slot; store
@@ -111,7 +111,7 @@ theorem empty_stack_untouched (junk : U256) (f : Frame) (_h : f.sp = 0) (i : Nat
 /-! ## The off-by-one, as a counterexample
 
 `_eita_sync_and_ret` computes the TOS slot as `sp-1`, matching the entry load.
-A version that stored at `sp-2` — the #272 shape, one slot below the live top —
+A version that stored at `sp-2` — one slot below the live top —
 breaks the round trip, so the agreement is load-bearing in the proof. -/
 
 def exitOffByOne (r : Regs) : Frame :=

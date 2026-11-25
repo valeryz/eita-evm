@@ -150,10 +150,8 @@ def doSelfdestructLondon : Handler := fun evm => do
   -- credited, then `if account_exists_and_is_empty(beneficiary): touched_accounts.add`.
   -- Written in the SpuriousDragon form (`SpuriousDragon.Vm.selfdestruct`, Cancun's
   -- `selfdestructEIP6780`): no zero credit to an ABSENT beneficiary, touch it — the
-  -- end-of-tx sweep then leaves the state EELS leaves. Until 2026-10-26 this handler
-  -- credited unconditionally and never touched, so a 0-wei SELFDESTRUCT to an absent
-  -- account left an empty account the sweep never saw (found deriving cb-selfdestruct,
-  -- Evm.CL.EffectSelfdestruct; the CL was right).
+  -- end-of-tx sweep then leaves the state EELS leaves (a 0-wei SELFDESTRUCT to an absent
+  -- account creates no empty account).
   let st := if balance = (0 : Evm.U256) ∧ ¬ envWarm.state.accountExists beneficiary
             then envWarm.state else envWarm.state.addBalance beneficiary balance
   let st := st.setAccount self { (st.getAccount self) with balance := 0 }

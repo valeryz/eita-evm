@@ -11,7 +11,7 @@ import Evm.CL.EffectSettleProof
 * `destroy_perm`, `sweep_perm`: the result depends on the sets only as sets — so the CL's
   walk of `*selfdestructed*` / `*touched*` (per-tx lists of account ids, `tx-set-addrs`), in
   whatever order, is the term's list fold.
-* `sd_form_closes` — the stage-1 open item (docs/effect-layer-derivation.md §5.3). The
+* `sd_form_closes` — the SD-form convention (docs/effect-layer-derivation.md §5, item 3). The
   SELFDESTRUCT handlers from Spurious Dragon on skip a zero credit to the beneficiary and
   touch it unconditionally; EELS credits it always (creating an absent one) and touches it
   only when it is then an existing empty account. At the end of the tx the two leave the
@@ -230,7 +230,7 @@ theorem obs_finishTx (X : State) (D L : List Evm.Address) (x : Evm.Address) :
     have hac : (Evm.Frontier.destroyAccounts X D).getAccount x = X.getAccount x := congrArg (fun p => p.2.1) hd
     simp only [pSweep, hex, hac, Bool.and_eq_true]; rw [hd]
 
-/-- **The open item of stage 1, closed at the tx boundary.** At Spurious Dragon and after,
+/-- **The SELFDESTRUCT beneficiary form, equal at the tx boundary.** At Spurious Dragon and after,
     the SELFDESTRUCT handlers credit the beneficiary `b` only a non-zero `v` and touch it
     always; EELS (spurious_dragon … london `vm/instructions/system.py`) credits it always —
     an absent `b` comes into existence — and touches it only if it is then an existing

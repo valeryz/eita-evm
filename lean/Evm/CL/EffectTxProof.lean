@@ -284,7 +284,7 @@ theorem authBody_run (c : Ctx) (e : Environment) (a : Evm.Prague.Authorization)
               Evm.Prague.State.parseDelegation (e.state.getAccount au).code = none
           · have hb : (!decide ((e.state.getAccount au).code.size = 0) &&
                 !(Evm.Prague.State.parseDelegation (e.state.getAccount au).code).isSome) = true := by
-              -- v4.29: simp's decide/≠ normal forms no longer match the
+              -- v4.29: simp's decide/≠ normal forms do not match the
               -- Bool lemmas' shapes; case-split the two booleans instead.
               by_cases hsz : (e.state.getAccount au).code.size = 0
               · cases hpd : (Evm.Prague.State.parseDelegation (e.state.getAccount au).code).isSome

@@ -295,7 +295,7 @@ typedef struct EvmState {
 
     /* --- Post-Merge env ------------------------------------------------- */
     u256_t         prev_randao; /* offset 512 — RANDAO mix (EIP-4399) */
-    /* x86-64 frame (#238 stage 4): the post-prologue rsp, so a fault stub
+    /* x86-64 frame: the post-prologue rsp, so a fault stub
      * reached at any call depth can unwind to the epilogue. ARM64 keeps this
      * in x28; x86-64 has no callee-saved register left. Unused on ARM64. */
     uint64_t       frame_sp;   /* offset 544 */

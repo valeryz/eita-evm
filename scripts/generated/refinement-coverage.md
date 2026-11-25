@@ -17,10 +17,10 @@ For axiom-clean verification of the derived-code layer see
 statement mention + namespace (open/import), never bare-name
 matching across forks.
 
-Reconciliation with the repo-wide 7 sorries: Section A
+Reconciliation with the repo-wide 11 sorries: Section A
 counts 0 (relation theorems in `Evm/*/Spec/*.lean` and the
 curated composition layer `Evm/IR/Soundness.lean`). By file,
-all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Frontier/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Trie/Stack` (3).
+all of them: `CL/AsmCore` (1), `CL/StorageCache` (1), `Frontier/Spec/Refinement` (1), `Optimism/Fjord/Spec/Soundness` (1), `Trie/Frontier` (4), `Trie/Stack` (3).
 
 ## A. Spec-relation theorem inventory (budget-enforced)
 

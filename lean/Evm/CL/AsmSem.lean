@@ -4,10 +4,10 @@
   `Op.denote` gives the straight-line handler bodies their meaning at the level
   of the EVM machine (`Mach`: gas, TOS/NOS, memory). The gas routines
   (`_eita_sstore_gas_*`, `_eita_call_gas*`) are not straight-line: they are
-  `tst`/`csel`/`cbz`/`cbnz`/`b` trees over 64-bit registers, and until now the
-  correspondence between the `AInstr` program and the plan function it was
-  proven against (`SstoreGasDenote`, `CallGasDenote`) was by inspection plus
-  the SBCL differential audits. This module is the missing joint:
+  `tst`/`csel`/`cbz`/`cbnz`/`b` trees over 64-bit registers. This module is the
+  joint between the `AInstr` program and the plan function it is proven
+  against (`SstoreGasDenote`, `CallGasDenote`), beyond inspection plus the
+  SBCL differential audits:
 
     * `RM` — a register file `Reg → BitVec 64`, NZCV flags, 64-bit words at
       64-bit byte addresses;

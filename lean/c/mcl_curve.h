@@ -5,9 +5,9 @@
  * mcl keeps the curve parameters (field modulus, Montgomery constants, curve b,
  * pairing loop count) in process-global state set by mclBn_init, and every mcl
  * value is stored in Montgomery form for whichever modulus is active. Serving
- * both of the EVM's pairing families from it therefore meant re-initialising on
- * every change of family, which measured 2.8 ms per round trip against 0.78 ms
- * for a full 2-pair pairing check — and was charged no gas, so a transaction
+ * both of the EVM's pairing families from it would re-initialise it on every
+ * change of family, which costs 2.8 ms per round trip against 0.78 ms for a full
+ * 2-pair pairing check — and is charged no gas, so a transaction
  * alternating a 375-gas BLS G1ADD with a 150-gas BN254 add could buy on the
  * order of 80 seconds of switching inside one 30M-gas block.
  *
@@ -33,8 +33,7 @@ int eita_mcl_curve(int curve);
 
 /* Number of times mcl has actually been initialised. Pinned to one curve this
  * is 0 before the first precompile call and 1 forever after; it exists so the
- * replay can ASSERT that, which is the observable form of the guarantee above.
- * (It was a switch counter when mcl served both curves.) */
+ * replay can ASSERT that, which is the observable form of the guarantee above. */
 unsigned long eita_mcl_curve_switches(void);
 
 #ifdef __cplusplus

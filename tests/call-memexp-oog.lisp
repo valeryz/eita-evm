@@ -1,10 +1,10 @@
-;;;; test-call-memexp-oog.lisp — regression for #260.
+;;;; test-call-memexp-oog.lisp — CALL memory-expansion operands are u256.
 ;;;; A CALL whose in_len/out_len has any HIGH u256 limb set means the memory
 ;;;; expansion end is >= 2^64 ⇒ unaffordable ⇒ OOG (consume all gas), exactly
-;;;; as mainnet does (InvalidOperandOOG). Before the fix .callFamilyCore read
-;;;; only limb0, so argsLen=2^64 (low limb 0) wrapped to a 0-length CALL and
-;;;; proceeded cheaply (block 4466928 relay 0x39dc3f7a: we succeeded @46264 gas
-;;;; where mainnet burned all 250000 and reverted).
+;;;; as mainnet does (InvalidOperandOOG). Reading only limb0 would wrap
+;;;; argsLen=2^64 (low limb 0) to a 0-length CALL that proceeds cheaply (block
+;;;; 4466928 relay 0x39dc3f7a: mainnet burns all 250000 gas and reverts; a
+;;;; limb0 reader succeeds at 46264 gas).
 
 (defpackage #:eita.test.call-memexp-oog (:use #:cl #:cffi))
 (in-package :eita.test.call-memexp-oog)
