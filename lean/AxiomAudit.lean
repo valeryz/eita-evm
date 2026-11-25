@@ -66,6 +66,7 @@ import Evm.CL.X86Items
 import Evm.CL.X86JIT
 import Evm.CL.X86Run
 import Evm.CL.ARM64.SstoreGasSem
+import Evm.FactLog.Examples
 -- the precompile wrappers over a crypto oracle and the oracle contracts
 import Evm.Istanbul.Spec.Refinement
 import Evm.Prague.Spec.Refinement

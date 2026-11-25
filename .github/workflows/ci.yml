@@ -101,6 +101,9 @@ jobs:
       - name: Emitted-artifact drift, effect proofs, derived-gas lint, test_interp
         run: scripts/verify-host-emit.sh
 
+      - name: The fact log's format (Lean-emitted schema and vectors, both readers) and blooms.idx
+        run: scripts/verify-factlog-emit.sh && python3 -I tests/factlog-blooms.py
+
       - name: Cache verify/velvet-slots/.lake (Velvet + plausible, the slot-table proofs)
         uses: actions/cache@v4
         with:

@@ -31,10 +31,20 @@
   "Call the installed observer's HOOK with ARGS (evaluated only when there is one)."
   (let ((acc (intern (format nil "OBSERVER-~A" (symbol-name hook)) :eita.evm)) (o (gensym "O")) (f (gensym "F")))
     `(let ((,o *observer*)) (when ,o (let ((,f (,acc ,o))) (when ,f (funcall ,f ,@args)))))))
+(defvar *observer-file* nil "The EITA_OBSERVER file this process loaded.")
 (defun load-observer! ()
-  "EITA_OBSERVER: a Lisp file that installs an observer (once)."
-  (let ((f (sb-ext:posix-getenv "EITA_OBSERVER")))
-    (when (and f (plusp (length f)) (null *observer*)) (load f))))
+  "Before a run's first block: the fact-log writer when EITA_FACTLOG_DIR names a directory
+   (factlog/writer.lisp), then EITA_OBSERVER, a Lisp file of subscriptions or one that
+   installs an observer, loaded once per process. An observer the file installs beside the
+   writer's is combined with it (the writer's hooks first)."
+  (when (and (nonempty-env "EITA_FACTLOG_DIR") (null *observer*))
+    (eita.factlog.writer:install-factlog-observer!))
+  (let ((f (nonempty-env "EITA_OBSERVER")) (before *observer*))
+    (when (and f (not (equal f *observer-file*)))
+      (setf *observer-file* f)
+      (load f)
+      (when (and before *observer* (not (eq before *observer*)))
+        (setf *observer* (combine-observers before *observer*))))))
 
 ;;; --- The engine's code version -------------------------------------------------------
 ;;; A content hash of the code that runs (native/code-version.lisp: the Lisp sources,
