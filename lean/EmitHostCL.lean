@@ -11,6 +11,8 @@ import Evm.Arc.Spec.Pq
 import Evm.Arc.Spec.BlockSystem
 import Evm.CL.ForkEmit
 import Evm.Optimism.Replay.Emit  -- the OP-Stack fork table, L1 fee, operator fee, failed deposit; proved there
+import Evm.Optimism.Beryl.Spec.NativePrecompiles  -- Base's native precompiles: table, host-op gas; proved there
+import Evm.Optimism.Denim.Spec.BaseTime  -- Denim's timestamp schedule; proved there
 import Evm.Optimism.Fjord.Spec.FastLz  -- the FastLZ length (the Fjord L1 fee's size)
 import Evm.CL.EffectSelfdestruct  -- the derived cb-selfdestruct effect; proved in EffectSelfdestructProof
 import Evm.CL.EffectSettle        -- the derived fee settlement; proved in EffectSettleProof
@@ -224,7 +226,23 @@ def main : IO Unit := do
     , ("spec-op-l1-fee", "(op-fork zeroes ones flz l1-base-fee overhead scalar blob-base-fee base-fee-scalar blob-base-fee-scalar)", Evm.Optimism.Replay.Emit.l1FeeExpr)
     , ("spec-op-da-size-scaled",       "(flz)",       Evm.Optimism.Replay.Emit.daSizeScaledExpr)
     , ("spec-op-operator-fee",         "(op-fork gas scalar constant)", Evm.Optimism.Replay.Emit.operatorFeeExpr)
-    , ("spec-op-deposit-fails", "(op-fork gas-limit intrinsic floor value balance data-len create)", Evm.Optimism.Replay.Emit.depositFailsExpr) ]
+    , ("spec-op-deposit-fails", "(op-fork gas-limit intrinsic floor value balance data-len create)", Evm.Optimism.Replay.Emit.depositFailsExpr)
+      -- Base's native precompiles (Evm.Optimism.Beryl.Spec.NativePrecompiles) and Denim's
+      -- schedule (Evm.Optimism.Denim.Spec.BaseTime): each proved equal to its spec there
+    , ("spec-op-native-kind",          "(op-fork addr)", Evm.Optimism.Beryl.Spec.nativeKindExpr)
+    , ("spec-op-native-sload-gas",     "(cold)",      Evm.Optimism.Beryl.Spec.sloadGasExpr)
+    , ("spec-op-native-account-gas",   "(cold)",      Evm.Optimism.Beryl.Spec.accountGasExpr)
+    , ("spec-op-native-sstore-gas",    "(cold new-eq-cur cur-eq-orig orig-zero)", Evm.Optimism.Beryl.Spec.sstoreGasExpr)
+    , ("spec-op-native-sstore-refund-add", "(new-eq-cur cur-eq-orig orig-zero cur-zero new-zero new-eq-orig)", Evm.Optimism.Beryl.Spec.sstoreRefundAddExpr)
+    , ("spec-op-native-sstore-refund-sub", "(new-eq-cur cur-eq-orig orig-zero cur-zero)", Evm.Optimism.Beryl.Spec.sstoreRefundSubExpr)
+    , ("spec-op-native-sstore-sentry", "()",          Evm.Optimism.Beryl.Spec.sstoreSentryExpr)
+    , ("spec-op-native-transient-gas", "()",          Evm.Optimism.Beryl.Spec.transientGasExpr)
+    , ("spec-op-native-log-gas",       "(topics len)", Evm.Optimism.Beryl.Spec.logGasExpr)
+    , ("spec-op-native-keccak-gas",    "(len)",       Evm.Optimism.Beryl.Spec.keccakGasExpr)
+    , ("spec-op-native-code-deposit-gas", "(len)",    Evm.Optimism.Beryl.Spec.codeDepositGasExpr)
+    , ("spec-op-native-new-code-gas",  "(len)",       Evm.Optimism.Beryl.Spec.newCodeGasExpr)
+    , ("spec-op-denim-block-ms",       "(number)",    Evm.Optimism.Denim.Spec.blockMsExpr)
+    , ("spec-op-denim-p",              "(number)",    Evm.Optimism.Denim.Spec.isDenimExpr) ]
   for (name, args, e) in defs do
     IO.println s!"(defun {name} {args} {e.toCL})"
   -- EIP-2537 MSM gas does not fit the Expr IR: it is a 128-entry table lookup. The

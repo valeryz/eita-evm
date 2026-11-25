@@ -64,6 +64,9 @@
     ("world-slots" "world-slots.lisp")
     ("p256verify" "p256verify.lisp")
     ("op-l1-fee" "op-l1-fee.lisp")
+    ("op-native" "op-native.lisp"
+     :requires ,(lambda () (unless (eita.native:native-path "libeita_base" :error nil)
+                             "libeita_base not built (make -C c)")))
     ("readset" "readset.lisp")
     ("engine" "engine.lisp")
     ("hooks" "hooks.lisp")
