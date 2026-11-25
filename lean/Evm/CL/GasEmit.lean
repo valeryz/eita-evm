@@ -379,6 +379,36 @@ def retain63of64 : Expr :=
 /-- New-account fee (CALL/SELFDESTRUCT to a dead account): 25000, all forks. -/
 def newAccountFee : Expr := .lit 25000
 
+/-- The extra gas a message call charges, beyond its base cost and the memory
+    expansion the handler already accounts for: account access, the
+    value-transfer surcharge, and the new-account fee.
+
+    One formula rather than three, because the three are one decision — EELS
+    `vm/instructions/system.py` `generic_call`/`call` adds exactly these and a
+    host that assembled them itself would be a second owner of it. The access
+    term carries its own fork history: Frontier's flat 40, EIP-150's 700 from
+    Tangerine Whistle (fork 3), and EIP-2929's cold/warm pair from Berlin
+    (fork 10). `value-nonzero` and `new-acct` are the caller's predicates;
+    `new-acct` is for a plain CALL that sends value to an account that was
+    dead, and is the caller's to decide because only it knows the kind.
+
+    Written 2026-11-25 for the wallet host, which needs it to run CALL. -/
+def callExtraGas : Expr :=
+  .add
+    (.add
+      (.ite fork (.lit 3) (.lit 40)
+        (.ite fork (.lit 10) (.lit 700)
+          (.ite (.lit 0) (.var "cold") (.lit 2600) (.lit 100))))
+      (.ite (.lit 0) (.var "value-nonzero") (.lit 9000) (.lit 0)))
+    (.ite (.lit 0) (.var "new-acct") (.lit 25000) (.lit 0))
+
+/-- The CALL stipend: a value-bearing call gives the callee 2300 gas beyond
+    what the caller forwarded, so a bare `receive()` can run. Frontier's
+    `callStipend`, unchanged since. Separate from `callExtraGas` because it is
+    ADDED to the sub-frame's gas rather than charged to the caller. -/
+def callStipendGas : Expr :=
+  .ite (.lit 0) (.var "value-nonzero") (.lit 2300) (.lit 0)
+
 /-- Block base reward: 5 ETH (Frontier..Spurious), 3 ETH (Byzantium, EIP-649),
     2 ETH (Constantinople..Gray Glacier, EIP-1234), none from Paris (EIP-3675; fork 14).
     Evm.CL.GasEmitParis proves it equal to the Paris spec's `rewardAt` for every fork. -/
@@ -614,6 +644,16 @@ example : txGasUsed.eval (mkEnv [("gas-used",40000),("refund-counter",0),("nonze
 -- refund capped at used/5 (London+)
 example : txGasUsed.eval (mkEnv [("gas-used",100000),("refund-counter",50000),("fork-ord",17)]) = 80000 := by native_decide
 example : txGasUsed.eval (mkEnv [("gas-used",100000),("refund-counter",50000),("fork-ord",5)]) = 50000 := by native_decide
+/-- The access term's three eras, and the two surcharges. -/
+example : callExtraGas.eval (mkEnv [("cold",1),("value-nonzero",0),("new-acct",0),("fork-ord",16)]) = 2600 := by native_decide
+example : callExtraGas.eval (mkEnv [("cold",0),("value-nonzero",0),("new-acct",0),("fork-ord",16)]) = 100 := by native_decide
+example : callExtraGas.eval (mkEnv [("cold",0),("value-nonzero",0),("new-acct",0),("fork-ord",8)]) = 700 := by native_decide
+example : callExtraGas.eval (mkEnv [("cold",0),("value-nonzero",0),("new-acct",0),("fork-ord",1)]) = 40 := by native_decide
+/-- A warm value-bearing CALL to a dead account, on Cancun: 100 + 9000 + 25000. -/
+example : callExtraGas.eval (mkEnv [("cold",0),("value-nonzero",1),("new-acct",1),("fork-ord",16)]) = 34100 := by native_decide
+example : callStipendGas.eval (mkEnv [("value-nonzero",1)]) = 2300 := by native_decide
+example : callStipendGas.eval (mkEnv [("value-nonzero",0)]) = 0 := by native_decide
+
 example : retain63of64.eval (mkEnv [("gas",6400),("fork-ord",5)]) = 6300 := by native_decide
 example : retain63of64.eval (mkEnv [("gas",6400),("fork-ord",2)]) = 6400 := by native_decide
 example : blockBaseReward.eval (mkEnv [("fork-ord",4)]) = 5000000000000000000 := by native_decide

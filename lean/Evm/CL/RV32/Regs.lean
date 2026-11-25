@@ -128,6 +128,14 @@ def pinned : List String :=
 /-- What is left over. -/
 def spare : List String := allocatable.filter (fun r => !pinned.contains r)
 
+/-- Every pair's LOW half, and every pair's HIGH half. -/
+def allLos : List String :=
+  [nos.lo] ++ ((List.finRange 4).map (fun i => (tos i).lo))
+           ++ ((List.finRange 5).map (fun i => (temp i).lo))
+def allHis : List String :=
+  [nos.hi] ++ ((List.finRange 4).map (fun i => (tos i).hi))
+           ++ ((List.finRange 5).map (fun i => (temp i).hi))
+
 /-! ## The budget, machine-checked
 
 The claims the design rests on, as `decide` rather than as the comment above. -/
@@ -141,6 +149,25 @@ example : allocatable.length + reserved.length = 32 := by native_decide
 example : pinned.Nodup := by native_decide
 example : reserved.all (fun r => !pinned.contains r) := by native_decide
 example : pinned.all (fun r => allocatable.contains r) := by native_decide
+
+/-- **No register is the low half of one pair and the high half of another.**
+
+    `Lower.loadWords` rests on this. Splitting a 64-bit load into two words
+    destroys the address when a destination half IS the base register, so the
+    colliding slot is deferred to last — and deferring ONE slot suffices only
+    if at most one can collide. A base register is some pair's `lo` (an address
+    is 32 bits and lives in a low half), so a collision with a destination's
+    `hi` would be a second one, and the deferral would be wrong.
+
+    This was a comment until 2026-11-25. It is load-bearing, cheap to decide,
+    and the kind of claim that stops being true when someone reshuffles the
+    allocation — so it is checked. -/
+theorem los_and_his_are_disjoint : allLos.all (fun r => !allHis.contains r) := by
+  native_decide
+
+/-- …and no register is the low half of two different pairs, which is the other
+    half of "at most one destination can collide". -/
+theorem los_are_distinct : allLos.Nodup := by native_decide
 
 /-- **All 27 are committed, with nothing left over** — x86-64's position
     exactly. Seven single-register roles (gas among them, by the decision above)

@@ -237,6 +237,12 @@ def defs : List CDef :=
       doc := "EIP-7702" }
   , { name := "retain-63-64",            vars := ["gas", "fork-ord"], term := retain63of64 }
   , { name := "new-account-fee",         vars := [],           term := newAccountFee }
+  , { name := "call-extra-gas",
+      vars := ["cold", "value-nonzero", "new-acct", "fork-ord"],
+      term := callExtraGas,
+      doc := "account access + value surcharge + new-account fee, by fork" }
+  , { name := "call-stipend-gas",        vars := ["value-nonzero"], term := callStipendGas,
+      doc := "EIP-150 CALL stipend, added to the sub-frame" }
   , { name := "block-base-reward",       vars := ["fork-ord"], term := blockBaseReward, dom := .wei }
   , { name := "uncle-inclusion-bonus",   vars := ["fork-ord"], term := uncleInclusionBonus, dom := .wei }
   , { name := "uncle-reward",            vars := ["fork-ord", "uncle-num", "block-num"],

@@ -24,6 +24,8 @@
 'Evm.CL.GasEmitLondon.initialBaseFee_eq_spec' depends on axioms: [propext]
 'Evm.CL.GasEmitLondon.nextBaseFee_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.blobBaseFee_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCall.callExtraGas_is_berlin_charge' depends on axioms: [propext, Quot.sound]
+'Evm.CL.GasEmitCall.callStipendGas_is_spec_stipend' depends on axioms: [propext]
 'Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec' does not depend on any axioms

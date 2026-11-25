@@ -297,3 +297,37 @@ thresholds the formulas branch on (32/33, 64/65, 1024/1025), and the one 256-bit
 `scripts/verify-host-emit.sh` regenerates all three artifacts, fails on drift, and runs the
 vectors (`make -C c test_host_gas`); `make -C c host_gas_rv32` compiles the same C
 freestanding for the target.
+
+## The message-call gas — derived + **proved**
+
+`Evm.CL.GasEmit.callExtraGas` and `callStipendGas` (emitted as
+`spec-call-extra-gas` / `spec-call-stipend-gas`) are what a host charges and
+forwards for the CALL family. A host has to own that arithmetic — the
+interpreter's call gadget fills `CallParams` and charges whatever
+`CallResult.gas_used` says — so written by hand they would have been a parallel
+copy of EELS `calculate_message_call_gas`, which CONTRIBUTING rule 4 forbids
+and `scripts/check-derived-gas.py` refuses on the Lisp side.
+
+`Evm.CL.GasEmitCall` proves them instead: equal to
+`Evm.Berlin.Vm.Effect.callGasPlan`'s `charge` and `stipend`, for every fork from
+Berlin on, over every combination of cold / value-bearing / new-account.
+
+**Axiom closure: `propext`, `Quot.sound`.** No `native_decide`, no
+`bv_decide`, no `sorry` — the smallest trust class in the tree, and an
+exception to this page's premise, which is why it is listed rather than
+omitted.
+
+**Not covered** (so: trusted if ever reached):
+- the pre-Berlin eras `callExtraGas` also encodes — EIP-150's flat 700
+  (Tangerine Whistle) and Frontier's 40 — against those forks' own
+  `callGasPlan`. The rv32 wallet host refuses any fork below Berlin.
+- EIP-7702 delegation: `delegatedCost` is taken as 0. A host supporting
+  delegated EOAs must add `spec-delegate-access-gas`, and that addition is a
+  new trusted step.
+- `callGasPlan.forward` is not proved equal to `retain63of64` applied to
+  `avail - charge`, though the two are written to be the same quantity.
+
+A consumer's own trusted surface still includes deciding `cold`,
+`value-nonzero` and `new-acct` correctly, and adding the sub-frame's
+consumption. For the wallet host that is
+`~/shift/eita-dabao/docs/trusted-surface.md`.

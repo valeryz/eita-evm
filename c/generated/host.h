@@ -51,6 +51,10 @@ uint64_t eita_spec_selfdestruct_cold_gas(uint64_t cold);
 uint64_t eita_spec_delegate_access_gas(uint64_t cold);
 uint64_t eita_spec_retain_63_64(uint64_t gas, uint64_t fork_ord);
 uint64_t eita_spec_new_account_fee(void);
+/* account access + value surcharge + new-account fee, by fork */
+uint64_t eita_spec_call_extra_gas(uint64_t cold, uint64_t value_nonzero, uint64_t new_acct, uint64_t fork_ord);
+/* EIP-150 CALL stipend, added to the sub-frame */
+uint64_t eita_spec_call_stipend_gas(uint64_t value_nonzero);
 uint64_t eita_spec_max_blob_gas_per_block(uint64_t fork_ord);
 /* EIP-7825 (Osaka+) */
 uint64_t eita_spec_tx_max_gas_limit(void);

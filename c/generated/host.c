@@ -167,6 +167,16 @@ uint64_t eita_spec_new_account_fee(void) {
   return UINT64_C(25000);
 }
 
+/* account access + value surcharge + new-account fee, by fork */
+uint64_t eita_spec_call_extra_gas(uint64_t cold, uint64_t value_nonzero, uint64_t new_acct, uint64_t fork_ord) {
+  return eita_c_add(eita_c_add(((fork_ord < UINT64_C(3)) ? UINT64_C(40) : ((fork_ord < UINT64_C(10)) ? UINT64_C(700) : ((UINT64_C(0) < cold) ? UINT64_C(2600) : UINT64_C(100)))), ((UINT64_C(0) < value_nonzero) ? UINT64_C(9000) : UINT64_C(0))), ((UINT64_C(0) < new_acct) ? UINT64_C(25000) : UINT64_C(0)));
+}
+
+/* EIP-150 CALL stipend, added to the sub-frame */
+uint64_t eita_spec_call_stipend_gas(uint64_t value_nonzero) {
+  return ((UINT64_C(0) < value_nonzero) ? UINT64_C(2300) : UINT64_C(0));
+}
+
 uint64_t eita_spec_max_blob_gas_per_block(uint64_t fork_ord) {
   return ((fork_ord < UINT64_C(17)) ? UINT64_C(786432) : ((fork_ord < UINT64_C(19)) ? UINT64_C(1179648) : ((fork_ord < UINT64_C(20)) ? UINT64_C(1966080) : UINT64_C(2752512))));
 }

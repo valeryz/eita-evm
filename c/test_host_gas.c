@@ -1,5 +1,5 @@
 /* c/test_host_gas.c — EMITTED by `lake exe emitHostC --vectors`; do not edit.
-   670 vectors over c/generated/host.c, every expected value computed by
+   745 vectors over c/generated/host.c, every expected value computed by
    Evm.CL.GasEmit.Expr.eval in Lean — the meaning the printer is a second view of. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -600,6 +600,83 @@ int main(void) {
   { chk("eita_spec_retain_63_64", "gas=1 fork-ord=20", eita_spec_retain_63_64(UINT64_C(1), UINT64_C(20)), UINT64_C(1)); }
   /* new-account-fee */
   { chk("eita_spec_new_account_fee", "", eita_spec_new_account_fee(), UINT64_C(25000)); }
+  /* call-extra-gas */
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=0 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(0), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=2 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(2), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=7 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(7), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=31 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(31), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=32 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(32), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=33 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(33), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=64 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(64), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=65 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(65), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1000 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1000), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1024 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1024), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1025 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1025), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=100000 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(100000), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=0 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(0), UINT64_C(1), UINT64_C(1)), UINT64_C(25040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=2 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(2), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=7 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(7), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=31 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(31), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=32 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(32), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=33 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(33), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=64 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(64), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=65 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(65), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1000 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1000), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1024 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1024), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1025 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1025), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=100000 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(100000), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=0 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(0), UINT64_C(1)), UINT64_C(9040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=2 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(2), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=7 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(7), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=31 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(31), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=32 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(32), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=33 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(33), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=64 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(64), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=65 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(65), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1000 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1000), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1024 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1024), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1025 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1025), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=100000 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(100000), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=0", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(0)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=1", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(1)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=2", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(2)), UINT64_C(34040)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=3", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(3)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=4", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(4)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=5", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(5)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=6", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(6)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=7", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(7)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=8", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(8)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=9", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(9)), UINT64_C(34700)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=10", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(10)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=11", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(11)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=12", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(12)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=13", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(13)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=14", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(14)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=15", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(15)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=16", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(16)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=17", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(17)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=18", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(18)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=19", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(19)), UINT64_C(36600)); }
+  { chk("eita_spec_call_extra_gas", "cold=1 value-nonzero=1 new-acct=1 fork-ord=20", eita_spec_call_extra_gas(UINT64_C(1), UINT64_C(1), UINT64_C(1), UINT64_C(20)), UINT64_C(36600)); }
+  /* call-stipend-gas */
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=1", eita_spec_call_stipend_gas(UINT64_C(1)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=0", eita_spec_call_stipend_gas(UINT64_C(0)), UINT64_C(0)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=1", eita_spec_call_stipend_gas(UINT64_C(1)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=2", eita_spec_call_stipend_gas(UINT64_C(2)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=7", eita_spec_call_stipend_gas(UINT64_C(7)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=31", eita_spec_call_stipend_gas(UINT64_C(31)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=32", eita_spec_call_stipend_gas(UINT64_C(32)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=33", eita_spec_call_stipend_gas(UINT64_C(33)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=64", eita_spec_call_stipend_gas(UINT64_C(64)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=65", eita_spec_call_stipend_gas(UINT64_C(65)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=1000", eita_spec_call_stipend_gas(UINT64_C(1000)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=1024", eita_spec_call_stipend_gas(UINT64_C(1024)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=1025", eita_spec_call_stipend_gas(UINT64_C(1025)), UINT64_C(2300)); }
+  { chk("eita_spec_call_stipend_gas", "value-nonzero=100000", eita_spec_call_stipend_gas(UINT64_C(100000)), UINT64_C(2300)); }
   /* max-blob-gas-per-block */
   { chk("eita_spec_max_blob_gas_per_block", "fork-ord=1", eita_spec_max_blob_gas_per_block(UINT64_C(1)), UINT64_C(786432)); }
   { chk("eita_spec_max_blob_gas_per_block", "fork-ord=0", eita_spec_max_blob_gas_per_block(UINT64_C(0)), UINT64_C(786432)); }
