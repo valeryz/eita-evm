@@ -127,6 +127,21 @@ _Static_assert(offsetof(CallResult, output_len)   == 16, "CallResult.output_len 
 _Static_assert(offsetof(CallResult, gas_used)     == 24, "CallResult.gas_used offset");
 _Static_assert(offsetof(CallResult, created_addr) == 32, "CallResult.created_addr offset");
 
+/* ---------------------------------------------------------------------------
+ * The vtable's SLOT OFFSETS live in the emitted assembly.
+ *
+ * A handler reaches a callback with `ldr x, [state, #496]` and then
+ * `ldr x, [x, #slot]`, so `slot` is a number baked into handlers.S,
+ * handlers-x86-elf.S and handlers-rv32.S, eight bytes apart. On ILP32 a
+ * function pointer is FOUR bytes, which would halve every slot and send each
+ * call to the wrong callback — SLOAD would reach `sstore`, BALANCE would reach
+ * `tload` — and nothing would fail to build.
+ *
+ * So the `EITA_PTR` union the data pointers use is applied here too, for the
+ * same reason and with the same consequence at the use sites (none: the union
+ * is anonymous). The assertions below are what hold the emitted offsets to
+ * this struct.
+ * ------------------------------------------------------------------------- */
 typedef struct EvmCallbacks {
     /* --- Storage (per-frame contract address known from EvmState.address) ---
      *
@@ -137,58 +152,58 @@ typedef struct EvmCallbacks {
      * Audit/test callbacks that don't care just return the flat per-op gas
      * (100/2100/etc) and ignore the bookkeeping. */
     /* SLOAD: read slot of the executing contract. Returns gas to charge. */
-    uint64_t (*sload)(void *ctx, const u256_t *addr, const u256_t *slot,
-                      u256_t *out);
+    EITA_PTR(uint64_t (*sload)(void *ctx, const u256_t *addr, const u256_t *slot,
+                      u256_t *out), sload);
     /* SSTORE: write slot of the executing contract. Returns gas (incl. EIP-2929
      * cold surcharge and EIP-2200 transition cost). */
-    uint64_t (*sstore)(void *ctx, const u256_t *addr, const u256_t *slot,
-                       const u256_t *val);
+    EITA_PTR(uint64_t (*sstore)(void *ctx, const u256_t *addr, const u256_t *slot,
+                       const u256_t *val), sstore);
 
     /* --- Transient storage (EIP-1153) --- */
-    uint64_t (*tload) (void *ctx, const u256_t *slot, u256_t *out);
-    uint64_t (*tstore)(void *ctx, const u256_t *slot, const u256_t *val);
+    EITA_PTR(uint64_t (*tload) (void *ctx, const u256_t *slot, u256_t *out), tload);
+    EITA_PTR(uint64_t (*tstore)(void *ctx, const u256_t *slot, const u256_t *val), tstore);
 
     /* --- World hooks (cross-contract reads) --- */
-    uint64_t (*balance)        (void *ctx, const u256_t *addr, u256_t *out);
-    uint64_t (*ext_code_size)  (void *ctx, const u256_t *addr, uint64_t *out);
-    uint64_t (*ext_code_hash)  (void *ctx, const u256_t *addr, u256_t *out);
+    EITA_PTR(uint64_t (*balance)        (void *ctx, const u256_t *addr, u256_t *out), balance);
+    EITA_PTR(uint64_t (*ext_code_size)  (void *ctx, const u256_t *addr, uint64_t *out), ext_code_size);
+    EITA_PTR(uint64_t (*ext_code_hash)  (void *ctx, const u256_t *addr, u256_t *out), ext_code_hash);
     /* EXTCODECOPY: copy world code of addr to memory at dst. Returns gas
      * (cold-access surcharge + base cost; caller handles per-word copy cost). */
-    uint64_t (*ext_code_copy)  (void *ctx, const u256_t *addr,
-                                uint8_t *dst, uint64_t src_off, uint64_t len);
+    EITA_PTR(uint64_t (*ext_code_copy)  (void *ctx, const u256_t *addr,
+                                uint8_t *dst, uint64_t src_off, uint64_t len), ext_code_copy);
     /* BLOCKHASH: fixed 20 gas; returns value. */
-    void (*block_hash)     (void *ctx, const u256_t *blk, u256_t *out);
+    EITA_PTR(void (*block_hash)     (void *ctx, const u256_t *blk, u256_t *out), block_hash);
 
     /* --- Logging --- */
-    void (*log_n)(void *ctx, const u256_t *self_addr,
+    EITA_PTR(void (*log_n)(void *ctx, const u256_t *self_addr,
                   uint8_t n_topics, const u256_t *topics,
-                  const uint8_t *data, uint64_t len);
+                  const uint8_t *data, uint64_t len), log_n);
 
     /* --- Crypto --- */
-    void (*keccak256)(const uint8_t *data, uint64_t len, u256_t *out);
+    EITA_PTR(void (*keccak256)(const uint8_t *data, uint64_t len, u256_t *out), keccak256);
 
     /* --- Sub-call / create / selfdestruct ---
      *
      * These recurse into the interpreter; the host owns the call stack and
      * may run them on a fresh thread, fiber, or just iteratively. The
      * results are written back to the caller's frame via out-params. */
-    int  (*call)        (void *ctx, struct CallParams *params,
-                         struct CallResult *result);
-    int  (*create)      (void *ctx, struct CallParams *params,
-                         struct CallResult *result);
+    EITA_PTR(int  (*call)        (void *ctx, struct CallParams *params,
+                         struct CallResult *result), call);
+    EITA_PTR(int  (*create)      (void *ctx, struct CallParams *params,
+                         struct CallResult *result), create);
     /* SELFDESTRUCT returns extra gas to charge beyond the 5000 base:
      * EIP-2929 cold beneficiary (2600) + EIP-161 new-account creation
      * (25000 if beneficiary is empty and self has nonzero balance). */
-    uint64_t (*selfdestruct)(void *ctx, const u256_t *self,
-                             const u256_t *beneficiary);
+    EITA_PTR(uint64_t (*selfdestruct)(void *ctx, const u256_t *self,
+                             const u256_t *beneficiary), selfdestruct);
 
     /* --- Tracing (optional, NULL in production) ---
      *
      * If non-NULL, `_eita_next` calls this on every opcode dispatch with
      * (state, pc, gas_left, sp, opcode). Used for opcode-level debugging.
      * Production runs leave it NULL — the hot path is a load + cbz. */
-    void (*trace_step)(void *ctx, uint64_t pc, uint64_t gas_left,
-                       uint64_t sp, uint8_t opcode);
+    EITA_PTR(void (*trace_step)(void *ctx, uint64_t pc, uint64_t gas_left,
+                       uint64_t sp, uint8_t opcode), trace_step);
 } EvmCallbacks;
 
 /* ===========================================================================
@@ -324,6 +339,27 @@ typedef struct EvmState {
  * Drift caught here is preferable to silent corruption at run time.
  * ===========================================================================
  */
+
+#define EITA_ASSERT_CB(field, expected) \
+  _Static_assert(offsetof(EvmCallbacks, field) == (expected), \
+                 "EvmCallbacks." #field " slot drifted from the emitted " #expected)
+
+EITA_ASSERT_CB(sload,          0);
+EITA_ASSERT_CB(sstore,         8);
+EITA_ASSERT_CB(tload,         16);
+EITA_ASSERT_CB(tstore,        24);
+EITA_ASSERT_CB(balance,       32);
+EITA_ASSERT_CB(ext_code_size, 40);
+EITA_ASSERT_CB(ext_code_hash, 48);
+EITA_ASSERT_CB(ext_code_copy, 56);
+EITA_ASSERT_CB(block_hash,    64);
+EITA_ASSERT_CB(log_n,         72);
+EITA_ASSERT_CB(keccak256,     80);
+EITA_ASSERT_CB(call,          88);
+EITA_ASSERT_CB(create,        96);
+EITA_ASSERT_CB(selfdestruct, 104);
+EITA_ASSERT_CB(trace_step,   112);
+_Static_assert(sizeof(EvmCallbacks) == 120, "EvmCallbacks must be exactly 120 bytes");
 
 #define EITA_ASSERT_OFFSET(field, expected) \
   _Static_assert(offsetof(EvmState, field) == (expected), \

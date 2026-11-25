@@ -384,7 +384,17 @@ it. The slot is below anything the staging already addressed off `sp`, so the
 argument pointers computed before the call stay valid. -/
 def callSaving (insn : String) : String :=
   ln "addi sp, sp, -16" ++ ln "sw   ra, 0(sp)" ++ ln insn ++
-  ln "lw   ra, 0(sp)" ++ ln "addi sp, sp, 16"
+  ln "lw   ra, 0(sp)" ++ ln "addi sp, sp, 16" ++
+  -- …and the result where the instruction layer expects it. Both AAPCS and
+  -- SysV return in the register the IR calls `x0`, so `OpInstrs.chargeGasX0`
+  -- reads a callback's gas straight out of it — on ARM64 that register IS x0
+  -- and on x86-64 its home is `rax`, so both work by accident of the
+  -- colouring. On rv32 `x0`'s home is the temporary pair `(t0, t1)` while an
+  -- ILP32 `uint64_t` comes back in `a0:a1`, so the value has to be moved.
+  -- Unconditional, because the convention already says a call clobbers `x0`:
+  -- it is `rax` on x86-64 and caller-saved on ARM64, so no program can be
+  -- holding anything there across a call.
+  ln s!"mv   {lo .x0}, a0" ++ ln s!"mv   {hi .x0}, a1"
 
 /-! ## Alignment, which a load/store machine makes an obligation
 
@@ -833,14 +843,16 @@ def isArgDest : AInstr → Bool
   | .ldrBase d _ | .addSp d _ | .addReg d _ _ | .ldrSp d _ => (argHome d).isSome
   | _ => false
 
-/-- `x0` is not an argument register under the x86-64 convention, but it is not
-    an ordinary temporary inside a call block either: the host-callback path
-    puts the vtable slot for `blr` in it and then reads the gas the callback
-    returned back out of it (`OpInstrs.chargeGasX0`). Neither meaning survives
-    the rv32 homes — a return value arrives in `a0`, while `x0`'s home here is
-    the rax-coloured temporary PAIR — so a call block that mentions it is
-    refused rather than lowered. That refusal is what `blockHazards` reports. -/
-def abiHazard (r : Reg) : Bool := r == .x0 || (argHome r).isSome
+/-- Which registers a call block may only touch through the staging rules.
+
+    `x0` used to be here. The host-callback path gives it two further meanings
+    — the vtable slot that `blr` jumps through, and then the gas the callback
+    returned (`OpInstrs.chargeGasX0`) — and neither survived the rv32 homes,
+    so the six callback handlers were refused outright. Both are handled now:
+    a slot loaded into `x0`'s pair is `jalr`-able from its low half, and
+    `callSaving` moves the ABI return value into that pair after every call. So
+    `x0` is an ordinary temporary here again and the refusal is gone. -/
+def abiHazard (r : Reg) : Bool := (argHome r).isSome
 
 /-- Is this the staging for a call — a run of argument-register writes whose
     next non-staging instruction is the `blSym` that consumes them?
@@ -853,7 +865,28 @@ def abiHazard (r : Reg) : Bool := r == .x0 || (argHome r).isSome
     registers. -/
 def stagesCall : List AInstr → Bool
   | .blSym _ :: _ => true
-  | it :: rest    => isArgDest it && stagesCall rest
+  | .blr _ :: _   => true          -- an indirect call through a vtable slot
+  | it :: rest    =>
+      -- Either this instruction stages an argument, or it is the call TARGET
+      -- being materialised in `x0`. Nothing else: the window has to stay
+      -- narrow, because the argument registers are also the TOS cache
+      -- (`Regs.tos` is a0-a7 and `argHome` maps into the same four), so an
+      -- instruction wrongly taken for staging writes a TOS limb instead of a
+      -- temporary pair.
+      --
+      -- A first attempt admitted anything that mentioned no argument
+      -- register, which is how `extcodecopy` ended up with `lw a3, 0(a3)` on
+      -- a register nothing had set: the rule reached back over a 256-bit OR
+      -- and swept it into the window. The alignment audit caught it, which
+      -- was luck — this is the rule that makes it not matter.
+      --
+      -- Narrow enough to admit exactly the callback gadget:
+      --   ldrOff x3 x20 504, addSp x2 0, addSp x1 128,   -- three arguments
+      --   ldrOff x0 x20 496, ldrOff x0 x0 96,            -- the vtable slot
+      --   blr x0
+      (isArgDest it ||
+       (destOf it == some .x0 && (mentions it).all (fun r => (argHome r).isNone))) &&
+      stagesCall rest
   | []            => false
 
 /-- Staging one argument: address arithmetic into an ABI register. The
@@ -901,6 +934,8 @@ def emitFused : List Reg → Bool → Nat → List AInstr → String
   | A, _, n, .stpFpLr :: rest   => emitOne n .stpFpLr ++ emitFused A true n.succ rest
   | A, _, n, .blSym sym :: rest =>
       emitOne n (.blSym sym) ++ emitFused (stepAligned A (.blSym sym)) false n.succ rest
+  | A, _, n, .blr r :: rest =>
+      emitOne n (.blr r) ++ emitFused (stepAligned A (.blr r)) false n.succ rest
   -- compare-and-branch / compare-and-select fusion (see `cmpBranch`)
   | A, m, n, .cmpReg a b :: .bhiOog :: rest =>
       cmpBranch n b a "_eita_oog" false ++ emitFused A m n.succ rest
@@ -1097,11 +1132,16 @@ def blockSafe : List Reg → Bool → List AInstr → Bool
 def blockHazards : List String :=
   (rv32Streams.filterMap (fun (nm, is) => if blockSafe [] false is then none else some nm))
 
-/-- Pinned: the hazard set is exactly the six callback handlers, so it cannot
-    grow unnoticed. -/
-theorem block_hazards_are_the_callback_handlers :
-    blockHazards = ["sload", "balance", "selfbalance", "extcodesize",
-                    "extcodehash", "blockhash"] := by native_decide
+/-- **Empty**, and that is the point of the call layer.
+
+    This used to be the six host-callback handlers, refused because `x0` meant
+    the vtable slot and then the returned gas and neither survived the rv32
+    homes. `callSaving` lands the ABI return value in `x0`'s pair and
+    `stagesCall` recognises the gadget that interleaves argument staging with
+    the vtable loads, so the duality holds everywhere and nothing is refused on
+    this ground. Keep it empty: a name appearing here is a call block the
+    lowering cannot justify. -/
+theorem no_block_hazards : blockHazards = [] := by native_decide
 
 
 /-! ## The flag-liveness obligation
@@ -1164,23 +1204,28 @@ theorem no_carry_clobber_hazards_in_gadgets :
 
 /-! ## Handler coverage, as a ratchet
 
-The gadget set is covered completely. Of the 150 handler programs the threaded interpreter emits, **137 lower
-completely and assemble**. The 13 that do not fall into three groups:
+The gadget set is covered completely. Of the 150 handler programs the threaded
+interpreter emits, **143 lower completely and assemble**. The 7 that do not:
 
-* **six on the host-callback path** (`sload`, `balance`, `selfbalance`,
-  `extcodesize`, `extcodehash`, `blockhash`). There `x0` carries a third
-  meaning the staging duality does not cover: the vtable slot for `blr` and
-  then the gas the callback returned. The emitter refuses them rather than
-  quietly reading the shared temporary pair — this is the exact path on which
-  x86-64 took three memory faults, so the ABI has to be read off
-  `Op.instrsX86?` / `X86Xfer`, not guessed.
-* **two u256 comparison chains** (`slt`, `sgt`), whose subtract reads two NOS
-  limbs at once; one load pair serves one limb, so this needs the same folding
-  treatment the bitwise ops got.
-* **five waiting on single forms**: `clzReg` (rv32imac has no `clz` — the same
-  open-coded treatment `rev` got), `madd`, and a multiply into its own operand.
+* **`sstore`** — the five fork gas schedules exist only as emitted ARM64/x86
+  assembly, and rv32 can lower their bodies but not their ARGUMENTS: they are
+  C-ABI leaf functions with six parameters, and on ILP32 a `uint64_t` takes an
+  aligned register PAIR, so the sixth lands past `a7` and on the stack.
+  x86-64 solved the same wall by repacking (`X86SstoreGas`); rv32 needs its own
+  answer. `c/rv32/unlowered.c` holds loud refusals until then.
+* **`slt`, `sgt`** — u256 comparison chains whose subtract reads two NOS limbs
+  at once. One load pair serves one limb, so these need the folding treatment
+  the bitwise ops got.
+* **`clz`, `exp`, `jump`, `jumpi`** — single forms: `clzReg` (rv32imac has no
+  `clz`, so the same open-coded treatment `rev` got), `madd`, and a multiply
+  into its own operand.
 
-The number is pinned so progress is visible and regression is not silent. -/
+The six on the host-callback path (`sload`, `balance`, `selfbalance`,
+`extcodesize`, `extcodehash`, `blockhash`) used to be here. See
+`no_block_hazards`.
+
+The set is pinned by NAME, not just by count: a count ratchet lets one handler
+regress while another lands and reports no change. -/
 
 def handlersCovered : Nat :=
   (rv32Streams.filter (fun (_, is) => ((emitProgRV32 is).splitOn "«").length == 1)).length
@@ -1189,19 +1234,19 @@ def handlerTotal : Nat := rv32Streams.length
 
 /-- Where the port stands. Raise this as the remaining forms land; it may not
     fall. -/
-example : 137 ≤ handlersCovered := by native_decide
+
+example : 143 ≤ handlersCovered := by native_decide
 example : handlerTotal = 150 := by native_decide
 
-/-- And exactly which handlers do not lower, so the set cannot grow unnoticed:
-    the six on the host-callback path (`blockHazards`), the two u256 comparison
-    chains whose subtract reads two NOS limbs at once, and the rest waiting on
-    `clzReg`, `madd`, and a multiply into its own operand. -/
+/-- And exactly which handlers do not lower, by name, so neither the set nor
+    its membership can change unnoticed. -/
 def uncovered : List String :=
   rv32Streams.filterMap (fun (nm, is) =>
     if ((emitProgRV32 is).splitOn "«").length == 1 then none else some nm)
 
-example : uncovered.length = 13 := by native_decide
-example : blockHazards.all uncovered.contains := by native_decide
+
+theorem uncovered_handlers :
+    uncovered = ["clz", "sstore", "slt", "sgt", "exp", "jump", "jumpi"] := by native_decide
 
 /-! ## Size, measured -/
 

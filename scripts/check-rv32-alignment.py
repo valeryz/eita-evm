@@ -45,6 +45,8 @@ ALIGNED_PTR_FIELDS = {
     504: "EvmState.cb_ctx, which the host must align to 8 "
          "(the emitted code reads 64-bit fields off it)",
     32:  "EvmState.stack, a `u256_t *` (_Static_assert: 8-byte aligned)",
+    496: "EvmState.cb, an `EvmCallbacks *` whose slots the EITA_PTR union "
+         "pins to 8 bytes (asserted in evm_state.h)",
 }
 # A function's entry state. `eita_run` takes `EvmState *` in a0 per the C ABI,
 # so it is aligned by its type; `eita_set_fork` takes a fork ordinal, which is
