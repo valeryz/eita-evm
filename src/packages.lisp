@@ -151,10 +151,12 @@
            #:rlp-list #:rlp-list* #:rlp-uint #:storage-root #:trie-root))
 
 (defpackage #:eita.state.root
-  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`).")
+  (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`), and
+   the root-gated import of another client's state (`eita import-reth`).")
   (:use #:cl #:cffi)
   (:export
-           #:assemble #:dense-above-p #:frontier-subref #:main #:make-stack-trie #:snapshot-root
+           #:assemble #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
+           #:make-stack-trie #:snapshot-root
            #:st-finish #:st-push #:st-reset #:st-root-bytes))
 
 (defpackage #:eita.input

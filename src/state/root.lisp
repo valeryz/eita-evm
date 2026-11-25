@@ -820,6 +820,76 @@
   "The state root over the bucket files: SPLIT-ROOT over the 16 top nibbles."
   (st-root-bytes (feed-split buckets 16 nthreads #'account-leaf +rec+)))
 
+;;; ------------------------------------------------------------ version 2: hashed key order
+;;;
+;;; A version 2 base is the trie's own order: accounts.dat by keccak(addr), storage.dat by
+;;; (keccak(addr), keccak(slot)), each account's slots one run right where its record sits.
+;;; So nothing is hashed, sorted or partitioned: each of the 16 top-nibble groups of
+;;; accounts.dat, with the same group of storage.dat, streams through two stack tries, an
+;;; account's storage trie first, then its leaf in the account trie, and SPLIT-ROOT
+;;; combines the groups. Memory per thread: the two tries' 64 frames; the mapped pages are
+;;; released behind the scan.
+
+(defconstant +acct-2+ 128)
+(defconstant +slot-2+ 96)
+
+(defun nibble-start (sap n recsize g)
+  "The first of the N records at SAP whose key's top nibble is G or more."
+  (let ((lo 0) (hi n))
+    (declare (type fixnum lo hi))
+    (loop while (< lo hi)
+          do (let ((mid (ash (+ lo hi) -1)))
+               (if (< (ash (sb-sys:sap-ref-8 sap (+ +header+ (* mid recsize))) -4) g)
+                   (setf lo (1+ mid))
+                   (setf hi mid))))
+    lo))
+
+(defun snapshot-root-2 (s threads)
+  "(values root-bytes n-slots) of the version 2 base S. Checks S5 (every slot run sits
+   right before its account) on the way."
+  (let* ((am (eita.state.snapshot:snap-acct s)) (sm (eita.state.snapshot:snap-slot-map s))
+         (asap (eita.state.snapshot:mapping-sap am)) (ssap (eita.state.snapshot:mapping-sap sm))
+         (na (eita.state.snapshot:snap-n-accounts s)) (ns (eita.state.snapshot:snap-n-slots s))
+         (seen 0) (lock (sb-thread:make-mutex)))
+    (flet ((feed (st g w)
+             (declare (ignore w))
+             (let ((a0 (nibble-start asap na +acct-2+ g)) (a1 (nibble-start asap na +acct-2+ (1+ g)))
+                   (si (nibble-start ssap ns +slot-2+ g)) (s1 (nibble-start ssap ns +slot-2+ (1+ g)))
+                   (sst (make-stack-trie 0)) (key (make-array 32 :element-type '(unsigned-byte 8)))
+                   (n 0) (arel 0) (srel 0))
+               (declare (type fixnum a0 a1 si s1 n arel srel))
+               (setf arel (+ +header+ (* a0 +acct-2+)) srel (+ +header+ (* si +slot-2+)))
+               (flet ((release (m from to)
+                        (if (>= (- to from) (* 64 1024 1024)) (progn (eita.state.snapshot:release-range m from to) to) from)))
+                 (loop for a of-type fixnum from a0 below a1
+                       do (let ((aoff (+ +header+ (* a +acct-2+))))
+                            (st-reset sst 0)
+                            (loop while (< si s1)
+                                  do (let* ((off (+ +header+ (* si +slot-2+))) (c (cmp-sap ssap off asap aoff 32)))
+                                       (when (minusp c)
+                                         (error "~A: storage record ~D belongs to no account (S5)" (eita.state.snapshot:snap-dir s) si))
+                                       (when (plusp c) (return))
+                                       (copy-sap ssap (+ off 32) 32 key)
+                                       (st-push sst key 0 (eita.mpt:rlp-encode (eita.mpt:rlp-bytes (minimal-be ssap (+ off 64) 32))))
+                                       (incf si) (incf n)
+                                       (setf srel (release sm srel off))))
+                            (copy-sap asap aoff 32 key)
+                            (st-push st key 0 (eita.mpt:account-leaf-value
+                                               (minimal-be asap (+ aoff 56) 8) (minimal-be asap (+ aoff 64) 32)
+                                               (st-root-bytes (st-finish sst))
+                                               (copy-sap asap (+ aoff 96) 32 (make-array 32 :element-type '(unsigned-byte 8)))))
+                            (setf arel (release am arel aoff))))
+                 (unless (= si s1)
+                   (error "~A: ~D storage records belong to no account (S5)" (eita.state.snapshot:snap-dir s) (- s1 si)))
+                 (eita.state.snapshot:release-range am arel (+ +header+ (* a1 +acct-2+)))
+                 (eita.state.snapshot:release-range sm srel (+ +header+ (* s1 +slot-2+))))
+               (sb-thread:with-mutex (lock) (incf seen n)))))
+      (values (if (zerop na)
+                  (eita.mpt:empty-root-bytes)
+                  (st-root-bytes (split-root 16 (lambda (g) (< (nibble-start asap na +acct-2+ g) (nibble-start asap na +acct-2+ (1+ g))))
+                                             #'feed threads)))
+              seen))))
+
 ;;; ------------------------------------------------------------ the state root
 
 (defun scratch-dir (s)
@@ -830,11 +900,27 @@
          (parent (subseq dir 0 (1+ (or (position #\/ dir :from-end t) -1)))))
     (format nil "~A.root-~D-~D/" parent (eita.state.snapshot:snap-block s) (sb-posix:getpid))))
 
+(defun manifest-root (s)
+  "The :state-root of S's manifest, lower-case hex without 0x, or NIL."
+  (let ((r (getf (eita.state.snapshot:snap-manifest s) :state-root)))
+    (and r (string-downcase (if (and (> (length r) 1) (string-equal "0x" r :end2 2)) (subseq r 2) r)))))
+
 (defun snapshot-root (dir &key (threads (eita.state.snapshot:hardware-threads)) buckets layers)
   "(values root-hex expected-hex n-accounts n-slots) for the snapshot at DIR, or with
    LAYERS (layer directories, oldest first) for the state of that stack over it (Lean
    `view`): no merged snapshot is written. BUCKETS: the bucket count to use instead of
    the one the state size picks (tests)."
+  (when (eql 2 (getf (eita.state.snapshot:read-manifest dir) :version))
+    (when layers (error "~A: the root of a version 2 stack is the root worker's (no layers here)" dir))
+    (let ((s (eita.state.snapshot:snap-open dir)))
+      (unwind-protect
+           (multiple-value-bind (root ns) (snapshot-root-2 s (max 1 threads))
+             (unless (= ns (eita.state.snapshot:snap-n-slots s))
+               (error "~A: ~D storage records seen, manifest says ~D" dir ns (eita.state.snapshot:snap-n-slots s)))
+             (return-from snapshot-root
+               (values (eita.mpt:bytes->hex root) (manifest-root s)
+                       (eita.state.snapshot:snap-n-accounts s) ns)))
+        (eita.state.snapshot:snap-close s))))
   (let* ((s (eita.state.snapshot:snap-open dir :fence nil))   ; scanned, never looked up: see LAYERED-RECORD
          (ls (reverse (mapcar (lambda (l) (eita.state.snapshot:snap-open l :fence :scan)) layers)))   ; newest first
          (top (or (first ls) s))
@@ -872,8 +958,7 @@
                              (account-pass buckets threads))))
                (format *error-output* "~&[snapshot-root] account trie done at ~,1Fs~%" (elapsed))
                (values (eita.mpt:bytes->hex root)
-                       (let ((r (getf (eita.state.snapshot:snap-manifest top) :state-root)))
-                         (and r (string-downcase (if (and (> (length r) 1) (string-equal "0x" r :end2 2)) (subseq r 2) r))))
+                       (manifest-root top)
                        na ns)))
         (when buckets (remove-buckets buckets))
         (ignore-errors (sb-posix:rmdir (string-right-trim "/" scratch)))

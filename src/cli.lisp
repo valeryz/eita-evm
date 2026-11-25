@@ -8,6 +8,7 @@
 ;;;;   eita fixtures PATH...                    BlockchainTests (a file or a flat directory)
 ;;;;   eita repl [--load FILE]...               a REPL in the EITA package
 ;;;;   eita check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
+;;;;   eita import-reth --state DIR [--threads N] FILE|-   a base from rust/reth-export's stream
 ;;;;   eita recovery resume|peek|gc STATE-DIR
 ;;;;   eita version
 ;;;;
@@ -30,6 +31,8 @@
   fixtures PATH...                 run BlockchainTests (files or flat directories)
   repl [--load FILE]...            a REPL in the EITA package
   check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
+  import-reth --state DIR [--threads N] FILE|-
+                                   a root-checked base from a reth node (rust/reth-export)
   recovery resume|peek|gc DIR      the resume point / garbage collection of a state directory
   version                          the engine version and code version
 Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/quickstart.md)")
@@ -117,6 +120,9 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 (defun cmd-check-root (args)
   (eita.state.root:main args))
 
+(defun cmd-import-reth (args)
+  (eita.state.root:import-main args))
+
 (defun cmd-recovery (args)
   (destructuring-bind (&optional what dir &rest more) args
     (unless (and dir (null more) (member what '("resume" "peek" "gc") :test #'string=))
@@ -139,7 +145,7 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 
 (defparameter +commands+
   '(("replay" . cmd-replay) ("engine" . cmd-engine) ("fixtures" . cmd-fixtures) ("repl" . cmd-repl)
-    ("check-root" . cmd-check-root) ("recovery" . cmd-recovery) ("version" . cmd-version)))
+    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth) ("recovery" . cmd-recovery) ("version" . cmd-version)))
 
 (defun register-command (name function)
   "Add the subcommand NAME, run as (FUNCTION args) after the engine started: a program that
