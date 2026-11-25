@@ -6,8 +6,8 @@
  * (c/generated/storage_effect.c, lean/Evm/CL/EffectC.lean) against the native slot tables
  * (world_slots.h) and the native per-tx state (tx_state.h). Lisp is called only for data and
  * for observation, never to run an effect:
- *   - learn: the frame account's id, the first time an address is seen under a world (the
- *     address -> id cache, keyed by the world's serial);
+ *   - learn: an account's id, when the address -> id cache (keyed by the world's serial)
+ *     does not hold the address: an SLOAD/SSTORE's frame account, a reverted SSTORE's;
  *   - fault: a key absent from the native table of a lazy world (flags bit 3: a fault hook is
  *     installed) is loaded through the world's fault hook, then read again (absent = zero);
  *   - hook: after the effect, one call per access when the read stream is on (bit 4: the
@@ -100,12 +100,15 @@ uint64_t eita_spec_sload_effect(eita_sh *h, uint64_t *out);   /* emitted */
 uint64_t eita_spec_sstore_effect(eita_sh *h);                 /* emitted */
 void eita_spec_sstore_plan(uint64_t fork, uint64_t *out, uint64_t refund, const u256_t *orig,
                            const u256_t *cur, const u256_t *nv, uint64_t cold);   /* emitted */
-/* A revert's SSTORE entries, natively: from ARENA's newest entry down to TARGET, every type-0
-   entry of an account with a known id is restored into the slot table (as the Lisp restore:
+/* A revert's SSTORE entries, natively, complete for any host: from ARENA's newest entry down
+   to TARGET, every type-0 entry is restored into the slot table (as the Lisp restore:
    world-storage-set of the old value) and retyped EITA_J_SSTORE_DONE, which the host loop and
-   eita_ts_revert skip. Stops at the first un-create entry (type 10: it drops the account's
-   whole table, so the entries below it must be replayed after it, in order: by the host).
-   Not while the read stream is on (EITA_SH_VIEW): the Lisp restore streams each write. */
+   eita_ts_revert skip. The entry's account id comes from the address -> id cache or, on a
+   miss, from learn (the account was bound when the entry was written, so learn returns its
+   id), so no type-0 entry is left for a second pass. Stops at the first un-create entry
+   (type 10: it drops the account's whole table, so the entries below it must be replayed
+   after it, in order: by the host). Returns the number of entries restored. Not while the
+   read stream is on (EITA_SH_VIEW, returns 0): the Lisp restore streams each write. */
 #define EITA_J_SSTORE_DONE 255
 /* The first-touch log: Lisp's entry (scalars), its reset at tx start, its length and entries. */
 void eita_sh_touch_l(uint64_t id, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t k0, uint64_t k1,
@@ -116,7 +119,7 @@ uint64_t eita_sh_watch(uint64_t a0, uint64_t a1, uint64_t a2);
 void eita_sh_watch_clear(void);
 uint64_t eita_sh_touch_count(void);
 const struct eita_touch *eita_sh_touch_at(uint64_t i);
-void eita_sh_revert_storage(TxArena *ar, uint64_t target);
+uint64_t eita_sh_revert_storage(TxArena *ar, uint64_t target);
 uint64_t eita_cb_sload(void *ctx, const u256_t *addr, const u256_t *slot, u256_t *out);
 uint64_t eita_cb_sstore(void *ctx, const u256_t *addr, const u256_t *slot, const u256_t *val);
 #endif

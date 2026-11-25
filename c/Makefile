@@ -159,10 +159,11 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
+	$(BUILD)/test_storage_host
 
 $(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -182,6 +183,15 @@ test_world_slots_model: $(BUILD)/test_world_slots
 	$(BUILD)/test_world_slots $(BUILD)/ws-vectors.txt
 $(BUILD)/test_world_slots: test_world_slots.c world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -o $@ test_world_slots.c world_slots.c
+
+# The native revert alone restores a slice whose accounts collide in the address -> id cache.
+test_storage_host: $(BUILD)/test_storage_host
+	$(BUILD)/test_storage_host
+$(BUILD)/test_storage_host: test_storage_host.c storage_host.c storage_host.h generated/storage_effect.c world_slots.c \
+                            world_slots_emit.c tx_state.c eita_compute.c $(ASM) | $(BUILD)
+	$(CC) $(ARCHFLAG) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DEITA_NO_LEAN_WRAPPER \
+	  -I. -I$(LEAN_C) -o $@ test_storage_host.c storage_host.c generated/storage_effect.c world_slots.c \
+	  tx_state.c eita_compute.c $(LEAN_C)/keccak.c $(ASM)
 
 $(BUILD)/test_tx_state: test_tx_state.c tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(ARCHFLAG) -O1 -o $@ test_tx_state.c tx_state.c
@@ -229,4 +239,4 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_modexp test_bls12381 test_point_evaluation
+.PHONY: all clean test test_compute test_storage_host test_modexp test_bls12381 test_point_evaluation

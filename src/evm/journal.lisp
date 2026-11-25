@@ -173,7 +173,7 @@
    host-replays world-state types (0 sstore, 2 balance, 3 selfdestruct
    mark) here, then %ts-revert undoes the native types (warm-ups,
    tstores, refund, created) and rewinds journal_count to TARGET."
-  (%sh-revert-storage arena target)       ; the SSTORE entries the native path can restore (255 after)
+  (%sh-revert-storage arena target)       ; the SSTORE entries above the first un-create (255 after)
   (let ((count (mem-ref arena :uint64 0))
         (jdata (mem-ref arena :pointer 16)))
     (loop for n downfrom count above target do
