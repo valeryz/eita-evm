@@ -26,6 +26,7 @@
 
 void eita_run(EvmState *state);
 void eita_set_fork(uint64_t ord);
+void eita_jumpdest_map(const uint8_t *code, uint64_t len, uint8_t *out);   /* eita_compute.c */
 
 #define STACK_WORDS 1024
 #define MEM_BYTES   4096
@@ -44,24 +45,16 @@ static EvmCallbacks g_cb;      /* all-null: none of these programs calls a host 
    never journal, so nothing reads it — the alignment is here so that a test
    someone adds later does not inherit a latent fault. */
 static uint8_t      g_arena[ARENA_BYTES] __attribute__((aligned(8)));
-/* The valid-JUMPDEST map (evm_state.h: `jumpdests[pc] == 1` iff code[pc] is a
-   JUMPDEST that is not inside a PUSH immediate). The HOST computes this; the
-   handlers only index it. A NULL map is not a missing optimisation — the jump
-   handlers load it unconditionally, so the first JUMP faults on a near-null
-   address, which is exactly what this test did before it supplied one. */
-static uint8_t      g_jumpdests[CODE_BYTES];
+/* The valid-JUMPDEST map. The HOST computes this; the handlers only index it.
+   A NULL map is not a missing optimisation — the jump handlers load it
+   unconditionally, so the first JUMP faults on a near-null address, which is
+   exactly what this test did before it supplied one.
 
-/* EELS `get_valid_jump_destinations`: a JUMPDEST counts only outside a PUSH
-   immediate, so the scan has to skip each PUSH's data rather than look at
-   every byte. */
-static void build_jumpdests(const uint8_t *code, uint32_t len, uint8_t *out) {
-    for (uint32_t pc = 0; pc < len; ) {
-        uint8_t op = code[pc];
-        if (op == 0x5b) out[pc] = 1;
-        if (op >= 0x60 && op <= 0x7f) pc += 1u + (uint32_t)(op - 0x5f);   /* PUSH1..32 */
-        else pc += 1;
-    }
-}
+   Built by the engine's own `eita_jumpdest_map` (eita_compute.c), NOT by a
+   copy here. This file briefly had its own eight-line scan, which is one
+   copy too many of EELS `get_valid_jump_destinations` — the duplication
+   CONTRIBUTING rule 4 is about, and the kind this tree keeps finding. */
+static uint8_t      g_jumpdests[CODE_BYTES];
 
 /* Run CODE; report the 32-byte RETURN value and the gas it used. */
 static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],
@@ -75,7 +68,7 @@ static int run_prog(const uint8_t *code, uint32_t len, uint8_t out32[32],
     memset(g_jumpdests, 0, sizeof g_jumpdests);
     if (len > CODE_BYTES) return -1;
     memcpy(g_code, code, len);
-    build_jumpdests(g_code, len, g_jumpdests);
+    eita_jumpdest_map(g_code, len, g_jumpdests);
 
     g_st.gas_left = gas0;
     g_st.stack = g_stack;
