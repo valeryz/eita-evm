@@ -87,7 +87,9 @@
    data) ...), :created (the new contract's address, for a creation). A transaction the
    rules reject (nonce, balance, intrinsic gas) signals an error naming why."
   (let* ((from (addr from)) (to (and to (addr to)))
-         (n (or nonce (eita.state:nonce-of world from)))
+         (n (or nonce (let ((eita.evm:*current-world* world))   ; load FROM first: a lazy world or
+                        (eita.state:fault-account! from)            ; an overlay holds no field unread
+                        (eita.state:nonce-of world from))))
          (tx (eita.evm:make-tx :type 0 :sender from :to to :nonce n :gas-limit gas
                                    :gas-price gas-price :value value :data (bytes data)
                                    :access-list access-list :chain-id (getf *block* :chain-id)))

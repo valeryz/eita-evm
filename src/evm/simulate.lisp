@@ -16,10 +16,12 @@
 
 (defvar *simulating* nil "True inside `eita:simulate`.")
 
-(defun overlay-hooks (saved lazy fault-acct fault-slot cold-map)
-  "The fault hooks of an overlay over SAVED (the account table it replaced). LAZY: SAVED holds
-   only what was faulted (an account is there iff faulted), the colder tiers are behind
-   FAULT-ACCT / FAULT-SLOT / COLD-MAP; else SAVED is the whole state."
+(defun overlay-hooks (saved lazy fault-acct fault-slot)
+  "The fault hooks of an overlay over SAVED (the account table it replaced): account, slot and
+   storage wipe. LAZY: SAVED holds only what was faulted (an account is there iff faulted), the
+   colder tiers are behind FAULT-ACCT / FAULT-SLOT; else SAVED is the whole state. A wipe sets
+   the overlay entry's WIPED bit, under which every slot below the overlay reads 0
+   (`cold-storage-wipe!`): nothing enumerates the colder tiers' slots."
   (labels ((found (addr)
              (let ((a (eita.state::acct-table-find saved addr)))
                (and (>= a 0) (or (not lazy) (eita.state::acct-flag-p saved a eita.state::+acct-faulted+)) a)))
@@ -48,16 +50,6 @@
                  ((and (>= a 0) (eita.state::acct-flag-p saved a eita.state::+acct-wiped+)) (put-slot addr slot 0))
                  ((and lazy fault-slot) (funcall fault-slot addr slot))
                  (t (put-slot addr slot 0))))))
-     (lambda (addr fn)                                ; the slots below the overlay, each once
-       (unless (wiped-here-p addr)
-         (let ((tb (world-accts *current-world*)) (a (eita.state::acct-table-find saved addr)))
-           (flet ((here-p (k) (let ((b (eita.state::acct-table-find tb addr)))
-                                (and (>= b 0) (eita.state::acct-slot-present-p tb b k)))))
-             (when (>= a 0)
-               (eita.state::acct-slots-map (lambda (k v) (unless (or (here-p k) (zerop v)) (funcall fn k v))) saved a))
-             (when (and lazy cold-map (not (and (>= a 0) (eita.state::acct-flag-p saved a eita.state::+acct-wiped+))))
-               (funcall cold-map addr (lambda (k v) (unless (and (>= a 0) (eita.state::acct-slot-present-p saved a k))
-                                                      (funcall fn k v)))))))))
      (lambda (addr)                                   ; wipe: mark the overlay's entry
        (eita.state::with-acct (tb b) *current-world* addr
          (eita.state::acct-set-flag! tb b eita.state::+acct-wiped+))))))
@@ -73,15 +65,14 @@
     ((null *current-world*) (error "eita:simulate: no world (the replay thread, between blocks)"))
     (t
      (let* ((w *current-world*) (saved (world-accts w)) (lazy (and eita.state::*fault-account-hook* t)))
-       (multiple-value-bind (fa fs cm wipe)
-           (overlay-hooks saved lazy eita.state::*fault-account-hook* eita.state::*fault-slot-hook*
-                          eita.state::*cold-storage-map-hook*)
+       (multiple-value-bind (fa fs wipe)
+           (overlay-hooks saved lazy eita.state::*fault-account-hook* eita.state::*fault-slot-hook*)
          (let ((*simulating* t)
                (*observer* nil) (*observe-capture* nil) (*view-log* nil) (*capture-reads* nil)
                (*readset-dir* nil) (*mpt-tracking* nil)
                (eita.state::*keep-zero-slots* t)
                (eita.state::*fault-account-hook* fa) (eita.state::*fault-slot-hook* fs)
-               (eita.state::*cold-storage-map-hook* cm) (eita.state::*storage-wipe-hook* wipe)
+               (eita.state::*storage-wipe-hook* wipe)
                (*receipt-cumulative-gas* 0) (*block-blob-gas* 0) (*stats* (copy-list *stats*))
                (*last-tx-logs* '()) (*last-tx-output* #())
                (eita.chain::*tx-receipt-extension* nil))
