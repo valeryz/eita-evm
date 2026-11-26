@@ -16,7 +16,7 @@
 ;;;; The heap is an SBCL runtime option, given before the command:
 ;;;;   eita --dynamic-space-size 16GB --end-runtime-options fixtures …
 ;;;; (the image's default is the heap it was built with: build.sh, EITA_HEAP_MB). Every
-;;;; environment variable the engine reads (EITA_NO_JIT, EITA_TRACE_*, …) works as with the
+;;;; environment variable the engine reads (EITA_TRACE_*, …) works as with the
 ;;;; sources: the image reads them when it starts (native/startup.lisp).
 ;;;;
 ;;;; EITA_SWANK_PORT=N: `replay`, `engine` and `repl` serve a Swank REPL on 127.0.0.1:N

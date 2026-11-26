@@ -5,7 +5,7 @@
 ;;;; same code. The version is a content hash, not a git hash (a deployed tree need not carry
 ;;;; .git), over everything that decides the results:
 ;;;;   - every Lisp source file of the loaded eita systems, and their .asd;
-;;;;   - libeita and the emitJIT binary (as the run finds them: native/libraries.lisp);
+;;;;   - libeita (as the run finds it: native/libraries.lisp);
 ;;;;   - ocicl.csv, the pinned versions of the Lisp libraries under the engine.
 ;;;; A docs-only change does not move it; any code change does, even one that leaves the
 ;;;; results unchanged. That is safe and cheap: a resume replays every block past R anyway,

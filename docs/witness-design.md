@@ -475,7 +475,7 @@ probe mode out.
     material says only "a variety of cryptographic accelerators" (open question 1).
 - **secp256k1** (ECRECOVER in permits): libsecp256k1's 10×26 field arithmetic runs on 32-bit, at an
   estimated tens of ms per recovery at 350 MHz.
-- **Interpreter.** On RV32 the handlers are C at first, not the JIT. A wallet tx is about 50–300k
+- **Interpreter.** On RV32 the handlers are C at first, not emitted assembly. A wallet tx is about 50–300k
   gas. At an estimated 100–300 cycles per opcode, that is 10–50 ms.
 - **Code size.** An estimated 0.4–0.8 MiB in ReRAM (§3.3), to be measured on the board. The pairing and
   KZG precompiles are left out of the chip build.

@@ -89,8 +89,7 @@
 (defun check-cached-foreign-pointers! (where)
   "Loud check that libeita has not been remapped under the pointers we cached.
 
-   Every libeita address resolved at load time — this table, the handler addresses
-   in *foreign-sym-cache* that JIT relocations are patched with, the callback
+   Every libeita address resolved at load time — this table, the callback
    vtable — is only valid for the image that was open then. dlopen'ing libeita a
    SECOND time (e.g. by absolute path when it was first loaded by name) maps
    another image at a new base, and dyld may then place the old mapping's pages
@@ -104,7 +103,7 @@
   (let ((now (foreign-symbol-pointer "eita_access_costs")))
     (unless (pointer-eq *access-costs* now)
       (error "libeita was remapped after ~A: eita_access_costs cached at ~A, dlsym now says ~A.~%~
-              Every cached libeita pointer is stale (gas tables, handler addresses for JIT relocs).~%~
+              Every cached libeita pointer is stale (gas tables, the callback vtable).~%~
               Something dlopen'd libeita a second time — load it once, by one path."
              where *access-costs* now))))
 

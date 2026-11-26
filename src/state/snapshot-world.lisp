@@ -35,7 +35,7 @@
 (defvar *code-intern* (make-hash-table :test 'eql :weakness :value)
   "codehash -> the one code vector for it (proxies and clones share one copy). Weak
    on the value and kept across freezes: a code stays shared while anything — the world,
-   the JIT cache's key — still holds it.")
+   the code hash memo's key — still holds it.")
 (defvar *snap-stats* (list :acct-faults 0 :slot-faults 0 :freezes 0))
 
 (defconstant +max-layers+ 16 "Over this many layers on disk, eight of them are composed into one (`minor-run`).")
@@ -128,7 +128,7 @@
                       (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
                         (unless code
                           (error "account ~X names code ~X that no layer and no base holds" addr codehash))
-                        ;; seed the JIT cache's memo: no keccak for code read by hash
+                        ;; seed the code hash memo: no keccak for code read by hash
                         (setf (gethash code *code-hash-memo*) codehash)
                         (intern-code codehash code)))))
         (when exists-empty (acct-set-flag! tb a +acct-marked+))))))

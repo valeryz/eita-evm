@@ -21,7 +21,7 @@ files, not here:
   Frontier to Osaka is a delta over its predecessor, Amsterdam is staged, and the OP Stack and
   Arc chain rules sit on top.
 - **Emitted code.** What executes is emitted from the spec, not written by hand: the ARM64 and
-  x86-64 interpreters' opcode handlers, the JIT's chunk code, the gas formulas, the fork
+  x86-64 interpreters' opcode handlers, the gas formulas, the fork
   tables, the header rules, and the host's effect layer (CALL, CREATE, SSTORE, SELFDESTRUCT,
   transaction application, fee settlement, block rewards), which is proved equal to each
   fork's spec (`Evm.CL.Effect*Proof`). `scripts/verify-host-emit.sh` requires the committed
@@ -53,8 +53,7 @@ files, not here:
   check. Specified, not yet built: a per-block root from snapshot v2's frontier
   ([state-snapshot-format.md](state-snapshot-format.md)); its Lisp-to-Lean gap is the
   stated `layered_frontier_root_eq` ([trusted-surface.md](trusted-surface.md#the-per-block-state-root-snapshot-v2-specified)).
-- **Conformance.** The ethereum/tests BlockchainTests battery on both execution tiers, the
-  threaded interpreter and the JIT; results, skips and expected failures with their reasons
+- **Conformance.** The ethereum/tests BlockchainTests battery on the threaded interpreter; results, skips and expected failures with their reasons
   in [`docs/testing.md`](testing.md). A sample runs in CI.
 
 ## Trusted, not proved

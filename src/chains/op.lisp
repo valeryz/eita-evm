@@ -554,8 +554,4 @@
   (replay-main args)
   (format t "source: rpc-calls=~D offline-misses=~D native-precompile-calls=~D~%"
           *rpc-calls* *offline-misses* (getf *stats* :native-calls 0))
-  (format t "jit: codes=~D no-jit=~D frames-jit=~D frames-interp=~D manifest-misses=~D~%"
-          (getf *jit-stats* :codes-jit) (getf *jit-stats* :codes-no-jit)
-          eita.evm::*frames-jit* eita.evm::*frames-interp*
-          (getf *jit-stats* :manifest-misses))
   (sb-ext:exit :code (if (and (zerop (getf *stats* :mismatches)) (zerop *offline-misses*)) 0 1)))

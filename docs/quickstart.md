@@ -44,8 +44,7 @@ the per-block system calls. To run real blocks, use the driver: `(replay "ethere
 
 ## A session
 
-(The transcript below is a real run; `EITA_NO_JIT=1` gives the same results on the
-interpreter tier.)
+(The transcript below is a real run.)
 
 The fixture part reads ethereum/tests from `lean/external/ethereum-tests` (`docs/testing.md`
 says how to fetch it). The last transaction is refused by the rules (Bob holds 1,000 wei and
@@ -99,7 +98,6 @@ PASS basefeeExample_Shanghai
 ---
 summary: pass=4 fail=0 skip=0 xfail=0
 invalid blocks: rejected=0 rejected-other=0 accepted=0 undecoded=0 unchecked=0
-jit: codes=2 no-jit=0 frames-jit=3 frames-interp=0 manifest-misses=0 chunk-evictions=0
 NIL
 ```
 

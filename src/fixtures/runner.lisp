@@ -435,11 +435,4 @@
     (format t "---~%summary: pass=~D fail=~D skip=~D xfail=~D~%" pass fail skip xfail)
     (format t "invalid blocks: rejected=~D rejected-other=~D accepted=~D undecoded=~D unchecked=~D~%"
             (getf *invalid-counts* :rejected) (getf *invalid-counts* :other)
-            (getf *invalid-counts* :accepted) (getf *invalid-counts* :undecoded) (getf *invalid-counts* :unchecked))
-    (format t "jit: codes=~D no-jit=~D frames-jit=~D frames-interp=~D manifest-misses=~D chunk-evictions=~D~%"
-            (getf *jit-stats* :codes-jit)
-            (getf *jit-stats* :codes-no-jit)
-            eita.evm::*frames-jit*
-            eita.evm::*frames-interp*
-            (getf *jit-stats* :manifest-misses)
-            (getf *jit-stats* :chunk-evictions 0))))
+            (getf *invalid-counts* :accepted) (getf *invalid-counts* :undecoded) (getf *invalid-counts* :unchecked))))

@@ -126,7 +126,6 @@ Observers see storage in three tiers:
 - Effects: the EIP-2200/2929/3529 vectors and every GeneralStateTests SSTORE, refund and revert
   directory (`stSStoreTest`, `stRefundTest`, `stRevertTest`, `stSelfBalance`, the create-collision
   directories).
-- Engine: the tier differential (`EITA_DIFF_TIERS`: each top-level frame on the JIT and the
-  interpreter, both on the native path), and a mainnet replay range with the header gate.
+- Engine: a mainnet replay range with the header gate.
 - Observers: `tests/native-storage-hooks.lisp` (fixture rows equal with and without the watch;
   rows and watched accesses equal a recorded digest).

@@ -104,8 +104,6 @@ state is `<PREFIX>_FROM_GENESIS`.
   Base (`5b055be`), decompressed with that revision's `superchain/extra/dictionary` —, with
   the deposit receipts in the receipts root and the L1 data fee computed from the L1Block
   predeploy; `--lazy` with a state-serving source runs them without full state).
-- `EITA_NO_JIT=1` runs the threaded interpreter only; by default hot code is compiled by
-  the Lean-emitted JIT.
 
 ## Other block sources
 

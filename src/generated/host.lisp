@@ -633,25 +633,6 @@
                     (account-delete! *current-world* p-addr)))))
     %gas))
 
-;; The JIT dispatch table (RunProgramDenote.build; = the manifest scan: tableLookup_build).
-;; The replay's JIT loader and tests/audit-jit.lisp call it; the caller frees the table.
-(defun spec-dispatch-table (pairs)
-  (let ((n 0))
-    (loop for (pc . fn) in pairs
-          do (when (zerop fn) (error "spec-dispatch-table: chunk at pc ~D has address 0" pc))
-             (setf n (max n (+ pc 1))))
-    (let ((tab (foreign-funcall "calloc" :size (1+ n) :size 8 :pointer)))
-      (when (null-pointer-p tab) (error "spec-dispatch-table: calloc ~D words failed" (1+ n)))
-      (setf (mem-aref tab :uint64 0) n)
-      (loop for (pc . fn) in pairs for slot = (mem-aref tab :uint64 (1+ pc))
-            do (setf (mem-aref tab :uint64 (1+ pc)) (if (< 0 slot) slot fn)))
-      tab)))
-;; The (pc . fn) pairs of a `_eita_jit_entries` manifest {count; (pc, fn)...} (JIT.entriesTable).
-(defun spec-manifest-pairs (entries)
-  (loop for k below (mem-aref entries :uint64 0)
-        collect (cons (mem-aref entries :uint64 (+ 1 (* 2 k)))
-                      (mem-aref entries :uint64 (+ 2 (* 2 k))))))
-
 ;; CL-side revert-journal-to dispatch (world-state entry types;
 ;; native types are reverted by eita_ts_revert).
 (defun spec-restore-journal-entry (type addr slot old)

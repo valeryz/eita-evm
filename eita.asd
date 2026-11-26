@@ -1,7 +1,7 @@
 ;;;; eita.asd — Eita: an EVM specified in Lean 4, with native handlers emitted from the spec.
 ;;;;
 ;;;; Systems:
-;;;;   eita            the engine: native libraries, the EVM (interpreter and JIT tiers, the
+;;;;   eita            the engine: native libraries, the EVM (the threaded interpreter, the
 ;;;;                   Lean-emitted host effects), world state and snapshots, block input, the
 ;;;;                   chain-neutral block pipeline and driver, the EITA API package
 ;;;;   eita/chains     Ethereum, Arc, the OP-Stack chains, and EITA:REPLAY
@@ -11,9 +11,8 @@
 ;;;;                   and a Swank server (EITA_SWANK_PORT)
 ;;;;   eita/test       (asdf:test-system "eita"): the Lisp test suites and oracles (tests/)
 ;;;;
-;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the emitJIT daemon, the Engine API
-;;;; edge) are built by build.sh and found at RUN time (src/native/libraries.lisp), never baked
-;;;; into a fasl.
+;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the Engine API edge) are built
+;;;; by build.sh and found at RUN time (src/native/libraries.lisp), never baked into a fasl.
 ;;;; Dependencies come from ocicl (ocicl.csv pins them); build.sh shows how to load them.
 
 (defsystem "eita"
@@ -35,7 +34,6 @@
                (:file "core/hex")
                (:file "core/u256")
                ;; the EVM, and world state under it
-               (:file "evm/jit")
                (:file "evm/interp")
                (:file "state/world")
                (:file "evm/frames")

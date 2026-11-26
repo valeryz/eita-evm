@@ -25,7 +25,6 @@
 (defun observed-run (dir watch)
   "The rows of DIR's fixtures: (values storage/account rows, watched-access rows, summary)."
   (let* ((*rows* '()) (accesses '())
-         (eita.evm::*force-interp* t)
          (eita.evm::*storage-access-hook*
            (lambda (op a slot v) (push (list op a slot v) accesses)))
          (eita.state:*observer*

@@ -15,7 +15,7 @@ consensus client ──HTTP + JWT──▶ eita-engine-api ──local socket─
 ## Build
 
 ```sh
-./build.sh            # or ./build.sh --leanless, then run with EITA_NO_JIT=1
+./build.sh            # or ./build.sh --leanless (no Lean: the committed generated files)
 ```
 
 `build.sh` builds `bin/eita` and `bin/eita-engine-api` (needs `cargo`); the README's Build

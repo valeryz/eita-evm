@@ -24,10 +24,8 @@
     out))
 
 (defun run (paths)
-  "The runner's output over PATHS (the jit counters dropped)."
-  (let ((out (with-output-to-string (*standard-output*) (eita.fixtures:main paths))))
-    (format nil "~{~A~^~%~}" (remove-if (lambda (l) (eql 0 (search "jit: " l)))
-                                        (uiop:split-string out :separator '(#\Newline))))))
+  "The runner's output over PATHS."
+  (with-output-to-string (*standard-output*) (eita.fixtures:main paths)))
 
 (defun clear () (dolist (s (eita:subscriptions)) (eita:unsubscribe (first s))))
 (defun example (name) (load (eita.test::home (format nil "examples/hooks/~A.lisp" name))))

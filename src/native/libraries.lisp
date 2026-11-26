@@ -2,8 +2,7 @@
 ;;;;
 ;;;; The engine needs libeita (the Lean-emitted handlers, the precompiles, keccak),
 ;;;; libkeccak_batch (the trie's batched keccak), libz (block files), libeita_pq (Arc's PQ
-;;;; precompile, opened on first use) and the Lean `emitJIT` daemon (the JIT tier). A library
-;;;; is found, in order:
+;;;; precompile, opened on first use). A library is found, in order:
 ;;;;   EITA_LIB (libeita only: a full path, so a side-built libeita can be tried without
 ;;;;   overwriting the one a live replay holds mapped — overwriting it SIGBUSes that process)
 ;;;;   $EITA_LIB_DIR/<lib>
@@ -80,11 +79,3 @@
   (open-libeita)
   (open-native "libkeccak_batch")
   (use-foreign-library libz))
-
-(defun emit-jit-path ()
-  "The Lean emit daemon (the JIT tier): EITA_EMITJIT, else next to the executable, else
-   <home>/lean/.lake/build/bin/emitJIT. A deploy ships it with libeita (and its libmcl)."
-  (or (nonempty-env "EITA_EMITJIT")
-      (let ((p (and (executable-dir) (merge-pathnames "emitJIT" (executable-dir)))))
-        (and p (probe-file p) (namestring p)))
-      (eita-file "lean/.lake/build/bin/emitJIT")))

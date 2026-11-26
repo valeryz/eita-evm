@@ -179,7 +179,7 @@
             (setf *current-address* sub-address)
             (setf *current-state*   sub-state)
             (incf *call-depth*)
-            (unwind-protect (run-frame sub-state code)
+            (unwind-protect (run-frame sub-state)
               (decf *call-depth*)
               (setf *current-state*   parent-state)
               (setf *current-address* saved-addr)))
@@ -357,9 +357,7 @@
         (setf *current-address* new-addr)
         (setf *current-state*   sub-state)
         (incf *call-depth*)
-        ;; Initcode runs once per deployment — never hot, stays interp.
-        (storage-host-sync!)                   ; every frame entry syncs the native storage path
-        (unwind-protect (eita-run sub-state)
+        (unwind-protect (run-frame sub-state)
           (decf *call-depth*)
           (setf *current-state*   parent-state)
           (setf *current-address* saved-addr))
