@@ -168,11 +168,23 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host \
+      $(BUILD)/test_sstore_gas
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
 	$(BUILD)/test_storage_host
+	$(BUILD)/test_sstore_gas
+
+# The five SSTORE schedules as emitted C (Evm.CL.SstoreGasC), for hosts with
+# neither Lisp nor the emitted assembly. Every pattern at nine refund counters,
+# expected values from Lean's own plans. Links the C schedules, NOT handlers.S:
+# both define the same five symbols and only one may be present.
+test_sstore_gas: $(BUILD)/test_sstore_gas
+	$(BUILD)/test_sstore_gas
+$(BUILD)/test_sstore_gas: test_sstore_gas.c generated/sstore_gas.c generated/limb_ops.h | $(BUILD)
+	$(CC) $(ARCHFLAG) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+	  -Wall -Wextra -I. -o $@ test_sstore_gas.c generated/sstore_gas.c
 
 $(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -269,6 +281,7 @@ $(BUILD)/host-rv32.o: generated/host.c generated/host.h | $(BUILD)
 # must be ONLY the host hooks the firmware supplies (c/rv32/README.md).
 RV32_SRCS := rv32/shim.c rv32/unlowered.c rv32/selftest.c eita_compute.c tx_state.c world_slots.c \
              storage_host.c generated/storage_effect.c generated/host.c \
+             generated/sstore_gas.c \
              $(LEAN_C)/keccak.c $(LEAN_C)/sha256.c $(LEAN_C)/ripemd160.c \
              $(LEAN_C)/blake2f.c
 RV32_DIR  := $(BUILD)/rv32
@@ -359,6 +372,6 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_storage_host test_modexp test_bls12381 \
+.PHONY: all clean test test_compute test_storage_host test_sstore_gas test_modexp test_bls12381 \
 	test_point_evaluation test_host_gas host_gas_rv32 test_compute_portable \
 	rv32_engine rv32_qemu

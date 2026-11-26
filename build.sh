@@ -66,6 +66,11 @@ if [ "$LEANLESS" = 0 ]; then
   ( cd lean && lake env ./.lake/build/bin/emitHostC --header )  > c/generated/host.h
   ( cd lean && lake env ./.lake/build/bin/emitHostC )           > c/generated/host.c
   ( cd lean && lake env ./.lake/build/bin/emitHostC --vectors ) > c/test_host_gas.c
+  ## ...and the five SSTORE gas schedules as C, for a host with neither Lisp
+  ## nor the emitted assembly (Evm.CL.SstoreGasC; proved against the same
+  ## SstoreGasDenote plans the two assembly backends are).
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore )         > c/generated/sstore_gas.c
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore-vectors ) > c/test_sstore_gas.c
 else
   echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h}"
 fi

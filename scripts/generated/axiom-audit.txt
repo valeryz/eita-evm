@@ -26,6 +26,10 @@
 'Evm.CL.GasEmitCancun.blobBaseFee_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCall.callExtraGas_is_berlin_charge' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCall.callStipendGas_is_spec_stipend' depends on axioms: [propext]
+'Evm.CL.SstoreGasC.applyRow_is_legacy' depends on axioms: [propext]
+'Evm.CL.SstoreGasC.applyRow_is_eip1283' depends on axioms: [propext, Quot.sound]
+'Evm.CL.SstoreGasC.applyRow_is_eip2200' depends on axioms: [propext]
+'Evm.CL.SstoreGasC.applyRow_is_2929' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec' does not depend on any axioms

@@ -32,6 +32,7 @@ import Evm.CL.MemExpandSpec
 import Evm.CL.GasEmitLondon
 import Evm.CL.GasEmitCancun
 import Evm.CL.GasEmitCall
+import Evm.CL.SstoreGasC
 import Evm.CL.GasEmitPrague
 import Evm.CL.RepriceEmit
 import Evm.CL.Flags
@@ -128,6 +129,10 @@ import Evm.CL.RV32.Sim
 #print axioms Evm.CL.GasEmitCancun.blobBaseFee_eq_spec
 #print axioms Evm.CL.GasEmitCall.callExtraGas_is_berlin_charge
 #print axioms Evm.CL.GasEmitCall.callStipendGas_is_spec_stipend
+#print axioms Evm.CL.SstoreGasC.applyRow_is_legacy
+#print axioms Evm.CL.SstoreGasC.applyRow_is_eip1283
+#print axioms Evm.CL.SstoreGasC.applyRow_is_eip2200
+#print axioms Evm.CL.SstoreGasC.applyRow_is_2929
 #print axioms Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec
 #print axioms Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec
 #print axioms Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec

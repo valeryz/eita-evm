@@ -399,3 +399,52 @@ A consumer's own trusted surface still includes deciding `cold`,
 `value-nonzero` and `new-acct` correctly, and adding the sub-frame's
 consumption. For the wallet host that is
 `~/shift/eita-dabao/docs/trusted-surface.md`.
+
+## The SSTORE gas schedules in C — derived + **proved**
+
+`_eita_sstore_gas_{legacy,eip1283,eip2200,berlin,london}` exist twice as
+emitted ASSEMBLY — `Evm.CL.ARM64.SstoreGas` (proved in `SstoreGasSem`) and
+`Evm.CL.X86SstoreGas` (proved in `X86SstoreGasSem`). A 32-bit target can use
+neither: the bodies could be lowered, but not ENTERED, because on ILP32 a
+`uint64_t` parameter takes an ALIGNED register pair, so `refund` lands in a2:a3
+and `cold` past a7 and onto the stack. x86-64's constraint looked similar but
+was register PRESSURE inside an unchanged ABI; this is the ABI.
+
+`Evm.CL.SstoreGasC` prints them as C instead, and `c/Makefile` links that for
+rv32 **in place of** the assembly — never alongside it, since both define the
+same five symbols. This is a third derivation, not a second owner:
+`ARM64.SstoreGasDenote.plan*` remains the single definition.
+
+**Why it is small.** Every plan is a function of SEVEN BOOLEANS — origZero,
+curZero, newZero, origEqCur, curEqNew, origEqNew, cold — and a refund counter
+that only ever enters as
+
+    refund' = ((refund + add1) - sub) + add2        (saturating subtraction)
+
+Four of the five are that with `add2 = 0`; `eip2200`'s chain needs the trailing
+add because its subtraction saturates BETWEEN the two additions and cannot be
+folded. So each schedule is a table of `(cost, add1, sub, add2)` over those
+bits, and the bits collapse hard — eip1283's 64 patterns give 11 distinct rows.
+The whole file is 212 lines.
+
+**Proved** (`propext`, `Quot.sound` only — no `native_decide`, no `sorry`):
+`applyRow_is_legacy`, `applyRow_is_eip1283`, `applyRow_is_eip2200`,
+`applyRow_is_2929`. Each says `plan* refund preds = (row.cost, applyRow refund
+row)`, universally quantified over the refund counter AND over all seven
+predicates — not a sample of patterns, because the rows are stated over the
+booleans rather than over a packed index.
+
+**Trusted — one line.** That the emitted C expression implements `applyRow`.
+The C is text, not a Lean term, so no theorem reaches it. Pinned instead by
+`c/test_sstore_gas.c` (emitted): every reachable predicate pattern at nine
+refund counters chosen around the saturation edges, with expected values from
+Lean's own `plan*` — 1350 checks. The unreachable patterns (contradictory
+predicate combinations, e.g. `origEqCur` with `orig` zero and `cur` not) are
+skipped, and the reachable COUNT is asserted, because a build that silently
+skipped everything would otherwise read as a pass. `applyRow_is_*` covers all
+128 patterns regardless.
+
+**Also checked on the target**: the rv32 self-test calls the London schedule
+for a warm set, a cold set and a reset-to-zero, so the same emitted C compiled
+for rv32imac runs under QEMU and on the board. 20000 / 22100 / 2900 with 4800
+added to the refund counter are independently recognisable London numbers.

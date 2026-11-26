@@ -27,6 +27,10 @@
 void eita_run(EvmState *state);
 void eita_set_fork(uint64_t ord);
 void eita_jumpdest_map(const uint8_t *code, uint64_t len, uint8_t *out);   /* eita_compute.c */
+/* The London SSTORE gas schedule, emitted as C by Evm.CL.SstoreGasC and linked
+   for rv32 in place of the assembly a 32-bit target cannot enter. */
+void eita_sstore_gas_london(uint64_t *out, uint64_t refund, const u256_t *orig,
+                            const u256_t *cur, const u256_t *nv, uint64_t cold);
 
 #define STACK_WORDS 1024
 #define MEM_BYTES   4096
@@ -150,6 +154,36 @@ static const uint8_t p_mulw[]    = { 0x7f,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0,
     0x02, TAIL };
 
+/* The emitted SSTORE gas schedule, ON THE TARGET.
+ *
+ * c/test_sstore_gas.c sweeps all five schedules at every reachable predicate
+ * pattern — but on the HOST, where the tables are 64-bit-compiled. These three
+ * probes run the same emitted C built for rv32imac, which is what would catch
+ * a 32-bit arithmetic or table-indexing problem in it. Values read off
+ * `rows_london` / `idx_london` and independently recognisable as London's
+ * schedule: 20000 to set, 2900 to reset, 4800 cleared refund (EIP-3529), and
+ * +2100 for a cold slot (EIP-2929). */
+static int check_sstore_gas(void) {
+    u256_t zero, one; uint64_t out[2];
+    memset(&zero, 0, sizeof zero);
+    memset(&one, 0, sizeof one);
+    one.limb[0] = 1;
+
+    /* warm SET: orig 0, cur 0, new nonzero */
+    eita_sstore_gas_london(out, 0, &zero, &zero, &one, 0);
+    if (out[0] != 20000 || out[1] != 0) return 1;
+
+    /* the same, COLD: +2100 */
+    eita_sstore_gas_london(out, 0, &zero, &zero, &one, 1);
+    if (out[0] != 22100 || out[1] != 0) return 1;
+
+    /* warm RESET to zero: 2900, and 4800 added to the refund counter */
+    eita_sstore_gas_london(out, 100, &one, &one, &zero, 0);
+    if (out[0] != 2900 || out[1] != 4900) return 1;
+
+    return 0;
+}
+
 /** Run every check. Returns 0 on success, else a bitmask of the ones that
     failed (bit k = check k). `gas_add_out`, when non-null, receives the gas the
     ADD program used — the number a host run pins and a board run must match. */
@@ -173,6 +207,8 @@ uint32_t eita_selftest(uint64_t *gas_add_out) {
     if (run_prog(p_mul,  sizeof p_mul,  out, &gas) != 0 || !is_word(out, 63)) bad |= 1u << 3;
     if (run_prog(p_div,  sizeof p_div,  out, &gas) != 0 || !is_word(out, 33)) bad |= 1u << 4;
 
+    if (check_sstore_gas() != 0) bad |= 1u << 9;
+
     if (run_prog(p_loop, sizeof p_loop, out, &gas) != 0 || !is_word(out, 42)) bad |= 1u << 7;
     if (run_prog(p_jump, sizeof p_jump, out, &gas) != 0 || !is_word(out, 7))  bad |= 1u << 8;
 
@@ -193,8 +229,8 @@ int main(void) {
     uint32_t bad = eita_selftest(&gas);
     static const char *names[] = { "ADD", "ADD-carry", "SUB-borrow", "MUL",
                                    "DIV", "MUL-wide", "gas(ADD)=24",
-                                   "JUMPI-loop", "JUMP" };
-    for (int i = 0; i < 9; i++)
+                                   "JUMPI-loop", "JUMP", "sstore-gas" };
+    for (int i = 0; i < 10; i++)
         printf("  %-11s %s\n", names[i], (bad & (1u << i)) ? "FAIL" : "ok");
     printf("---\nselftest: %s (mask 0x%02x), ADD program gas_used = %llu\n",
            bad ? "FAIL" : "PASS", bad, (unsigned long long)gas);
