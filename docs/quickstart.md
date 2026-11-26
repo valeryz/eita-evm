@@ -28,7 +28,7 @@ message), refund and calldata-floor rules, fee settlement, end-of-transaction de
 | `(new-world &key fork alloc)` | a world at a fork (`"Frontier"` … `"Cancun"`, `"Prague"`, `"Osaka"`); ALLOC: `((address :balance … :nonce … :code … :storage ((slot . value) …)) …)` |
 | `(transact world &key from to value data gas gas-price nonce access-list)` | run and commit one transaction (TO nil: create); returns `(:status :gas-used :output :logs :created)` |
 | `(deploy world &key from code value gas)` | create a contract from init code; its address |
-| `(call world &key from to data value gas)` | like `eth_call`: run on a copy, the world unchanged |
+| `(call world &key from to data value gas)` | like `eth_call`: run in an overlay (`simulate`), the world unchanged |
 | `(balance w a)`, `(nonce w a)`, `(code w a)`, `(storage w a slot)` | inspect |
 | `(fund w a wei)`, `(set-code w a code)`, `(set-storage w a slot v)` | edit the world directly |
 | `(state-root w)` | the Merkle-Patricia state root a block header would commit to |
