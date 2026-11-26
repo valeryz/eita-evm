@@ -39,6 +39,9 @@ import Evm.CL.HeaderEmit
 import Evm.CL.BlobEnv
 import Evm.CL.HostEmit
 import Evm.Arc.Spec.BlockSystem
+import Evm.Avalanche.Emit
+import Evm.Avalanche.Trie
+import Evm.Avalanche.Header
 import Evm.CL.ARM64.SstoreGasDenote
 import Evm.CL.ARM64.MemCommitSem
 import Evm.CL.OpSem
@@ -145,9 +148,30 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.Amsterdam.Vm.Gas.credit_after_charge
 #print axioms Evm.Amsterdam.Vm.Gas.allocate_split
 
--- Arc host spec + ARM64 semantics-of-gas lemmas.
+-- Arc host spec + Avalanche C-Chain host spec + ARM64 semantics-of-gas lemmas.
 #print axioms Evm.Arc.Spec.BlockSystem.nextBaseFeeExpr_eq_spec
 #print axioms Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.mainnetForkOrdExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.fujiForkOrdExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.ethAnalogOrdExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.p256ActiveExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.saeActiveExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.extraDataOffsetExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.saeGasFloorExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.txGasUsedExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.warpBlockchainIdGasExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.warpSendGasExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.warpReadGasExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.warpPredicateGasExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.atomicTxGasExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.gasClockTargetExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.gasClockMinPriceExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.gasClockPriceAtExpr_eq_spec
+#print axioms Evm.Avalanche.Emit.gasClockBaseFeeExpr_eq_spec
+#print axioms Evm.Avalanche.Charging.fee_conservation
+#print axioms Evm.Avalanche.GasClock.beforeBlockRaw_excess_le
+#print axioms Evm.Avalanche.Trie.normalizeStorageSlot_idempotent
+#print axioms Evm.Avalanche.Header.stateRootBlock_le_number
 #print axioms Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec
 #print axioms Evm.CL.ARM64.SstoreGasDenote.eip1283_eq_spec
 #print axioms Evm.CL.ARM64.SstoreGasDenote.eip2200_eq_spec
