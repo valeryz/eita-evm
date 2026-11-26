@@ -1,7 +1,7 @@
 ;;;; cli.lisp — bin/eita, the one executable.
 ;;;;
 ;;;;   eita replay --chain C --from N [--to M | --to tip] [--blocks DIR] [--state DIR]
-;;;;               [--checkpoint-every N] [--source FILE] [--observer FILE]
+;;;;               [--checkpoint-every N] [--source FILE] [--observer FILE] [--factlog DIR]
 ;;;;               [--resume N] [--genesis FILE] [--lazy | --full-state]
 ;;;;   eita engine --chain C --state DIR --jwt FILE [--engine-listen ADDR] [--genesis FILE]
 ;;;;               [--blocks DIR]               the Engine API for a consensus client
@@ -18,6 +18,9 @@
 ;;;; (the image's default is the heap it was built with: build.sh, EITA_HEAP_MB). Every
 ;;;; environment variable the engine reads (EITA_NO_JIT, EITA_TRACE_*, …) works as with the
 ;;;; sources: the image reads them when it starts (native/startup.lisp).
+;;;;
+;;;; EITA_SWANK_PORT=N: `replay`, `engine` and `repl` serve a Swank REPL on 127.0.0.1:N
+;;;; (src/swank.lisp; docs/hooks.md, "Developing hooks live from Emacs").
 
 (in-package #:eita.cli)
 
@@ -25,7 +28,7 @@
   "usage: eita <command> [arguments]
   replay --chain ethereum|hoodi|devnet|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
          [--blocks DIR] [--state DIR] [--checkpoint-every N] [--source FILE]
-         [--observer FILE] [--resume N] [--genesis FILE] [--lazy | --full-state]
+         [--observer FILE] [--factlog DIR] [--resume N] [--genesis FILE] [--lazy | --full-state]
   engine --chain ethereum|hoodi|devnet --state DIR --jwt FILE [--engine-listen 127.0.0.1:8551]
          [--genesis FILE] [--blocks DIR]
                                    an execution client for a consensus client (docs/run-a-node.md)
@@ -38,6 +41,7 @@
                                    a verified v1 state as a root-checked v2 base and anchor
   recovery resume|peek|gc DIR      the resume point / garbage collection of a state directory
   version                          the engine version and code version
+Swank: EITA_SWANK_PORT=4005 serves a REPL on 127.0.0.1:4005 to replay, engine and repl
 Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/quickstart.md)")
 
 (define-condition usage-error (simple-error) ())
@@ -68,11 +72,70 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   (or (and s (ignore-errors (parse-integer s)))
       (usage-error "~A: not a number: ~A" name s)))
 
+;;; --- Swank: a live REPL into a running command (src/swank.lisp) ---------------------------
+;;; Loopback only: from another host, forward the port (ssh -L). Started by the long-running
+;;; commands (replay, engine, repl), never at build time and never by the short ones, which
+;;; run beside a replay and would take its port. Swank's threads serve it; the replay never
+;;; waits on a client. Never walk the world or the JIT cache from it while blocks run (they
+;;; mutate on the replay thread without locks): ask a fold (docs/hooks.md).
+
+(defvar *swank-default-port* nil
+  "When EITA_SWANK_PORT is unset, for `replay` and `engine`: NIL (no Swank), or a function of
+   the chain name (a string, or NIL) returning the port or NIL. A program built on this CLI
+   sets its own default.")
+
+;; Swank loads its contribs at run time from its source tree, which it records when it is
+;; loaded: the build's. In the executable that is the ocicl/ beside bin/, wherever the tree
+;; has moved since the build.
+(eita.native:at-startup (swank-paths swank-loader::*source-directory* swank-loader::*fasl-directory* swank::*load-path*)
+  (let ((src (and (eita.native:executable-dir)
+                  (first (directory (merge-pathnames "../ocicl/slime-*/swank.asd" (eita.native:executable-dir)))))))
+    (when src
+      (let ((dir (make-pathname :name nil :type nil :defaults src)))
+        (setf swank-loader::*source-directory* dir
+              swank-loader::*fasl-directory* (asdf:apply-output-translations dir)
+              swank::*load-path* (list (swank-loader::contrib-dir swank-loader::*fasl-directory*)
+                                       (swank-loader::contrib-dir dir)))))))
+
+(defun swank-port (chain default)
+  "EITA_SWANK_PORT (0: none), else, with DEFAULT, *swank-default-port*'s for CHAIN."
+  (let ((v (eita.native:nonempty-env "EITA_SWANK_PORT")))
+    (cond (v (let ((p (or (ignore-errors (parse-integer v)) (usage-error "EITA_SWANK_PORT: not a number: ~A" v))))
+               (and (plusp p) p)))
+          ((and default *swank-default-port*) (funcall *swank-default-port* chain)))))
+
+(defun start-swank (chain &key (default t))
+  "Start the Swank server for a command on CHAIN: its port, or NIL (none configured, or it
+   could not start: a replay does not die of a REPL)."
+  (let ((port (swank-port chain default)))
+    (when port
+      (handler-case
+          (let ((swank::*log-output* (make-broadcast-stream)))
+            (eita-swank:serve port)
+            (format t "~&[swank] live REPL on 127.0.0.1:~D (ssh -L ~D:localhost:~D …)~%" port port port)
+            (finish-output)
+            port)
+        (error (e) (format *error-output* "~&[swank] not started on 127.0.0.1:~D: ~A~%" port e) nil)))))
+
+(defmacro with-swank ((chain &key (default t)) &body body)
+  "BODY with the Swank server of CHAIN's command running; closed when BODY returns."
+  (let ((port (gensym "PORT")))
+    `(let ((,port (start-swank ,chain :default ,default)))
+       (unwind-protect (progn ,@body)
+         (when ,port (ignore-errors (eita-swank:stop ,port)))))))
+
+(defun option (args name)
+  (second (member name args :test #'string=)))
+
 (defun cmd-replay (args)
+  (with-swank ((option args "--chain"))
+    (replay-command args)))
+
+(defun replay-command (args)
   (multiple-value-bind (o rest)
       (parse-options args '(("--chain" :value) ("--from" :value) ("--to" :value) ("--blocks" :value)
                             ("--state" :value) ("--checkpoint-every" :value) ("--source" :value)
-                            ("--observer" :value) ("--resume" :value) ("--genesis" :value)
+                            ("--observer" :value) ("--factlog" :value) ("--resume" :value) ("--genesis" :value)
                             ("--lazy" :flag) ("--full-state" :flag)))
     (when rest (usage-error "replay: unexpected ~{~A~^ ~}" rest))
     (unless (getf o :chain) (usage-error "replay: --chain is required"))
@@ -82,6 +145,7 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
       (apply #'eita:replay (getf o :chain) (if (getf o :from) (int-arg (getf o :from) "--from") 0)
              :to (cond ((null to) nil) ((string-equal to "tip") :tip) (t (int-arg to "--to")))
              :blocks (getf o :blocks) :source (getf o :source) :observer (getf o :observer)
+             :factlog (getf o :factlog)
              :state (getf o :state) :genesis (getf o :genesis)
              :checkpoint-every (and (getf o :checkpoint-every) (int-arg (getf o :checkpoint-every) "--checkpoint-every"))
              :resume (and (getf o :resume) (int-arg (getf o :resume) "--resume"))
@@ -90,6 +154,10 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   t)
 
 (defun cmd-engine (args)
+  (with-swank ((option args "--chain"))
+    (engine-command args)))
+
+(defun engine-command (args)
   (multiple-value-bind (o rest)
       (parse-options args '(("--chain" :value) ("--state" :value) ("--jwt" :value)
                             ("--engine-listen" :value) ("--genesis" :value) ("--blocks" :value)))
@@ -114,10 +182,11 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
     (format t "~&;; Eita ~A — (in-package :eita) is current: (new-world), (transact …), (call …); docs/quickstart.md~%"
             (eita-version))
     (sb-ext:enable-debugger)
-    (let ((*package* (find-package :eita)))
-      (handler-bind ((serious-condition #'invoke-debugger))
-        (dolist (f (getf o :load)) (load f))
-        (sb-impl::toplevel-repl nil))))
+    (with-swank (nil :default nil)
+      (let ((*package* (find-package :eita)))
+        (handler-bind ((serious-condition #'invoke-debugger))
+          (dolist (f (getf o :load)) (load f))
+          (sb-impl::toplevel-repl nil)))))
   t)
 
 (defun cmd-check-root (args)

@@ -119,6 +119,10 @@ lean_exe emitLimbC where
 lean_exe emitStorageC where
   root := `EmitStorageC
 
+/-- The fact log's schema and vectors from `Evm.FactLog` (scripts/verify-factlog-emit.sh). -/
+lean_exe emitFactLog where
+  root := `EmitFactLog
+
 private def cFlags (extra : Array String := #[]) : FetchM (Array String) := do
   let leanInc := (← getLeanIncludeDir).toString
   return #["-I", leanInc, "-I", "/opt/homebrew/include",

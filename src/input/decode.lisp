@@ -302,7 +302,8 @@
   header-rlp (header-hash 0)            ; rlp(header) and its keccak, from the fields as given
   txs withdrawals (uncle-count 0)       ; withdrawals: (index validator-index address amount)
   receipts                              ; the receipts file's (parse plists), or NIL: none at hand
-  uncles)                               ; the uncles file's headers (CHAIN-BLOCKs), or NIL
+  uncles                                ; the uncles file's headers (CHAIN-BLOCKs), or NIL
+  received-ms)                          ; when the block source learned of it (ms since the epoch), or NIL
 
 (defdecoder decode-access-entry (addr keys)
     (("address" addr jint) ("storageKeys" keys jlist #'jint))

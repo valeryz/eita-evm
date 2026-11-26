@@ -114,6 +114,7 @@
   (getf (transact world :from from :to nil :data code :value value :gas gas) :created))
 
 (defun call (world &key from to data (value 0) (gas 10000000))
-  "Execute a transaction on a COPY of WORLD (WORLD is unchanged), like eth_call: returns the
-   same plist as TRANSACT."
-  (transact (eita.state:copy-world* world) :from (or from 0) :to to :data data :value value :gas gas))
+  "Execute a transaction in an overlay on WORLD (`eita:simulate`; WORLD is unchanged), like
+   eth_call: returns the same plist as TRANSACT."
+  (let ((eita.evm:*current-world* world))
+    (simulate (lambda () (transact world :from (or from 0) :to to :data data :value value :gas gas)))))

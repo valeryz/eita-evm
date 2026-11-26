@@ -63,6 +63,7 @@ The handlers, each a function (or a symbol naming one):
 | `:log` | a log record | each committed log |
 | `:state-change` | a change record | each net state change |
 | `:block` | a block record | after the block's other handlers |
+| `:executed` | a block record | on the replay thread as soon as the block ran, before its verdict: the world after it is at hand (`eita:simulate`) |
 | `:checkpoint` | `n` | the node is about to make block N a layer point: persist through N now |
 | `:rollback` | `n` | a reorg rolled the chain back to block N |
 | `:finalize` | | the run ends |
@@ -71,7 +72,7 @@ The records are property lists:
 
 | record | fields |
 |---|---|
-| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :txs` (the tx records) |
+| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :received-ms` (when the block source learned of the block, ms since the epoch, or NIL) `:txs` (the tx records) |
 | tx | `:block :index :hash :type :from :to` (NIL: a creation) `:value :nonce :gas-limit :gas-used :status` (1 success, 0 revert or halt) `:gas-price` (effective) `:logs :transfers :changes` |
 | log | `:block :tx :index` (the block's logIndex) `:address :topics` (integers) `:data` (octets) |
 | transfer | `:block :tx :kind` (`:tx` the transaction's value, `:call`, `:create`, `:selfdestruct`, `:chain` a chain's own move) `:depth :from :to :value` |
@@ -252,23 +253,25 @@ log.
 
 ## Developing hooks live from Emacs
 
-`examples/hooks/swank.lisp` starts a Swank (SLIME) or Slynk (SLY) server in the node,
-listening on 127.0.0.1 only:
+`bin/eita` serves a Swank REPL (SLIME's) while it runs `replay`, `engine` or `repl`, when
+`EITA_SWANK_PORT` names a port. It listens on 127.0.0.1 only:
 
 ```sh
-export SWANK_LOADER=/path/to/slime/swank-loader.lisp     # or SLYNK_LOADER=/path/to/sly/slynk/slynk-loader.lisp
-export EITA_SWANK_PORT=4005
-bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita repl                       # or a REPL session, no replay
 ```
 
-with `(load "examples/hooks/swank.lisp")` at the top of `my-hooks.lisp` (or
-`bin/eita repl --load examples/hooks/swank.lisp` for a REPL session). Load the server of the
-SLIME or SLY your Emacs runs: the two sides must be the same version.
+The server is Swank from SLIME 2.32, pinned in `ocicl.csv` and compiled into `bin/eita`; use
+SLIME 2.32 in Emacs (another version connects, after a version warning). A port in use leaves
+the command running without a REPL (`[swank] not started on 127.0.0.1:4005: …`). A connection
+that fails is logged and the server goes on listening.
 
-- **Connect:** `M-x slime-connect` (SLIME) or `M-x sly-connect` (SLY), host `127.0.0.1`,
-  port 4005.
+- **Connect:** `M-x slime-connect`, host `127.0.0.1`, port 4005.
 - **A remote node:** forward the port over SSH, then connect to `127.0.0.1:4005` locally:
   `ssh -L 4005:127.0.0.1:4005 user@node-host`.
+- **SLY** speaks to Slynk, not Swank: load Slynk from your SLY checkout in the hooks file
+  instead, `(load "/path/to/sly/slynk/slynk-loader.lisp") (slynk-loader:init)
+  (setf slynk::*loopback-interface* "127.0.0.1") (slynk:create-server :port 4006 :dont-close t)`.
 
 A session:
 
@@ -313,10 +316,145 @@ The rules:
 - **Handlers name functions by symbol** (`'on-block`): one indirection per call, and live
   redefinition.
 
+## Simulation: what-if transactions on a block's state
+
+An `:executed` handler runs on the replay thread right after its block, with the world as the
+block left it. Inside `eita:simulate` it can run transactions on that state that are never
+committed:
+
+```lisp
+(eita:subscribe "quote" :executed
+  (lambda (blk)
+    (eita:simulate
+      (lambda ()
+        (eita:sim-set :code executor runtime-octets)           ; an eth_call state override
+        (eita:sim-tx :from searcher :to executor :data calldata :gas 1000000 :tip 1000000000)))))
+;; => (:status 1 :gas-used 131204 :egp … :output #(…) :logs ((address topics data) …))
+```
+
+| function | what |
+|---|---|
+| `(eita:simulate fn)` | call FN in an overlay on the state after the newest block; everything it changes is dropped when it returns |
+| `(eita:sim-tx &key from to data value gas tip fund block)` | a transaction on the replay's own transaction path, at the next block's context; FUND tops the sender up |
+| `(eita:sim-read kind addr &optional slot)` | `:balance`, `:nonce`, `:code`, `:storage` in the overlay |
+| `(eita:sim-set kind addr …)` | `(:balance addr v)`, `:nonce`, `:code`, `(:storage addr slot v)`: a state override |
+| `(eita:sim-slots-read fn)` | FN's value and its read set: the storage slots `(addr . slot)` and accounts `(addr . :account)` it read first (in a fresh overlay every first read is a fault) |
+
+**How.** The overlay is the layered world's own tier mechanism: the world's account table is
+replaced by an empty one whose fault hooks read the replaced table first, then the colder tiers
+(layers and base, or a lazy world's RPC); the empty table is dropped on return. Inside it the
+observers, the read stream, the read-set recorder and the incremental root check are off, so a
+simulation reaches neither the world, nor the fact log, nor a layer, nor a read set (the `hooks`
+suite runs the mainnet block with simulations and compares the runner's output and the state).
+The transactions are the replay's: the same derived effect, fees and chain hooks as a block's.
+
+**Cost.** A transaction in a simulation costs what the same transaction costs in a block, plus
+faulting the state it reads into the overlay. The replay waits for `:executed` handlers: at the
+tip it is waiting for the next block anyway; behind it, an `:executed` handler slows the replay,
+so do nothing there you do not need behind the tip (`eita.state:at-tip-p`).
+
 ## Querying history
 
-A question about the past is a fold over the past: replay the range with the subscription
-loaded, and the same handlers that follow the chain live answer it for the range (a backfill;
-`--from`/`--to`, or `--resume` from an anchor). A value the answer needs at a given block —
-a balance, a slot — is a watch or a fold that records it as the block passes. The node's
-snapshots (`docs/layered-snapshots.md`) are its resume points, not a query interface.
+A replay with `--factlog DIR` records every verified block in the fact log
+(docs/fact-log.md): the same records your handlers get, as rows of seven tables, with a
+history index. Questions about the past are then answered from the log instead of a replay:
+a **lookup** (a value at a block, a value's changes) goes through the index and reads only the
+shards that changed the key; a **scan** (every Transfer of a token, daily totals) reads the
+range's shards of one table, one group at a time, decoding only the columns it names. A
+**backfill** feeds your subscriptions past blocks from the log, so a fold covers history
+without executing it again.
+
+The examples are in `examples/history/`; `tests/history.lisp` runs each on the shipped mainnet
+block and checks it against what the replay delivered. To try them:
+
+```lisp
+$ gzip -dc tests/data/mainnet-24538111.json.gz > /tmp/block.json
+$ bin/eita repl
+* (eita.factlog.writer:install-factlog-observer! "/tmp/factlog/")   ; what --factlog does for a replay
+* (run-fixture-file "/tmp/block.json")
+PASS mainnet_24538111
+* (mapc #'load (directory "examples/history/*.lisp"))
+```
+
+**A balance or a slot at block N** (`state-at.lisp`, a lookup):
+
+```lisp
+* (history.state:account-at "/tmp/factlog/" "0xdadb0d80178819f2319190d340ce9a924f783711" 24538111)
+(:NONCE 2206362 :BALANCE 56971586277019285818 :CODE-HASH 0)
+* (defparameter *weth* "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+* (defparameter *holder* "0xfbd4cdb413e45a52e2c8312f670e9ce67e794c37")
+* (history.state:erc20-balance-at "/tmp/factlog/" *weth* *holder* 24538111 :slot 3)   ; WETH9's balanceOf: slot 3
+2308227983381338681508
+* (history.state:erc20-balance-at "/tmp/factlog/" *weth* *holder* 24538110 :slot 3)   ; the block before
+2278419931574630784217
+```
+
+`eita-factlog:state-at` takes `(address)` for an account or `(address slot)` for a slot;
+`mapping-slot` computes a Solidity mapping's slot (keccak256 of key and slot). The answer is
+`:unknown` when the log never saw the key change (its value predates the log).
+
+**A value's history** (`changes.lisp`, through the index): every change of a slot or of an
+account's balance, nonce or code, with its block and transaction.
+
+```lisp
+* (history.changes:changes "/tmp/factlog/" *weth* 24538000 24538111
+                           :slot (history.state:mapping-slot (eita:addr *holder*) 3))
+((:BLOCK 24538111 :TX 0 :PRE 2278419931574630784217 :POST 2304467532858488539775)
+ (:BLOCK 24538111 :TX 30 :PRE 2304467532858488539775 :POST …)
+ …
+ (:BLOCK 24538111 :TX 263 :PRE 2308326283574687286427 :POST 2308227983381338681508))
+* (history.changes:changes "/tmp/factlog/" "0xdadb0d80178819f2319190d340ce9a924f783711" 24538000 24538111 :kind :nonce)
+((:BLOCK 24538111 :TX 754 :PRE 2206360 :POST 2206361) (:BLOCK 24538111 :TX 755 :PRE 2206361 :POST 2206362))
+```
+
+**A token's transfers between two blocks** (`token-transfers.lisp`, a scan with a filter: the
+log table's address column is decoded first, topics and data only at the token's logs):
+
+```lisp
+* (length (history.transfers:transfers "/tmp/factlog/" *weth* 24538000 24538111))
+64
+* (first (history.transfers:transfers "/tmp/factlog/" *weth* 24538000 24538111 :address *holder*))
+(:BLOCK 24538111 :TX 0 :FROM 781565920503084522588735353684212164031210804800
+ :TO 1437702360754755276895429293666340640506234096695 :VALUE 26047601283857755558)
+```
+
+**Analytics as a reduce** (`daily.lisp`): per UTC day, transactions, gas, fees burnt and distinct
+senders. It reads two columns of the block table and two of the tx table, shard by shard; its
+memory is one shard's blocks and the current day's senders, whatever the range.
+
+```lisp
+* (history.daily:daily "/tmp/factlog/" 24538000 24538111)
+((:DAY "2026-02-26" :TXS 756 :GAS 59896574 :BURNT 2298267182841530 :SENDERS 661))
+```
+
+**A backfill, then live** (`backfill.lisp`): the same subscription folds the logged range and
+then follows the replay.
+
+```lisp
+* (load "examples/hooks/gas-per-block.lisp")              ; subscribes
+* (eita:backfill "/tmp/factlog/" 24538111 24538111)         ; the past, from the log: 1 block
+* (hooks.gas:summary)                                       ; = the live run's
+;; then the chain from the log's newest block on, same subscription, no second :start:
+* (history.backfill:catch-up "/data/factlog/" 24000000 "ethereum" :to :tip :blocks "/data/blocks/" :factlog "/data/factlog/")
+```
+
+`eita:backfill` delivers through the same path as a replay: `:start` before the first block,
+then per block the tx, transfer, log and change records and `:block`. The log does not carry
+a block's hash and parent hash or a transaction's nonce and gas limit (those fields are `NIL`),
+and a transaction's state changes come in key order. A fold that reads the other fields and
+does not depend on that order (the examples above) gets the same state both ways. Run a
+backfill while no replay runs; it refuses blocks past the log's `committed`.
+
+What to use when:
+
+| question | how | cost |
+|---|---|---|
+| a value at block N | `state-at` | the shards that changed the key (Bloom filters skip the rest) |
+| a value's changes over a range | `key-history` | the same, over the range |
+| every row of a kind in a range, filtered | `map-rows` with `:cols` / `:where` | the range's shards of that table, the named columns |
+| a fold over history, then live | `eita:backfill`, then a replay | the range's shards of five tables |
+| a question the tables do not answer (a value the log never recorded, a call's return data) | a replay of the range with the subscription | execution |
+
+`python3 scripts/factlog.py DIR index` keeps `blooms.idx` (every shard's filter in one file)
+current; with it a lookup over a long history opens only the shards whose filter admits the
+key.

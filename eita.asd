@@ -3,11 +3,12 @@
 ;;;; Systems:
 ;;;;   eita            the engine: native libraries, the EVM (interpreter and JIT tiers, the
 ;;;;                   Lean-emitted host effects), world state and snapshots, block input, the
-;;;;                   chain-neutral block pipeline and driver, the EITA API package
+;;;;                   chain-neutral block pipeline and driver, the fact log, the EITA API package
 ;;;;   eita/chains     Ethereum, Arc, the OP-Stack chains, and EITA:REPLAY
 ;;;;   eita/fixtures   the BlockchainTests runner
 ;;;;   eita/mpt-live   the incremental state-root validator (kept, not armed: chains/driver.lisp)
 ;;;;   eita/cli        bin/eita (asdf:make "eita/cli"), with the Engine API (`eita engine`)
+;;;;                   and a Swank server (EITA_SWANK_PORT)
 ;;;;   eita/test       (asdf:test-system "eita"): the Lisp test suites and oracles (tests/)
 ;;;;
 ;;;; Native artifacts (libeita, libkeccak_batch, libeita_pq, the emitJIT daemon, the Engine API
@@ -65,12 +66,17 @@
                (:file "evm/hooks")            ; eita:subscribe: handlers fed verified blocks
                (:file "chains/chain-spec")
                (:file "chains/driver")
+               (:file "evm/simulate")         ; eita:simulate: what-if txs in an overlay (an :executed handler's)
                (:file "state/mpt")
                (:file "chains/receipts")
                (:file "state/worlds")
                (:file "state/root")
                (:file "state/import")         ; eita import-reth: a reth node's state as a base
                (:file "state/convert")        ; eita convert-snapshot: a v1 state as a v2 base
+               ;; the fact log: its format (standalone), the writer (an observer), backfills
+               (:file "factlog/format")
+               (:file "factlog/writer")
+               (:file "factlog/backfill")
                ;; the API
                (:file "eita"))
   :in-order-to ((test-op (test-op "eita/test"))))
@@ -103,9 +109,10 @@
 
 (defsystem "eita/cli"
   :description "bin/eita: replay, engine, fixtures, repl, check-root, recovery, version."
-  :depends-on ("eita" "eita/chains" "eita/fixtures")
+  :depends-on ("eita" "eita/chains" "eita/fixtures" "swank")
   :serial t
   :components ((:file "src/engine/engine")     ; the Engine API (rust/engine-api is its edge)
+               (:file "src/swank")             ; EITA_SWANK_PORT: a live REPL (127.0.0.1)
                (:file "src/cli"))
   :build-operation "program-op"
   :build-pathname "bin/eita"
