@@ -255,7 +255,31 @@
              (and (= status 1)
                   (= (length *last-tx-output*) 32)
                   (= (aref *last-tx-output* 31) 1))
-             *last-tx-output*))))
+             *last-tx-output*)))
+
+    ;; 12. Saturating fake_exponential & gasclock-excess-for must never hang at u64::MAX
+    (let* ((max64 #xffffffffffffffff)
+           (p-sat (eita.evm::spec-avax-gasclock-price-at max64 1000000))
+           (t-sat (eita.evm::spec-avax-gasclock-target max64))
+           (m-sat (eita.evm::spec-avax-gasclock-min-price max64))
+           (exc (eita.chain.avalanche::gasclock-excess-for 4000000 1000000000))
+           (p-at (eita.evm::spec-avax-gasclock-price-at exc 4000000))
+           (p-next (eita.evm::spec-avax-gasclock-price-at (1+ exc) 4000000))
+           (gc (eita.chain.avalanche::make-avax-gasclock
+                :seconds 100 :fraction 0 :excess 0 :target 4000000 :min-price 1000000000)))
+      (eita.chain.avalanche::gasclock-enforce-min-excess! gc)
+      (chk "saturating spec-avax-gasclock-price-at(u64::MAX) returns u64::MAX"
+           (= p-sat max64) p-sat)
+      (chk "saturating spec-avax-gasclock-target(u64::MAX) returns i64::MAX"
+           (= t-sat #x7fffffffffffffff) t-sat)
+      (chk "saturating spec-avax-gasclock-min-price(u64::MAX) returns u64::MAX"
+           (= m-sat max64) m-sat)
+      (chk "gasclock-excess-for finds exact boundary for 1 gwei minPrice"
+           (and (plusp exc) (<= p-at 1000000000) (>= p-next 1000000000))
+           (list exc p-at p-next))
+      (chk "gasclock-enforce-min-excess! lifts excess=0 to excessFor(minPrice)"
+           (= (eita.chain.avalanche::gc-excess gc) exc)
+           (eita.chain.avalanche::gc-excess gc))))
 
   (format t "~&avalanche: ~D passed, ~D failed~%" pass fail)
   (when (plusp fail) (eita.test:finish :code 1)))

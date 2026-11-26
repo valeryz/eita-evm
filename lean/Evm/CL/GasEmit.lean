@@ -57,9 +57,12 @@ def Expr.eval (ρ : Env) : Expr → Nat
     The Lean meaning is `Evm.Cancun.Spec.fakeExponential`, fuel-bounded for totality;
     the examples below pin the two on the Cancun and Prague fractions. -/
 def fakeExponentialCL : String :=
-  "(let ((i 1) (output 0) (accum (* factor denominator)))\n" ++
+  "(let ((i 1) (output 0) (accum (* factor denominator))\n" ++
+  "        (limit (and cap (* cap denominator))))\n" ++
   "    (loop while (plusp accum)\n" ++
   "          do (incf output accum)\n" ++
+  "             (when (and limit (>= output limit))\n" ++
+  "               (return-from spec-fake-exponential cap))\n" ++
   "             (setf accum (floor (* accum numerator) (* denominator i)))\n" ++
   "             (incf i))\n" ++
   "    (floor output denominator))"
@@ -73,6 +76,8 @@ def Expr.toCL : Expr → String
   | .mul a b      => s!"(* {a.toCL} {b.toCL})"
   | .fdiv a b     => s!"(floor {a.toCL} {b.toCL})"
   | .emax a b     => s!"(max {a.toCL} {b.toCL})"
+  | .emin (.fakeExp f n d) (.lit cap) =>
+      s!"(spec-fake-exponential {f.toCL} {n.toCL} {d.toCL} {cap})"
   | .emin a b     => s!"(min {a.toCL} {b.toCL})"
   | .bits a       => s!"(integer-length {a.toCL})"
   | .ite lo hi t e => s!"(if (< {lo.toCL} {hi.toCL}) {t.toCL} {e.toCL})"

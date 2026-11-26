@@ -110,7 +110,11 @@
   "Least excess whose price reaches PRICE, or greatest below it when skipped (`excessForPrice`)."
   (if (<= price 1)
       0
-      (let ((lo 1) (hi +max-u64+))
+      (let ((lo 1) (hi 1))
+        (loop while (and (< hi +max-u64+)
+                         (< (spec-avax-gasclock-price-at hi target) price))
+              do (setf lo hi
+                       hi (min +max-u64+ (* hi 2))))
         (loop while (< lo hi) do
           (let ((mid (+ lo (ash (- hi lo) -1))))
             (if (>= (spec-avax-gasclock-price-at mid target) price)

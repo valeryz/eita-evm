@@ -128,8 +128,9 @@ def main : IO Unit := do
   IO.println s!"  {Evm.CL.GasEmit.modexpGas.toCL})"
   IO.println ""
   IO.println ";; EIP-4844 fake_exponential (EELS cancun/vm/gas.py): the integer Taylor series behind"
-  IO.println ";; the blob base fee. The one loop in the emitted formulas; `.fakeExp` terms call it."
-  IO.println s!"(defun spec-fake-exponential (factor numerator denominator)"
+  IO.println ";; the blob base fee and Avalanche GasClock. Optional CAP short-circuits saturating"
+  IO.println ";; callers (`min (fakeExp ...) cap`) once output >= cap * denominator."
+  IO.println s!"(defun spec-fake-exponential (factor numerator denominator &optional cap)"
   IO.println s!"  {fakeExponentialCL})"
   -- FastLZ compressed length (Evm.Optimism.Fjord.Spec.FastLz; op-geth FlzCompressLen)
   IO.println s!"(defun spec-flz-compress-len (ib)"
