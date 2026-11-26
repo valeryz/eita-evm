@@ -170,6 +170,8 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.Avalanche.Emit.gasClockBaseFeeExpr_eq_spec
 #print axioms Evm.Avalanche.Charging.fee_conservation
 #print axioms Evm.Avalanche.GasClock.beforeBlockRaw_excess_le
+#print axioms Evm.Avalanche.GasClock.fakeExpLoopCap_eq
+#print axioms Evm.Avalanche.GasClock.satFakeExp_fuel_sufficient
 #print axioms Evm.Avalanche.Trie.normalizeStorageSlot_idempotent
 #print axioms Evm.Avalanche.Header.stateRootBlock_le_number
 #print axioms Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec

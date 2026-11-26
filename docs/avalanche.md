@@ -24,15 +24,15 @@ Every fork threshold, gas formula, SAE floor, Warp price, atomic gas formula, an
   - Coreth post-block atomic `ImportTx` / `ExportTx` state effects and gas accounting.
   - ACP-194 SAE `GasClock` (`gasclock-from-settled`, `gasclock-before-block!`, `gasclock-after-block!`, `gasclock-base-fee`), automatically seeded on resume from the settling header and cross-checked against dynamic-fee receipts when available.
   - Granite P-256 (`0x100`, EIP-7951 at 6,900 gas) via `*p256verify*`.
-- **Coreth 30-field header hashing (`src/input/decode.lisp`)**: every Avalanche header carrying `extDataHash` is RLP-encoded in Coreth's exact `HeaderSerializable.EncodeRLP` order and verified cryptographically against `blk-hash` by `fetch-verified-block`.
-- **Coreth Merkle-Patricia Trie (`src/state/mpt.lisp`, `mpt-live.lisp`, `snapshot.lisp`, `snapshot-world.lisp`, `root.lisp`)**:
-  - `*coreth-trie*` (enabled automatically by `avalanche-chain-spec`) applies `NormalizeStateKey` (`slot[0] &= 0xfe`) before `keccak256` in live storage roots, incremental MPT, v2 snapshot lookups, and v2 layer writes.
-  - Coreth account leaves always encode 5 RLP fields (`[nonce, balance, storageRoot, codeHash, multiCoin]`, with `0x80` for `false` and `0x01` for `true`); v2 account flag bit 3 (`+flag-multi-coin+ = 8`) preserves `multiCoin = true` across imports, layers, compactions, and `snapshot-root`.
-- **Asynchronous SAE anchor verification (`src/chains/driver.lisp`, `src/state/anchors.lisp`)**: on Helicon/SAE blocks (`settledHeight < number`), frozen anchor layers wait for the subsequent header whose `settledHeight` equals the frozen block, then queue root verification against that settling header's `stateRoot`.
+- **Coreth 30-field header hashing (`src/input/decode.lisp`)**: gated on `chain-spec-header-rlp` (`:coreth`, installed via `*header-rlp-mode*`), every Avalanche header is RLP-encoded in Coreth's exact `HeaderSerializable.EncodeRLP` order and verified cryptographically against `blk-hash` by `fetch-verified-block`.
+- **Coreth Merkle-Patricia Trie (`src/state/mpt.lisp`, `mpt-live.lisp`, `snapshot.lisp`, `snapshot-world.lisp`, `convert.lisp`, `root.lisp`)**:
+  - `chain-spec-normalize-slot-key` applies `NormalizeStateKey` (`slot[0] &= 0xfe`) before `keccak256` in live storage roots, incremental MPT, v2 snapshot lookups, v1→v2 conversion, and v2 layer writes.
+  - `chain-spec-five-field-account` encodes Coreth's 5-field account leaves (`[nonce, balance, storageRoot, codeHash, multiCoin]`, with `0x80` for `false` and `0x01` for `true`); v2 account flag bit 3 (`+flag-multi-coin+ = 8`, specified in [`docs/state-snapshot-format.md`](state-snapshot-format.md)) preserves `multiCoin = true` across imports, v1→v2 conversion, layers, compactions, and `snapshot-root`.
+- **Asynchronous SAE anchor verification (`src/chains/driver.lisp`, `src/state/anchors.lisp`)**: gated on `chain-spec-deferred-anchor-p`, on Helicon/SAE blocks (`settledHeight < number`) frozen anchor layers are recorded durably in `deferred-anchors.sexp` alongside `anchors.sexp` (surviving restarts and rollbacks) and wait for the subsequent settling header; `RootWorker` and `CompactionV2` in `verify/protocols/EitaVeil/` model and prove the deferred-anchor protocol states.
 
 ## 3. Running Replay
 
-Full-state replay from a root-checked v2 snapshot (blocks stored in `<dir>/<n>.json`, plus optional `<dir>/ancestor-hashes.json` for bounded resumes):
+Full-state replay from a root-checked v2 snapshot (blocks stored in `<dir>/<n>.json` or any configured block source):
 
 ```bash
 bin/eita --dynamic-space-size 16GB --end-runtime-options replay \
@@ -40,7 +40,7 @@ bin/eita --dynamic-space-size 16GB --end-runtime-options replay \
   --blocks /path/to/blocks --from 95999995 --to 96000105
 ```
 
-Unit tests (`43` checks covering fork schedules, Coreth charging, SAE floor & `GasClock`, Warp, atomic batching, Coreth trie + on-chain WAVAX `eth_getProof` leaf, and deferred SAE anchors):
+Unit tests (covering fork schedules, Coreth charging, SAE floor & `GasClock` including extreme Lean-vs-Lisp vectors, Warp, atomic batching, Coreth trie + on-chain WAVAX `eth_getProof` leaf, Coreth header gating, and durable deferred SAE anchors):
 
 ```lisp
 (eita.test:run-all :only '("avalanche"))

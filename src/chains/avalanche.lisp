@@ -56,8 +56,7 @@
 (defconstant +nanoseconds-per-sec+       1000000000)
 (defconstant +max-u64+                   #xffffffffffffffff)
 
-(defstartup *avax-net* (or (sb-ext:posix-getenv "AVAX_CHAIN") "mainnet")
-  "mainnet (43114) or fuji (43113).")
+(defvar *avax-net* "mainnet" "Current Avalanche network: \"mainnet\" (43114) or \"fuji\" (43113).")
 
 (defun avax-fuji-p (net) (string-equal net "fuji"))
 (defun avax-chain-id (net) (if (avax-fuji-p net) +avax-fuji-id+ +avax-mainnet-id+))
@@ -895,9 +894,9 @@
      :id (avax-chain-id net)
      :banner "Etna -> Fortuna -> Granite -> Helicon/SAE (Lean-emitted spec-avax-*)"
      :reorg-depth 0
-     :rpc-url (or (sb-ext:posix-getenv "AVAX_RPC_URL")
-                  (if fuji "https://api.avax-test.network/ext/bc/C/rpc"
-                           "https://api.avax.network/ext/bc/C/rpc"))
+     :rpc-url (if fuji
+                  "https://api.avax-test.network/ext/bc/C/rpc"
+                  "https://api.avax.network/ext/bc/C/rpc")
      :fork-ord (lambda (n ts)
                  (declare (ignore n))
                  (spec-avax-eth-analog-ord (avax-fork-ord net ts)))
@@ -909,7 +908,10 @@
      :precompile-p #'avalanche-precompile-p
      :precompile-run #'avalanche-precompile-run
      :header-foreign '("withdrawalsRoot" "requestsHash" "blobGasUsed")
-     :coreth-trie t
+     :header-rlp :coreth
+     :normalize-slot-key t
+     :five-field-account t
+     :deferred-anchor-p t
      :observe-kinds '(:storage_diff :account_diff :transfer :log :tx :block))))
 
 (register-chain-spec "avalanche" (lambda () (avalanche-chain-spec "mainnet")))

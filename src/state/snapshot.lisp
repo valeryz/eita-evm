@@ -541,15 +541,19 @@
   (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec+ (int->octets addr 20) 20))
 
 (defun acct-fields (s i)
-  "(nonce balance codehash exists-empty) of account record I of S."
-  (let ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec+))))
+  "(nonce balance codehash exists-empty multi-coin) of account record I of S."
+  (let* ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec+)))
+         (flags (sap-be sap (+ off 20) 4)))
     (list (sap-be sap (+ off 24) 8) (sap-be sap (+ off 32) 32) (sap-be sap (+ off 64) 32)
-          (logtest +flag-exists-empty+ (sap-be sap (+ off 20) 4)))))
+          (logtest +flag-exists-empty+ flags) (logtest +flag-multi-coin+ flags))))
 
 (defun snap-account (s addr)
-  "(values found nonce balance codehash exists-empty) for ADDR (an integer)."
+  "(values found nonce balance codehash exists-empty code multi-coin) for ADDR (an integer)."
   (let ((i (acct-index s addr)))
-    (if i (values-list (cons t (acct-fields s i))) (values nil 0 0 +empty-code-hash+ nil))))
+    (if i
+        (destructuring-bind (nonce balance codehash mark mc) (acct-fields s i)
+          (values t nonce balance codehash mark nil mc))
+        (values nil 0 0 +empty-code-hash+ nil nil nil))))
 
 (defun slot-key (addr slot)
   (let ((k (make-array 52 :element-type '(unsigned-byte 8))))
@@ -667,7 +671,7 @@
         (bloom-add bl (sap-be sap (+ +header+ (* i rec)) klen))))))
 
 (defun layer-account (s addr)
-  "(values present nonce balance codehash mark wiped) for ADDR in the layer snap S."
+  "(values present nonce balance codehash mark wiped multi-coin) for ADDR in the layer snap S."
   (when (bloom-maybe-p (snap-bloom s) addr)
     (let ((i (find-record (snap-acct s) (snap-acct-fence s) (snap-n-accounts s) +acct-rec+
                           (int->octets addr 20) 20)))
@@ -675,7 +679,8 @@
         (let* ((sap (mapping-sap (snap-acct s))) (off (+ +header+ (* i +acct-rec+)))
                (flags (sap-be sap (+ off 20) 4)))
           (values t (sap-be sap (+ off 24) 8) (sap-be sap (+ off 32) 32) (sap-be sap (+ off 64) 32)
-                  (logtest +flag-exists-empty+ flags) (logtest +flag-wiped+ flags)))))))
+                  (logtest +flag-exists-empty+ flags) (logtest +flag-wiped+ flags)
+                  (logtest +flag-multi-coin+ flags)))))))
 
 (defun layer-slot (s addr slot)
   "(values present value wiped) for ADDR's SLOT in the layer snap S: PRESENT when the layer
@@ -701,8 +706,9 @@
         ;; the protocol's sixth value is the account's CODE (a RAM layer has it); a disk
         ;; layer's is NIL: `layer-account`'s sixth is its WIPED flag, which taken as code
         ;; installed T as an account's code (trial at 11,090,602)
-        (:account (multiple-value-bind (present nonce balance codehash mark) (layer-account l (first args))
-                    (values present nonce balance codehash mark nil)))
+        (:account (multiple-value-bind (present nonce balance codehash mark wiped mc) (layer-account l (first args))
+                    (declare (ignore wiped))
+                    (values present nonce balance codehash mark nil mc)))
         (:slot (layer-slot l (first args) (second args)))
         (:map-slots (layer-map-slots l (first args) (second args)))
         (:code (snap-code l (first args))))
@@ -952,9 +958,9 @@
   (multiple-value-bind (lo hi) (key-range addr 160 52)
     (let ((runs '()) (fields nil) (wiped nil))
       (dolist (l layers)
-        (multiple-value-bind (present nonce balance codehash mark w) (layer-account l addr)
+        (multiple-value-bind (present nonce balance codehash mark w mc) (layer-account l addr)
           (when present
-            (unless fields (setf fields (list nonce balance codehash mark)))
+            (unless fields (setf fields (list nonce balance codehash mark mc)))
             (push (snap-run l :storage lo hi w) runs)
             (when w (setf wiped t) (return)))))
       (when (and final base)
@@ -1122,11 +1128,13 @@
         (t (merge-account-1 m addr fields slots wiped))))
 
 (defun emit-fields (m addr fields has-storage)
-  "ADDR's record from FIELDS (nonce balance codehash mark) under S1."
-  (destructuring-bind (nonce balance codehash mark) fields
+  "ADDR's record from FIELDS (nonce balance codehash mark [multi-coin]) under S1."
+  (destructuring-bind (nonce balance codehash mark &optional multi-coin) fields
     (when (s1-included-p nonce balance codehash has-storage mark)
-      (emit-acct m addr nonce balance codehash
-                 (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))))
+      (let ((empty (and (zerop nonce) (zerop balance) (= codehash +empty-code-hash+))))
+        (emit-acct m addr nonce balance codehash
+                   (logior (if empty +flag-exists-empty+ 0)
+                           (if multi-coin +flag-multi-coin+ 0)))))))
 
 (defun merge-layer-account (m addr fields slots wiped raw-slots)
   (unless fields (error "layer record for ~X without its fields (FieldsCover)" addr))
@@ -1134,9 +1142,10 @@
       (destructuring-bind (sap off count) raw-slots
         (dotimes (i count) (emit-slot-raw m sap (+ off (* i +slot-rec+)))))
       (dolist (kv slots) (emit-slot m addr (car kv) (cdr kv))))
-  (destructuring-bind (nonce balance codehash mark) fields
+  (destructuring-bind (nonce balance codehash mark &optional multi-coin) fields
     (emit-acct m addr nonce balance codehash
-               (logior (if mark +flag-exists-empty+ 0) (if wiped +flag-wiped+ 0)))))
+               (logior (if mark +flag-exists-empty+ 0) (if wiped +flag-wiped+ 0)
+                       (if multi-coin +flag-multi-coin+ 0)))))
 
 (defun merge-account-raw (m addr fields raw-slots)
   (let ((key (int->octets addr 20)) (base (merge-base m)))

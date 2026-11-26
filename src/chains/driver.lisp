@@ -228,14 +228,14 @@
       ;; commits to settledHeight < N, so a frozen anchor waits for its settling header.
       (when (and *full-state* layer-point)
         (let* ((sh (blk-settled-height blk))
-               (deferred-sae (and sh (< sh n)))
+               (deferred-sae (and *chain-spec* (chain-spec-deferred-anchor-p *chain-spec*) sh (< sh n)))
                (anchor (anchor-due-p n)))
           (when deferred-sae
             (eita.state::resolve-deferred-anchor! sh (blk-state-root blk)))
           (when (or anchor *tip-freeze* (layer-due-p n) (hot-over-budget-p n))
             (cond ((and anchor deferred-sae)
                    (anchor! world n nil :anchor nil)
-                   (pushnew n eita.state::*deferred-anchors*))
+                   (eita.state::defer-anchor! n))
                   (t
                    (anchor! world n (if deferred-sae nil (blk-state-root blk)) :anchor anchor)))))
         ;; finished background work into the stack; collect / start root checks
@@ -284,8 +284,8 @@
    records (the stream's :rollback), block hashes and the source's blocks. Returns T+1."
   (let ((top (rollback-to! world fork))) ; @veil rollback-chain!/rollback
     ;; an anchor above TOP belongs to the abandoned branch
-    (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*)
-          eita.state::*deferred-anchors* (remove-if (lambda (b) (> b top)) eita.state::*deferred-anchors*))
+    (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*))
+    (eita.state::drop-deferred-above! top)
     (stream-rollback! top)
     (loop for b being the hash-keys of *block-hashes* when (> b top) do (remhash b *block-hashes*))
     (source-call #'block-source-forget-above top)
@@ -324,7 +324,16 @@
             (format t "~&resume: block ~D is not anchored: checking the root of ~S now~%" rn chain)
             (force-output)
             (resume-stack! world (mapcar (lambda (c) (append c (list nil))) chain))
-            (root-check! rn (blk-state-root (fetch-block rn)) (stack-composition rn)))))
+            (let* ((deferred-exp (second (assoc rn (eita.state::read-deferred-anchors))))
+                   (expected (or deferred-exp
+                                 (and *chain-spec* (chain-spec-deferred-anchor-p *chain-spec*)
+                                      (loop for k from (1+ rn) to (+ rn 32)
+                                            for b = (ignore-errors (fetch-block k))
+                                            when (and b (eql (blk-settled-height b) rn))
+                                              return (blk-state-root b)))
+                                 (blk-state-root (fetch-block rn)))))
+              (root-check! rn expected (stack-composition rn))))))
+    (eita.state::restore-deferred-anchors! rn)
     (force-output)
     (1+ rn)))
 

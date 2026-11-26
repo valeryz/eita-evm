@@ -42,7 +42,7 @@
   (name "Ethereum") (id 1) genesis-path (banner "") rpc-url cache-dir prestate-overlay
   (reorg-depth 64)
   fork-ord block-setup run-tx tx-prewarm upfront-extra fee pre-block post-block system-rule
-  header-foreign coreth-trie observe-kinds
+  header-foreign header-rlp normalize-slot-key five-field-account deferred-anchor-p observe-kinds
   precompile-p precompile-run frame-init frame-init-log selfdestruct p256verify)
 
 (defvar *chain-spec* nil "The installed chain-spec.")
@@ -56,6 +56,7 @@
         *chain-banner-extra* (chain-spec-banner spec)
         *rpc-url* (chain-spec-rpc-url spec)
         *cache-dir* (chain-spec-cache-dir spec)
+        *header-rlp-mode* (chain-spec-header-rlp spec)
         *chain-block-setup-hook* (chain-spec-block-setup spec)
         *chain-pre-block-hook* (chain-spec-pre-block spec)
         *chain-post-block-hook* (chain-spec-post-block spec)
@@ -65,7 +66,6 @@
         *chain-upfront-extra-hook* (chain-spec-upfront-extra spec)
         *chain-fee-hook* (chain-spec-fee spec)
         *chain-header-foreign* (chain-spec-header-foreign spec)
-        eita.mpt:*coreth-trie* (chain-spec-coreth-trie spec)
         *chain-precompile-p* (chain-spec-precompile-p spec)
         *chain-precompile-hook* (chain-spec-precompile-run spec)
         *chain-value-transfer-hook* (chain-spec-frame-init spec)
@@ -85,3 +85,10 @@
     (unless c (error "unknown chain ~S (registered: ~{~A~^, ~})" name
                      (loop for k being the hash-keys of *chain-registry* collect k)))
     (funcall c)))
+(defun find-chain-spec-by-id (chain-id)
+  "The registered chain-spec whose :id equals CHAIN-ID, or NIL."
+  (when chain-id
+    (loop for constructor being the hash-values of *chain-registry*
+          for spec = (ignore-errors (funcall constructor))
+          when (and spec (eql (chain-spec-id spec) chain-id))
+            return spec)))

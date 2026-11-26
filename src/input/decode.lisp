@@ -22,6 +22,8 @@
   "Directory of this chain's block files (a pathname ending in /), from its chain spec.")
 (defvar *rpc-url* nil
   "This chain's JSON-RPC endpoint, from its chain spec; used by sources that speak RPC.")
+(defvar *header-rlp-mode* nil
+  "Header RLP encoding mode (NIL: Ethereum; :CORETH: Avalanche Coreth 30-field header), from its chain spec.")
 (defparameter *rpc-calls* 0 "RPC calls made by the source (reported in the run summary).")
 (defparameter *offline-misses* 0
   "Lazy-state reads the source could not answer (a run with misses is suspect).")
@@ -432,10 +434,12 @@
      ("settledGasNumerator" settled-gas-num jbytes) ("settledExcess" settled-excess jbytes))
   (flet ((int (k) (let ((v (svref hf k))) (and v (octets-int v))))
          (bint (v) (and v (octets-int v))))
-    (let ((rlp (if ext-data-hash
-                   (coreth-header-rlp hf ext-data-hash ext-data-gas-used block-gas-cost
-                                      ts-ms min-delay-excess target-exp min-price-exp
-                                      settled-height settled-gas-unix settled-gas-num settled-excess)
+    (let ((rlp (if (eq *header-rlp-mode* :coreth)
+                   (progn
+                     (unless ext-data-hash (error "Coreth header lacks extDataHash"))
+                     (coreth-header-rlp hf ext-data-hash ext-data-gas-used block-gas-cost
+                                        ts-ms min-delay-excess target-exp min-price-exp
+                                        settled-height settled-gas-unix settled-gas-num settled-excess))
                    (header-rlp hf))))
       (make-chain-block
        :number (int 8) :hash (or hash 0) :parent-hash (int 0) :timestamp (int 11) :miner (int 2)

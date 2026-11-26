@@ -188,22 +188,48 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
           (sb-impl::toplevel-repl nil)))))
   t)
 
+(defun resolve-snapshot-chain-spec (dir &optional chain-name)
+  "Resolve the chain-spec for snapshot DIR: explicit CHAIN-NAME if given, else the manifest's
+   :chain-id looked up in the chain registry (no chain-ID literals in generic modules)."
+  (cond (chain-name (eita.chain:find-chain-spec chain-name))
+        ((and dir (probe-file (merge-pathnames "MANIFEST.sexp" (eita.state.snapshot::as-dir dir))))
+         (let ((cid (getf (eita.state.snapshot:read-manifest dir) :chain-id)))
+           (and cid (eita.chain:find-chain-spec-by-id cid))))))
+
 (defun cmd-check-root (args)
-  (eita.state.root:main args))
+  (let* ((cp (position "--chain" args :test #'string=))
+         (chain-name (and cp (nth (1+ cp) args)))
+         (args (if cp (append (subseq args 0 cp) (nthcdr (+ cp 2) args)) args))
+         (ffp (position "--five-field-account" args :test #'string=))
+         (args (if ffp (remove "--five-field-account" args :test #'string=) args))
+         (dir (let ((pp (position "--parent" args :test #'string=)))
+                (first (if pp (append (subseq args 0 pp) (nthcdr (+ pp 2) args)) args))))
+         (spec (unless ffp (resolve-snapshot-chain-spec dir chain-name)))
+         (five-field (or (not (null ffp))
+                         (and spec (eita.chain:chain-spec-five-field-account spec)))))
+    (eita.state.root:main args :five-field-account five-field)))
 
 (defun cmd-import-reth (args)
   (eita.state.root:import-main args))
 
 (defun cmd-convert-snapshot (args)
   (multiple-value-bind (o rest)
-      (parse-options args '(("--from" :value) ("--to" :value) ("--tmp" :value) ("--threads" :value) ("--block" :value)))
+      (parse-options args '(("--from" :value) ("--to" :value) ("--tmp" :value) ("--threads" :value)
+                            ("--block" :value) ("--chain" :value)))
     (when rest (usage-error "convert-snapshot: unexpected ~{~A~^ ~}" rest))
     (unless (and (getf o :from) (getf o :to)) (usage-error "convert-snapshot: --from and --to are required"))
-    (sb-ext:exit :code (if (eita.state.root:convert-snapshot
-                            (getf o :from) (getf o :to) :tmp (getf o :tmp)
-                            :threads (if (getf o :threads) (int-arg (getf o :threads) "--threads") (eita.state.snapshot:hardware-threads))
-                            :block (and (getf o :block) (int-arg (getf o :block) "--block")))
-                           0 1))))
+    (let* ((from (getf o :from))
+           (block (and (getf o :block) (int-arg (getf o :block) "--block")))
+           (comps (ignore-errors (eita.state.root::pick-composition (eita.state.snapshot::as-dir from) block)))
+           (base-dir (and comps (eita.state.snapshot:component-path (eita.state.snapshot::as-dir from) (first comps))))
+           (spec (resolve-snapshot-chain-spec base-dir (getf o :chain))))
+      (sb-ext:exit :code (if (eita.state.root:convert-snapshot
+                              from (getf o :to) :tmp (getf o :tmp)
+                              :threads (if (getf o :threads) (int-arg (getf o :threads) "--threads") (eita.state.snapshot:hardware-threads))
+                              :block block
+                              :normalize-slot-key (and spec (eita.chain:chain-spec-normalize-slot-key spec))
+                              :five-field-account (and spec (eita.chain:chain-spec-five-field-account spec)))
+                             0 1)))))
 
 (defun cmd-recovery (args)
   (destructuring-bind (&optional what dir &rest more) args

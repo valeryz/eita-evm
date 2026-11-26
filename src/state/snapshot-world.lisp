@@ -101,47 +101,52 @@
   "keccak of N as WIDTH big-endian bytes (32 octets; any thread)."
   (keccak256-bytes (eita.state.snapshot::int->octets n width)))
 
-(defun slot-key-hash (slot)
-  "keccak of SLOT as 32 big-endian bytes, applying Coreth NormalizeStateKey when *CORETH-TRIE* is T."
-  (keccak256-bytes (eita.mpt:normalize-slot-bytes (eita.state.snapshot::int->octets slot 32))))
+(defun slot-key-hash (slot &optional normalize)
+  "keccak of SLOT as 32 big-endian bytes, applying Coreth NormalizeStateKey when NORMALIZE is T."
+  (let ((b (eita.state.snapshot::int->octets slot 32)))
+    (keccak256-bytes (if normalize (eita.mpt:normalize-slot-bytes b) b))))
+
+(defun chain-slot-key-normalize ()
+  "The installed chain-spec's slot-key normalization parameter (NIL on Ethereum)."
+  (and *chain-spec* (chain-spec-normalize-slot-key *chain-spec*)))
 
 (defvar *hkey-cache* (make-array 4096 :initial-element nil) "address -> keccak (replay thread).")
 (defvar *hslot-cache* (make-array 65536 :initial-element nil) "slot -> keccak (replay thread).")
 
-(defun cached-key-hash (cache n width)
+(defun cached-key-hash (cache n width &optional normalize)
   (let* ((i (logand (u256-word n 0) (1- (length cache)))) (e (svref cache i)))
     (if (and e (eql (car e) n))
         (cdr e)
-        (let ((h (key-hash n width))) (setf (svref cache i) (cons n h)) h))))
+        (let ((h (if normalize (slot-key-hash n t) (key-hash n width))))
+          (setf (svref cache i) (cons n h)) h))))
 (defun addr-hkey (addr) (cached-key-hash *hkey-cache* addr 20))
-(defun slot-hslot (slot)
-  (let* ((i (logand (u256-word slot 0) (1- (length *hslot-cache*)))) (e (svref *hslot-cache* i)))
-    (if (and e (eql (car e) slot))
-        (cdr e)
-        (let ((h (slot-key-hash slot))) (setf (svref *hslot-cache* i) (cons slot h)) h))))
+(defun slot-hslot (slot &optional (normalize (chain-slot-key-normalize)))
+  (cached-key-hash *hslot-cache* slot 32 normalize))
 
 (defun snap-fault-account (addr)
   "The fault hook: ADDR's fields from the stack (fault-account! called it on the account's
    first touch)."
   (incf (getf *snap-stats* :acct-faults))
-  (multiple-value-bind (found nonce balance codehash exists-empty code multi-coin)
-      (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr)) #'slot-hslot) ; @veil snap-fault-account/view
-    (when found
-      (with-acct (tb a) *current-world* addr
-        (when (plusp nonce) (setf (acct-nonce tb a) nonce))
-        (when (plusp balance) (setf (acct-balance tb a) balance))
-        (unless (= codehash eita.state.snapshot:+empty-code-hash+)
-          (setf (acct-code tb a)
-                (or code
-                      (gethash codehash *code-intern*)
-                      (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
-                        (unless code
-                          (error "account ~X names code ~X that no layer and no base holds" addr codehash))
-                        ;; seed the code hash memo: no keccak for code read by hash
-                        (setf (gethash code *code-hash-memo*) codehash)
-                        (intern-code codehash code)))))
-        (when exists-empty (acct-set-flag! tb a +acct-marked+))
-        (when multi-coin (acct-set-flag! tb a +acct-multi-coin+))))))
+  (let ((norm (chain-slot-key-normalize)))
+    (multiple-value-bind (found nonce balance codehash exists-empty code multi-coin)
+        (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr))
+                                          (if norm (lambda (s) (slot-hslot s t)) #'slot-hslot)) ; @veil snap-fault-account/view
+      (when found
+        (with-acct (tb a) *current-world* addr
+          (when (plusp nonce) (setf (acct-nonce tb a) nonce))
+          (when (plusp balance) (setf (acct-balance tb a) balance))
+          (unless (= codehash eita.state.snapshot:+empty-code-hash+)
+            (setf (acct-code tb a)
+                  (or code
+                        (gethash codehash *code-intern*)
+                        (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
+                          (unless code
+                            (error "account ~X names code ~X that no layer and no base holds" addr codehash))
+                          ;; seed the code hash memo: no keccak for code read by hash
+                          (setf (gethash code *code-hash-memo*) codehash)
+                          (intern-code codehash code)))))
+          (when exists-empty (acct-set-flag! tb a +acct-marked+))
+          (when multi-coin (acct-set-flag! tb a +acct-multi-coin+)))))))
 
 (defun snap-fault-slot (addr slot)
   "A slot is faulted iff its key is present in ADDR's packed table (fault-slot! calls
@@ -151,10 +156,12 @@
    the stack below is not read."
   (with-acct (tb a) *current-world* addr
     (incf (getf *snap-stats* :slot-faults))
-    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+)
-                                  0
-                                  (eita.state.snapshot:view-slot *layers* *base* addr slot ; @veil snap-fault-slot/view
-                                                                 (lambda () (addr-hkey addr)) (lambda () (slot-hslot slot)))))))
+    (let ((norm (chain-slot-key-normalize)))
+      (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+)
+                                    0
+                                    (eita.state.snapshot:view-slot *layers* *base* addr slot ; @veil snap-fault-slot/view
+                                                                   (lambda () (addr-hkey addr))
+                                                                   (lambda () (slot-hslot slot norm))))))))
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
 
@@ -212,23 +219,28 @@
                    (push r recs)))
                (ram-layer-accts l))
     (flet ((fields (r)
-             (let ((a (acct-addr tb r)) (code (acct-code-entry tb r)))
+             (let ((a (acct-addr tb r)) (code (acct-code-entry tb r))
+                   (norm (chain-slot-key-normalize)))
                (if (or full (acct-flag-p tb r +acct-faulted+))
                    (let ((h (fresh-code-hash code)))
                      (when (and code (plusp (length code)) (not (gethash h codes))
                                 (or full (not (eita.state.snapshot:view-code below-layers below-base h))))
                        (setf (gethash h codes) code))
-                     (list (acct-nonce tb r) (acct-balance tb r) h (acct-flag-p tb r +acct-marked+)))
+                     (list (acct-nonce tb r) (acct-balance tb r) h (acct-flag-p tb r +acct-marked+)
+                           (acct-flag-p tb r +acct-multi-coin+)))
                    ;; storage touched, account never faulted: its fields as they are below
-                   (multiple-value-bind (found nonce balance codehash flag)
+                   (multiple-value-bind (found nonce balance codehash flag code-ignored mc)
                        (eita.state.snapshot:view-account below-layers below-base a (and v2 (lambda () (key-hash a 20)))
-                                                         #'''slot-key-hash)
-                     (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil))))))
+                                                         (lambda (k) (slot-key-hash k norm)))
+                     (declare (ignore code-ignored))
+                     (if found (list nonce balance codehash flag mc) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil nil))))))
            (slots (r)
              (let ((kv '())) (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r) kv)))
-      (let ((provenance (format nil "eita ~:[layer ~D-~D~;base ~*~D~], code ~A" full p n (engine-code-version))))
+      (let ((provenance (format nil "eita ~:[layer ~D-~D~;base ~*~D~], code ~A" full p n (engine-code-version)))
+            (norm (chain-slot-key-normalize)))
         (if v2
-            (write-layer-2 tmp n (ram-layer-root l) p tb recs #'fields #'slots codes provenance)
+            (write-layer-2 tmp n (ram-layer-root l) p tb recs #'fields #'slots codes provenance
+                           :normalize-slot-key norm)
             (let ((m (eita.state.snapshot:make-merge tmp *chain-id* n (ram-layer-root l) nil :parent (and (not full) p))))
               (dolist (r (sort recs #'< :key (lambda (r) (acct-addr tb r))))
                 (eita.state.snapshot:merge-account m (acct-addr tb r) :fields (fields r)
@@ -241,25 +253,25 @@
     (eita.state.snapshot:snap-publish dir n tmp :final final) ; @veil write-ram-tables/publish
     (eita.state.snapshot:snap-open final))) ; @veil write-ram-tables/open
 
-(defun write-layer-2 (tmp n root p tb recs fields slots codes provenance)
+(defun write-layer-2 (tmp n root p tb recs fields slots codes provenance &key normalize-slot-key)
   "The version 2 layer of the RAM table TB at TMP: the accounts RECS (ids) in keccak(addr)
    order, each one's slots (SLOTS of the id: (slot . value), tombstones too) in
-   keccak(slot) order before its record; FIELDS of the id: (nonce balance codehash mark).
+   keccak(slot) order before its record; FIELDS of the id: (nonce balance codehash mark mc).
    Hashed here, on the writer's thread. The record carries the address (the world's)."
   (let ((w (eita.state.snapshot:make-writer tmp *chain-id* n root :parent p :expect (list (length recs) 0))))
     (dolist (e (sort (mapcar (lambda (r) (let ((h (key-hash (acct-addr tb r) 20))) (list (eita.state.snapshot:octets->int h) h r)))
                              recs)
                      #'< :key #'first))
       (destructuring-bind (hkey r) (rest e)
-        (dolist (kv (sort (mapcar (lambda (kv) (let ((h (slot-key-hash (car kv)))) (list (eita.state.snapshot:octets->int h) h (cdr kv))))
+        (dolist (kv (sort (mapcar (lambda (kv) (let ((h (slot-key-hash (car kv) normalize-slot-key))) (list (eita.state.snapshot:octets->int h) h (cdr kv))))
                                   (funcall slots r))
                           #'< :key #'first))
           (eita.state.snapshot:writer-slot w hkey (second kv) (third kv)))
-        (destructuring-bind (nonce balance codehash mark) (funcall fields r)
+        (destructuring-bind (nonce balance codehash mark &optional mc) (funcall fields r)
           (eita.state.snapshot:writer-account w hkey (acct-addr tb r)
                                               (logior (if mark eita.state.snapshot::+flag-exists-empty+ 0)
                                                       (if (acct-flag-p tb r +acct-wiped+) eita.state.snapshot::+flag-wiped+ 0)
-                                                      (if (acct-flag-p tb r +acct-multi-coin+) eita.state.snapshot::+flag-multi-coin+ 0))
+                                                      (if mc eita.state.snapshot::+flag-multi-coin+ 0))
                                               nonce balance codehash))))
     (eita.state.snapshot:writer-finish w (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))
                                        :provenance provenance)))
@@ -420,7 +432,7 @@
                             (destructuring-bind (run p n) (rest job)
                               (let ((tmp (eita.state.snapshot:layer-tmp-path dir p n)) (fin (eita.state.snapshot:layer-path dir p n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'''first :from-end t))) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'first :from-end t))) ; @veil start-compaction!/compose
                                                           run nil :parent p
                                                           :provenance (format nil "eita minor compaction ~D-~D, code ~A" p n (engine-code-version)))
                                 (eita.state.snapshot:snap-publish dir n tmp :final fin) ; @veil start-compaction!/publish
@@ -429,7 +441,7 @@
                             (destructuring-bind (run n) (rest job)
                               (let ((tmp (eita.state.snapshot:snap-tmp-path dir n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'''first :from-end t))) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'first :from-end t))) ; @veil start-compaction!/compose
                                                           run base
                                                           :provenance (format nil "eita major compaction to ~D over ~D, code ~A"
                                                                               n (eita.state.snapshot:snap-block base) (engine-code-version)))

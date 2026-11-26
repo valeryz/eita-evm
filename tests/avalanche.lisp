@@ -177,24 +177,24 @@
     ;; 9. Coreth storage-trie key normalization (slot[0] &= 0xfe) & 5-field multiCoin RLP
     (let* ((slot-odd  #x4f11000000000000000000000000000000000000000000000000000000000000)
            (slot-even #x4e11000000000000000000000000000000000000000000000000000000000000)
-           (r-eth-odd   (let ((eita.mpt:*coreth-trie* nil)) (eita.mpt:storage-root (list (cons slot-odd 42)))))
-           (r-eth-even  (let ((eita.mpt:*coreth-trie* nil)) (eita.mpt:storage-root (list (cons slot-even 42)))))
-           (r-avax-odd  (let ((eita.mpt:*coreth-trie* t))   (eita.mpt:storage-root (list (cons slot-odd 42)))))
-           (r-avax-even (let ((eita.mpt:*coreth-trie* t))   (eita.mpt:storage-root (list (cons slot-even 42)))))
+           (r-eth-odd   (eita.mpt:storage-root (list (cons slot-odd 42))  :normalize-slot-key nil))
+           (r-eth-even  (eita.mpt:storage-root (list (cons slot-even 42)) :normalize-slot-key nil))
+           (r-avax-odd  (eita.mpt:storage-root (list (cons slot-odd 42))  :normalize-slot-key t))
+           (r-avax-even (eita.mpt:storage-root (list (cons slot-even 42)) :normalize-slot-key t))
            (empty-r (eita.mpt:empty-root-bytes))
            (empty-c (eita.mpt:empty-code-hash))
-           (leaf-eth   (let ((eita.mpt:*coreth-trie* nil)) (eita.mpt:account-leaf-value 1 100 empty-r empty-c nil)))
-           (leaf-c-f   (let ((eita.mpt:*coreth-trie* t))   (eita.mpt:account-leaf-value 1 100 empty-r empty-c nil)))
-           (leaf-c-t   (let ((eita.mpt:*coreth-trie* t))   (eita.mpt:account-leaf-value 1 100 empty-r empty-c t)))
+           (leaf-eth   (eita.mpt:account-leaf-value 1 100 empty-r empty-c :five-field nil :multi-coin nil))
+           (leaf-c-f   (eita.mpt:account-leaf-value 1 100 empty-r empty-c :five-field t   :multi-coin nil))
+           (leaf-c-t   (eita.mpt:account-leaf-value 1 100 empty-r empty-c :five-field t   :multi-coin t))
            ;; On-chain WAVAX account leaf at Avalanche mainnet block 95,000,000 (eth_getProof):
            ;; nonce=1, balance=0x0f814e3cc309f4f5e3e86c, storageRoot=0x22789b45..., codeHash=0xbe0979d9..., multiCoin=false
-           (wavax-leaf (let ((eita.mpt:*coreth-trie* t))
-                         (eita.mpt:account-leaf-value
-                          1
-                          #x0f814e3cc309f4f5e3e86c
-                          (hex->bytes "22789b451a6681387a6c5889206cfd0b5efb0c0d6f3fdca0a127e27af1530ec1")
-                          (hex->bytes "be0979d9ff9e744b48d32e81fd67db0d32dfc74120989df9b7b1588e2aff8597")
-                          nil)))
+           (wavax-leaf (eita.mpt:account-leaf-value
+                        1
+                        #x0f814e3cc309f4f5e3e86c
+                        (hex->bytes "22789b451a6681387a6c5889206cfd0b5efb0c0d6f3fdca0a127e27af1530ec1")
+                        (hex->bytes "be0979d9ff9e744b48d32e81fd67db0d32dfc74120989df9b7b1588e2aff8597")
+                        :five-field t
+                        :multi-coin nil))
            (wavax-exp  (hex->bytes
                         "f850018b0f814e3cc309f4f5e3e86ca022789b451a6681387a6c5889206cfd0b5efb0c0d6f3fdca0a127e27af1530ec1a0be0979d9ff9e744b48d32e81fd67db0d32dfc74120989df9b7b1588e2aff859780")))
       (chk "Ethereum trie: 0x4f11.. and 0x4e11.. have distinct storage roots"
@@ -208,18 +208,65 @@
            (and (= (length leaf-c-t) (1+ (length leaf-eth)))
                 (= (aref leaf-c-t (1- (length leaf-c-t))) #x01)))
       (chk "Coreth 5-field WAVAX block 95,000,000 eth_getProof leaf matches byte-for-byte"
-           (equalp wavax-leaf wavax-exp)))
+           (equalp wavax-leaf wavax-exp))
+      (chk "find-chain-spec-by-id resolves 43114 and 43113 with Coreth trie parameters"
+           (let ((m (eita.chain:find-chain-spec-by-id 43114))
+                 (f (eita.chain:find-chain-spec-by-id 43113)))
+             (and m f
+                  (eita.chain:chain-spec-normalize-slot-key m)
+                  (eita.chain:chain-spec-five-field-account m)
+                  (eq (eita.chain:chain-spec-header-rlp m) :coreth)
+                  (eita.chain:chain-spec-deferred-anchor-p m)
+                  (eita.chain:chain-spec-five-field-account f)))))
 
-    ;; 10. SAE deferred anchor resolution & automatic GasClock lookahead seeding
-    (let ((eita.state::*deferred-anchors* (list 96000099))
-          (eita.state::*anchor-queue* '()))
-      (chk "deferred anchor ignores unrelated settledHeight"
-           (and (null (eita.state::resolve-deferred-anchor! 96000098 "0xdead"))
-                (null eita.state::*anchor-queue*)))
-      (chk "deferred anchor promotes to *anchor-queue* when settledHeight matches"
-           (and (eita.state::resolve-deferred-anchor! 96000099 "0x8b02e85f")
-                (null eita.state::*deferred-anchors*)
-                (equal eita.state::*anchor-queue* '((96000099 "0x8b02e85f"))))))
+    ;; 10. SAE deferred anchor persistence, resolution, expiry, rollback & restart
+    (let* ((tmp-dir (format nil "/tmp/eita-avax-deferred-~D/" (get-universal-time)))
+           (prev-env (sb-ext:posix-getenv "EITA_STATE_DIR")))
+      (ensure-directories-exist (merge-pathnames "x" tmp-dir))
+      (unwind-protect
+           (progn
+             (sb-posix:setenv "EITA_STATE_DIR" tmp-dir 1)
+             (let ((eita.state::*deferred-anchors* '())
+                   (eita.state::*deferred-resolved* '())
+                   (eita.state::*anchor-queue* '()))
+               (eita.state::defer-anchor! 96000090)
+               (eita.state::defer-anchor! 96000099)
+               (eita.state::defer-anchor! 96000110)
+               (chk "defer-anchor! persists entries to deferred-anchors.sexp"
+                    (equal (eita.state::read-deferred-anchors)
+                           '((96000090 nil) (96000099 nil) (96000110 nil))))
+               ;; Simulate restart at 96000100: drops > 96000100, keeps 96000090 & 96000099
+               (setf eita.state::*deferred-anchors* '()
+                     eita.state::*deferred-resolved* '()
+                     eita.state::*anchor-queue* '())
+               (eita.state::restore-deferred-anchors! 96000100)
+               (chk "restore-deferred-anchors! reloads <= resume block across restart"
+                    (equal eita.state::*deferred-anchors* '(96000090 96000099)))
+               ;; Multi-block settlement at 96000099 expires 96000090 and promotes 96000099
+               (chk "resolve-deferred-anchor! expires < settledHeight and promotes exact match"
+                    (and (eita.state::resolve-deferred-anchor! 96000099 "0x8b02e85f")
+                         (null eita.state::*deferred-anchors*)
+                         (equal eita.state::*anchor-queue* '((96000099 "0x8b02e85f")))
+                         (equal (eita.state::read-deferred-anchors) '((96000099 "0x8b02e85f")))))
+               ;; Simulate restart after resolution (before check-root finishes): re-queues 96000099
+               (setf eita.state::*deferred-anchors* '()
+                     eita.state::*deferred-resolved* '()
+                     eita.state::*anchor-queue* '())
+               (eita.state::restore-deferred-anchors! 96000105)
+               (chk "restore-deferred-anchors! re-queues resolved deferred anchor across restart"
+                    (and (null eita.state::*deferred-anchors*)
+                         (equal eita.state::*anchor-queue* '((96000099 "0x8b02e85f")))))
+               ;; Rollback drops deferred/resolved entries above fork point
+               (eita.state::defer-anchor! 96000104)
+               (eita.state::drop-deferred-above! 96000095)
+               (chk "drop-deferred-above! removes entries above fork point from memory and disk"
+                    (and (null eita.state::*deferred-anchors*)
+                         (null eita.state::*deferred-resolved*)
+                         (null (eita.state::read-deferred-anchors))))))
+        (if prev-env
+            (sb-posix:setenv "EITA_STATE_DIR" prev-env 1)
+            (sb-posix:unsetenv "EITA_STATE_DIR"))
+        (sb-ext:run-program "rm" (list "-rf" tmp-dir) :search t)))
 
     (let* ((settling-blk (eita.input::make-chain-block
                           :number 96000000 :settled-height 95999994
@@ -279,7 +326,60 @@
            (list exc p-at p-next))
       (chk "gasclock-enforce-min-excess! lifts excess=0 to excessFor(minPrice)"
            (= (eita.chain.avalanche::gc-excess gc) exc)
-           (eita.chain.avalanche::gc-excess gc))))
+           (eita.chain.avalanche::gc-excess gc))
+      ;; Extreme comparison vectors against Lean GasClock.lean (kernel-proved in Lean)
+      (chk "Lean vs Lisp extreme: targetOfExponent(0) = 1000000"
+           (= (eita.evm::spec-avax-gasclock-target 0) 1000000))
+      (chk "Lean vs Lisp extreme: targetOfExponent(5e9) = i64::MAX"
+           (= (eita.evm::spec-avax-gasclock-target 5000000000) 9223372036854775807))
+      (chk "Lean vs Lisp extreme: minPriceOfExponent(0) = 1"
+           (= (eita.evm::spec-avax-gasclock-min-price 0) 1))
+      (chk "Lean vs Lisp extreme: minPriceOfExponent(415828534307635077) = 2"
+           (= (eita.evm::spec-avax-gasclock-min-price 415828534307635077) 2))
+      (chk "Lean vs Lisp extreme: minPriceOfExponent(2*minPriceConversion) = 7"
+           (= (eita.evm::spec-avax-gasclock-min-price (* 2 415828534307635077)) 7))
+      (chk "Lean vs Lisp extreme: minPriceOfExponent(128*minPriceConversion) = u64::MAX"
+           (= (eita.evm::spec-avax-gasclock-min-price (* 128 415828534307635077)) max64))
+      (chk "Lean vs Lisp extreme: priceAt(0, minTarget) = 1"
+           (= (eita.evm::spec-avax-gasclock-price-at 0 1000000) 1))
+      (chk "Lean vs Lisp extreme: priceAt(12e9, minTarget) = u64::MAX"
+           (= (eita.evm::spec-avax-gasclock-price-at 12000000000 1000000) max64)))
+
+    ;; 13. Coreth 30-field header hashing is gated on *header-rlp-mode*, not extDataHash presence
+    (let* ((z32 "0x0000000000000000000000000000000000000000000000000000000000000000")
+           (z20 "0x0000000000000000000000000000000000000000")
+           (z256 (concatenate 'string "0x" (make-string 512 :initial-element #\0)))
+           (j-with-ext
+            (jsown:new-js
+              ("parentHash" z32) ("sha3Uncles" z32) ("miner" z20) ("stateRoot" z32)
+              ("transactionsRoot" z32) ("receiptsRoot" z32) ("logsBloom" z256)
+              ("difficulty" "0x1") ("number" "0x1") ("gasLimit" "0x100000") ("gasUsed" "0x0")
+              ("timestamp" "0x60000000") ("extraData" "0x") ("mixHash" z32) ("nonce" "0x0000000000000000")
+              ("baseFeePerGas" "0x1") ("extDataHash" z32) ("extDataGasUsed" "0x0") ("blockGasCost" "0x0")))
+           (j-no-ext
+            (jsown:new-js
+              ("parentHash" z32) ("sha3Uncles" z32) ("miner" z20) ("stateRoot" z32)
+              ("transactionsRoot" z32) ("receiptsRoot" z32) ("logsBloom" z256)
+              ("difficulty" "0x1") ("number" "0x1") ("gasLimit" "0x100000") ("gasUsed" "0x0")
+              ("timestamp" "0x60000000") ("extraData" "0x") ("mixHash" z32) ("nonce" "0x0000000000000000")
+              ("baseFeePerGas" "0x1")))
+           (h-eth (let ((eita.input:*header-rlp-mode* nil))
+                    (eita.input::blk-header-hash (eita.input::decode-block-json j-with-ext))))
+           (h-eth-plain (let ((eita.input:*header-rlp-mode* nil))
+                          (eita.input::blk-header-hash (eita.input::decode-block-json j-no-ext))))
+           (h-coreth (let ((eita.input:*header-rlp-mode* :coreth))
+                       (eita.input::blk-header-hash (eita.input::decode-block-json j-with-ext))))
+           (coreth-missing-err nil))
+      (handler-case
+          (let ((eita.input:*header-rlp-mode* :coreth))
+            (eita.input::decode-block-json j-no-ext))
+        (error () (setf coreth-missing-err t)))
+      (chk "Ethereum *header-rlp-mode* ignores extDataHash"
+           (= h-eth h-eth-plain))
+      (chk "Coreth *header-rlp-mode* produces distinct 30-field header hash"
+           (/= h-coreth h-eth))
+      (chk "Coreth *header-rlp-mode* errors loudly when extDataHash is absent"
+           coreth-missing-err)))
 
   (format t "~&avalanche: ~D passed, ~D failed~%" pass fail)
   (when (plusp fail) (eita.test:finish :code 1)))

@@ -155,7 +155,7 @@
   (:documentation "The Merkle-Patricia trie, mirrored from lean/Evm/Trie (receipts root, state-root oracles).")
   (:use #:cl #:cffi)
   (:export
-           #:%keccak #:%keccak-batch-c #:*coreth-trie* #:*keccak* #:account-leaf-value #:account-state-root
+           #:%keccak #:%keccak-batch-c #:*keccak* #:account-leaf-value #:account-state-root
            #:bytes->hex #:empty-code-hash #:empty-root-bytes #:hex-prefix #:int->be-bytes-fixed
            #:keccak256-bytes #:make-mtrie #:make-nibbles #:mtrie-delete #:mtrie-insert
            #:mtrie-member #:mtrie-root #:mtrie-top #:node-ref #:normalize-slot-bytes #:rlp-bytes #:rlp-encode
@@ -175,7 +175,7 @@
   (:documentation "Block input: the JSON block decoder and the block-source seam (docs/block-input.md).")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.state)
   (:export
-           #:*block-source* #:*cache-dir* #:*offline-misses* #:*rpc-calls* #:*rpc-url*
+           #:*block-source* #:*cache-dir* #:*header-rlp-mode* #:*offline-misses* #:*rpc-calls* #:*rpc-url*
            #:*stats* #:+exit-input-outage+ #:addr-hex #:blk-base-fee #:blk-blob-gas-used
            #:blk-block-extra-data #:blk-difficulty #:blk-excess-blob-gas #:blk-ext-data-gas-used #:blk-extra-data #:blk-gas-limit
            #:blk-gas-used #:blk-hash #:blk-header-hash #:blk-header-rlp #:blk-logs-bloom
@@ -201,8 +201,9 @@
            #:*chain-header-foreign* #:*chain-id* #:*chain-spec* #:*full-state*
            #:*receipts-unverifiable* #:*tx-receipt-extension* #:tx-envelope
            #:*recent-headers* #:+postblock-tx+ #:+preblock-tx+ #:block-credit! #:block-ommers
-           #:chain-spec-reorg-depth #:eip2935-store-parent-hash! #:ethereum-pre-block!
-           #:find-chain-spec #:header-record #:header-violation #:install-chain-spec!
+           #:chain-spec-deferred-anchor-p #:chain-spec-five-field-account #:chain-spec-header-rlp
+           #:chain-spec-normalize-slot-key #:chain-spec-reorg-depth #:eip2935-store-parent-hash! #:ethereum-pre-block!
+           #:find-chain-spec #:find-chain-spec-by-id #:header-record #:header-violation #:install-chain-spec!
            #:make-chain-spec #:receipts-block-begin! #:receipts-push! #:recover-senders! #:recover-tx-sender
            #:register-chain-spec #:replay-main #:run-post-block! #:run-pre-block! #:system-call
            #:verify-block-header))

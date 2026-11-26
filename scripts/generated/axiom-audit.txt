@@ -71,6 +71,8 @@
 'Evm.Avalanche.Emit.gasClockBaseFeeExpr_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.Avalanche.Charging.fee_conservation' depends on axioms: [propext]
 'Evm.Avalanche.GasClock.beforeBlockRaw_excess_le' does not depend on any axioms
+'Evm.Avalanche.GasClock.fakeExpLoopCap_eq' depends on axioms: [propext]
+'Evm.Avalanche.GasClock.satFakeExp_fuel_sufficient' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Avalanche.Trie.normalizeStorageSlot_idempotent' depends on axioms: [propext, Quot.sound]
 'Evm.Avalanche.Header.stateRootBlock_le_number' depends on axioms: [propext, Quot.sound]
 'Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec' depends on axioms: [propext, Quot.sound]
