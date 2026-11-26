@@ -436,7 +436,8 @@ def destOf : AInstr → Option Reg
   | .ldrBase d _ | .addSp d _ | .addReg d _ _ | .ldrSp d _ | .orr3 d _ _
   | .and3 d _ _ | .eor3 d _ _ | .mvn d _ | .adds d _ _ | .adcs d _ _
   | .adc d _ _ | .subReg d _ _ | .subsReg d _ _ | .sbcs d _ _ | .sbc d _ _
-  | .mulReg d _ _ | .lsrImm d _ _ | .lslImm d _ _ | .clzReg d _ | .rev d _ => some d
+  | .mulReg d _ _ | .madd d _ _ _ | .lsrImm d _ _ | .lslImm d _ _
+  | .clzReg d _ | .rev d _ => some d
   | _ => none
 
 /-- Every register an instruction writes. `destOf` misses the pair loads, and
@@ -565,6 +566,31 @@ def loadWords (b : String) (slots : List (String × Nat)) : String :=
   let first := slots.filter (fun s => s.1 != b)
   (first ++ deferred).foldl (fun acc s => acc ++ ln s!"lw   {s.1}, {s.2}({b})") ""
 
+/-- 64×64 → 64, the low product. Three 32-bit products and the high half of
+    the first: `lo(a)·lo(b)` gives the low word and, through `mulhu`, the
+    carry into the high word, to which `lo(a)·hi(b)` and `hi(a)·lo(b)` are
+    added. The two products that would overflow 64 bits are the ones dropped.
+
+    `d` must be distinct from both operands: its own halves are the scratch
+    (x86-64's `movThenOp` class had the same constraint). `carry` is the
+    one temporary. Shared by `mulReg` and `madd` rather than written twice. -/
+def mul64 (d a b : Reg) : String :=
+  ln s!"mulhu {hi d}, {lo a}, {lo b}" ++
+  ln s!"mul  {lo d}, {lo a}, {lo b}" ++
+  ln s!"mul  {carry}, {lo a}, {hi b}" ++
+  ln s!"add  {hi d}, {hi d}, {carry}" ++
+  ln s!"mul  {carry}, {hi a}, {lo b}" ++
+  ln s!"add  {hi d}, {hi d}, {carry}"
+
+/-- A 64-bit add into `d` in place: `d += c`. No carry-OUT, because `madd`
+    does not set flags; the carry out of the low half still has to reach the
+    high one. -/
+def addInPlace64 (d c : Reg) : String :=
+  ln s!"add  {lo d}, {lo d}, {lo c}" ++
+  ln s!"sltu {carry}, {lo d}, {lo c}" ++
+  ln s!"add  {hi d}, {hi d}, {hi c}" ++
+  ln s!"add  {hi d}, {hi d}, {carry}"
+
 /-! ## One instruction
 
 `n` is a unique index, for the local labels some sequences need. Any NOS source
@@ -691,17 +717,22 @@ def emitBody (n : Nat) : AInstr → String
   | .addLsr d a b sh => shiftedAdd d a b sh true
   | .orr3 d a b => ln s!"or   {lo d}, {lo a}, {lo b}" ++ ln s!"or   {hi d}, {hi a}, {hi b}"
   | .mulReg d a b =>
-      -- 64×64 → 64 needs the destination's own halves as scratch, so it must be
-      -- distinct from both operands (x86-64's `movThenOp` class).
       if lo d == lo a || lo d == lo b then
         s!"    /* «unlowered: 64-bit multiply into its own operand» */\n"
-      else
-        ln s!"mulhu {hi d}, {lo a}, {lo b}" ++
-        ln s!"mul  {lo d}, {lo a}, {lo b}" ++
-        ln s!"mul  {carry}, {lo a}, {hi b}" ++
-        ln s!"add  {hi d}, {hi d}, {carry}" ++
-        ln s!"mul  {carry}, {hi a}, {lo b}" ++
-        ln s!"add  {hi d}, {hi d}, {carry}"
+      else mul64 d a b
+  | .madd d a b c =>
+      -- `d = a·b + c`. The multiply needs `d` distinct from both its operands
+      -- (`mul64`), and the add then needs it distinct from `c` too: adding `c`
+      -- into a destination that IS `c` would double it.
+      --
+      -- SSTORE is why this exists. Its handler computes the address of the next
+      -- journal entry as `journal_data + journal_count · 104` — one `madd` with
+      -- the entry size as a materialised immediate — and without it the whole
+      -- handler was refused, which meant no bytecode that writes storage could
+      -- run at all.
+      if lo d == lo a || lo d == lo b || lo d == lo c then
+        s!"    /* «unlowered: multiply-add into one of its own operands» */\n"
+      else mul64 d a b ++ addInPlace64 d c
   | .cselHi _ _ _ =>
       s!"    /* «unlowered: conditional select whose compare was not fused» */\n"
   -- Named gaps, each the next slice's work: the u256 carry CHAINS (`adcs`,
@@ -1081,7 +1112,7 @@ theorem marker_fires_on_aliased_multiply :
 
 /-! ## Which instruction selection rv32 consumes
 
-`OpInstrs` offers two selections per `Op`: `Op.instrs?` (ARM64) and
+`OpInstrs` offers two selections per `Op`: `Op.toAInstrs` (ARM64) and
 `Op.instrsX86?`. rv32 takes the **x86-64** one, and not as a convenience — it is
 the semantically right input. ARM64 caches NOS, so its stream contains NOS
 *reloads* (`ldp x10, x11, [x14]`); rv32 has no NOS cache (`Regs`: no registers
@@ -1231,21 +1262,17 @@ theorem no_carry_clobber_hazards_in_gadgets :
 /-! ## Handler coverage, as a ratchet
 
 The gadget set is covered completely. Of the 150 handler programs the threaded
-interpreter emits, **145 lower completely and assemble**. The 5 that do not:
+interpreter emits, **146 lower completely and assemble**. The 4 that do not:
 
-* **`sstore`** — the five fork gas schedules exist only as emitted ARM64/x86
-  assembly, and rv32 can lower their bodies but not their ARGUMENTS: they are
-  C-ABI leaf functions with six parameters, and on ILP32 a `uint64_t` takes an
-  aligned register PAIR, so the sixth lands past `a7` and on the stack.
-  x86-64 solved the same wall by repacking (`X86SstoreGas`); rv32 needs its own
-  answer. `c/rv32/unlowered.c` holds loud refusals until then.
 * **`slt`, `sgt`** — u256 comparison chains whose subtract reads two NOS limbs
   at once. One load pair serves one limb, so these need the folding treatment
   the bitwise ops got.
 * **`clz`, `exp`** — `clzReg`: rv32imac has no `clz`, so it needs the same
   open-coded treatment `rev` got. `exp` additionally needs a 64-bit multiply
   into its own operand.
-* **`sstore`** also needs `madd`, separately from its gas schedules above.
+`sstore` used to be here, for `madd` — its handler computes the address of the
+next journal entry as `journal_data + journal_count · 104`. Its five FORK GAS
+SCHEDULES are a separate matter and still refuse (`c/rv32/unlowered.c`).
 
 `jump` and `jumpi` used to be here, for one missing fusion: `cmpImmWHex`
 followed by `bSym`, which is how both read `jumpdests[pc]` and branch on
@@ -1268,7 +1295,7 @@ def handlerTotal : Nat := rv32Streams.length
 /-- Where the port stands. Raise this as the remaining forms land; it may not
     fall. -/
 
-example : 145 ≤ handlersCovered := by native_decide
+example : 146 ≤ handlersCovered := by native_decide
 example : handlerTotal = 150 := by native_decide
 
 /-- And exactly which handlers do not lower, by name, so neither the set nor
@@ -1279,7 +1306,7 @@ def uncovered : List String :=
 
 
 theorem uncovered_handlers :
-    uncovered = ["clz", "sstore", "slt", "sgt", "exp"] := by native_decide
+    uncovered = ["clz", "slt", "sgt", "exp"] := by native_decide
 
 /-! ## Size, measured -/
 

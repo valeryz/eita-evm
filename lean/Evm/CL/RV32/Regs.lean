@@ -203,9 +203,12 @@ def isNos : Reg → Bool
 
 def readsNos (p : List AInstr) : Bool := p.any (fun it => (mentions it).any isNos)
 
-/-- The `AInstr` stream of a handler program. -/
-def progInstrs (p : AsmCore.Prog) : List AInstr :=
-  (p.filterMap Evm.CL.OpInstrs.Op.instrs?).flatten
+/-- The `AInstr` stream of a handler program: `OpInstrs.bodyInstrs`, which is
+    the ARM64 selection flattened. This was an open-coded `filterMap … .flatten`
+    over `Op.instrs?` until 2026-11-25, when absorbing upstream renamed that to
+    `Op.toAInstrs` and made it total — and the open-coded copy turned out to be
+    a second spelling of `bodyInstrs`, which has existed all along. -/
+def progInstrs (p : AsmCore.Prog) : List AInstr := Evm.CL.OpInstrs.bodyInstrs p
 
 /-- Every handler the threaded interpreter emits, as instruction streams. -/
 def handlerStreams : List (List AInstr) :=
