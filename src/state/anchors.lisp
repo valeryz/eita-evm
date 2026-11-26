@@ -135,21 +135,21 @@
               when (and (consp form) (integerp (first form)) (>= (length form) 4))
                 collect form)))))
 
-(defun append-anchor! (record)
-  "Append RECORD as one line and fsync it: a verdict is durable before it is acted on."
-  (ensure-directories-exist (anchors-path))
+(defun append-anchor! (record &optional (path (anchors-path)))
+  "Append RECORD as one line of PATH and fsync it: a verdict is durable before it is acted on."
+  (ensure-directories-exist path)
   ;; after a torn append the file ends mid-line; without a fresh line this record would
   ;; be glued onto the torn one and skipped with it
-  (let ((torn (with-open-file (b (anchors-path) :element-type '(unsigned-byte 8) :if-does-not-exist nil)
+  (let ((torn (with-open-file (b path :element-type '(unsigned-byte 8) :if-does-not-exist nil)
                 (and b (plusp (file-length b))
                      (progn (file-position b (1- (file-length b))) (/= (read-byte b) 10))))))
-    (with-open-file (a (anchors-path) :direction :output :if-exists :append :if-does-not-exist :create)
+    (with-open-file (a path :direction :output :if-exists :append :if-does-not-exist :create)
       (when torn (terpri a))
       (let ((*print-pretty* nil)) (prin1 record a) (terpri a))
       (finish-output a)
       (sb-posix:fsync (sb-sys:fd-stream-fd a)))
     ;; and the file's directory entry: the first append creates anchors.sexp
-    (fsync-directory-of (anchors-path))))
+    (fsync-directory-of path)))
 
 (defun anchor-compositions (n)
   "Every composition recorded with a PASSED root check of block N (a block can carry

@@ -9,6 +9,7 @@
 ;;;;   eita repl [--load FILE]...               a REPL in the EITA package
 ;;;;   eita check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
 ;;;;   eita import-reth --state DIR [--threads N] FILE|-   a base from rust/reth-export's stream
+;;;;   eita convert-snapshot --from DIR --to DIR [--tmp DIR] [--threads N] [--block N]
 ;;;;   eita recovery resume|peek|gc STATE-DIR
 ;;;;   eita version
 ;;;;
@@ -33,6 +34,8 @@
   check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
   import-reth --state DIR [--threads N] FILE|-
                                    a root-checked base from a reth node (rust/reth-export)
+  convert-snapshot --from DIR --to DIR [--tmp DIR] [--threads N] [--block N]
+                                   a verified v1 state as a root-checked v2 base and anchor
   recovery resume|peek|gc DIR      the resume point / garbage collection of a state directory
   version                          the engine version and code version
 Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/quickstart.md)")
@@ -123,6 +126,17 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 (defun cmd-import-reth (args)
   (eita.state.root:import-main args))
 
+(defun cmd-convert-snapshot (args)
+  (multiple-value-bind (o rest)
+      (parse-options args '(("--from" :value) ("--to" :value) ("--tmp" :value) ("--threads" :value) ("--block" :value)))
+    (when rest (usage-error "convert-snapshot: unexpected ~{~A~^ ~}" rest))
+    (unless (and (getf o :from) (getf o :to)) (usage-error "convert-snapshot: --from and --to are required"))
+    (sb-ext:exit :code (if (eita.state.root:convert-snapshot
+                            (getf o :from) (getf o :to) :tmp (getf o :tmp)
+                            :threads (if (getf o :threads) (int-arg (getf o :threads) "--threads") (eita.state.snapshot:hardware-threads))
+                            :block (and (getf o :block) (int-arg (getf o :block) "--block")))
+                           0 1))))
+
 (defun cmd-recovery (args)
   (destructuring-bind (&optional what dir &rest more) args
     (unless (and dir (null more) (member what '("resume" "peek" "gc") :test #'string=))
@@ -145,7 +159,8 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 
 (defparameter +commands+
   '(("replay" . cmd-replay) ("engine" . cmd-engine) ("fixtures" . cmd-fixtures) ("repl" . cmd-repl)
-    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth) ("recovery" . cmd-recovery) ("version" . cmd-version)))
+    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth)
+    ("convert-snapshot" . cmd-convert-snapshot) ("recovery" . cmd-recovery) ("version" . cmd-version)))
 
 (defun register-command (name function)
   "Add the subcommand NAME, run as (FUNCTION args) after the engine started: a program that

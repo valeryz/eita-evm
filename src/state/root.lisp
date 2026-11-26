@@ -205,37 +205,37 @@
       (setf (sorter-ka s) ka (sorter-kb s) kb (sorter-ia s) ia (sorter-ib s) ib))))
 
 (declaim (inline key-word))
-(defun key-word (keys i stride)
+(defun key-word (keys i stride base)
   "The first 8 bytes of record I's key, big-endian, as a u64."
-  (declare (type octets keys) (type fixnum i stride) (optimize (speed 3) (safety 0)))
-  (let ((w 0) (o (* i stride)))
+  (declare (type octets keys) (type fixnum i stride base) (optimize (speed 3) (safety 0)))
+  (let ((w 0) (o (+ base (* i stride))))
     (declare (type (unsigned-byte 64) w) (type fixnum o))
     (dotimes (j 8 w) (setf w (logior (logand (ash w 8) #xFFFFFFFFFFFFFFFF) (aref keys (+ o j)))))))
 
-(defun key< (keys a b stride)
-  (declare (type octets keys) (type fixnum a b stride) (optimize (speed 3) (safety 0)))
-  (let ((oa (* a stride)) (ob (* b stride)))
+(defun key< (keys a b stride base)
+  (declare (type octets keys) (type fixnum a b stride base) (optimize (speed 3) (safety 0)))
+  (let ((oa (+ base (* a stride))) (ob (+ base (* b stride))))
     (declare (type fixnum oa ob))
     (dotimes (j 32 nil)
       (let ((x (aref keys (+ oa j))) (y (aref keys (+ ob j))))
         (cond ((< x y) (return t)) ((> x y) (return nil)))))))
 
-(defun sort-keys (s keys n stride)
+(defun sort-keys (s keys n stride &optional (base 0))
   "Indices 0..N-1 of the STRIDE-byte records in KEYS ordered by their 32-byte key
-   (memcmp). Small sets: a comparison sort; else an LSD radix sort on the first 8 bytes
+   (memcmp), the key of record I at BASE + I*STRIDE. Small sets: a comparison sort; else an LSD radix sort on the first 8 bytes
    in four 16-bit passes, runs with equal first 8 bytes ordered by the full key. Returns
    the sorter's index vector (its first N entries)."
-  (declare (type octets keys) (type fixnum n stride) (optimize (speed 3) (safety 0)))
+  (declare (type octets keys) (type fixnum n stride base) (optimize (speed 3) (safety 0)))
   (sorter-ensure s n)
   (let ((ia (sorter-ia s)))
     (when (< n 1024)
       (dotimes (i n) (setf (aref ia i) i))
-      (replace ia (sort (subseq ia 0 n) (lambda (a b) (key< keys a b stride))))
+      (replace ia (sort (subseq ia 0 n) (lambda (a b) (key< keys a b stride base))))
       (return-from sort-keys ia))
     (let ((ka (sorter-ka s)) (kb (sorter-kb s)) (ib (sorter-ib s)) (counts (sorter-counts s)))
       (declare (type (simple-array (unsigned-byte 64) (*)) ka kb)
                (type (simple-array (unsigned-byte 32) (*)) ia ib) (type (simple-array fixnum (*)) counts))
-      (dotimes (i n) (setf (aref ka i) (key-word keys i stride) (aref ia i) i))
+      (dotimes (i n) (setf (aref ka i) (key-word keys i stride base) (aref ia i) i))
       (loop for shift of-type fixnum from 0 below 64 by 16
             do (fill counts 0)
                (dotimes (i n) (incf (aref counts (1+ (ldb (byte 16 shift) (aref ka i))))))
@@ -252,7 +252,7 @@
                    (declare (type fixnum j))
                    (loop while (and (< j n) (= (aref ka j) (aref ka i))) do (incf j))
                    (when (> (- j i) 1)
-                     (replace ia (sort (subseq ia i j) (lambda (a b) (key< keys a b stride))) :start1 i))
+                     (replace ia (sort (subseq ia i j) (lambda (a b) (key< keys a b stride base))) :start1 i))
                    (setf i j))))
       ia)))
 
@@ -386,8 +386,9 @@
 (defconstant +open-files+ 4400)         ; two 2048-way partitions open at once (the account
                                         ; pass's and a giant storage's), and the mappings
 
-(defstruct (bucket (:constructor make-bucket (path)))
-  (stream nil) path (buf (make-array +wbuf+ :element-type '(unsigned-byte 8)) :type octets) (pos 0 :type fixnum)
+(defstruct (bucket (:constructor make-bucket (path &optional (wbuf +wbuf+)
+                                             &aux (buf (make-array wbuf :element-type '(unsigned-byte 8))))))
+  (stream nil) path (buf nil :type octets) (pos 0 :type fixnum)
   (count 0 :type fixnum))
 
 (defun open-buckets (prefix n)
@@ -422,7 +423,7 @@
 (defun bucket-put (b recs start size)
   "Append the SIZE-byte record at RECS[START..] to bucket B."
   (declare (type octets recs) (type fixnum start size))
-  (when (> (+ (bucket-pos b) size) +wbuf+) (bucket-flush b))
+  (when (> (+ (bucket-pos b) size) (length (bucket-buf b))) (bucket-flush b))
   (replace (bucket-buf b) recs :start1 (bucket-pos b) :start2 start :end2 (+ start size))
   (incf (bucket-pos b) size)
   (incf (bucket-count b)))
@@ -675,6 +676,25 @@
                    (setf hi mid))))
     lo))
 
+(defun slots-end (s asap aoff ssap si s1)
+  "The end of the slots of S's base account at ASAP+AOFF, its first one at SI (< S1)."
+  (declare (type fixnum aoff si s1))
+  (when (and (< si s1) (minusp (cmp-sap ssap (+ +header+ (* si +slot+)) asap aoff 20)))
+    (error "~A: storage record ~D belongs to no account (S5)" (eita.state.snapshot:snap-dir s) si))
+  ;; galloping, then bisecting: a giant storage's records are not all read here
+  (flet ((same (k) (zerop (cmp-sap ssap (+ +header+ (* k +slot+)) asap aoff 20))))
+    (if (or (>= si s1) (not (same si)))
+        si
+        (let ((lo si) (step 1))   ; LO is the account's
+          (declare (type fixnum lo step))
+          (loop while (and (< (+ lo step) s1) (same (+ lo step)))
+                do (setf lo (+ lo step) step (* 2 step)))
+          (let ((hi (min s1 (+ lo step))))   ; HI is past it
+            (declare (type fixnum hi))
+            (loop while (> (- hi lo) 1)
+                  do (let ((mid (ash (+ lo hi) -1))) (if (same mid) (setf lo mid) (setf hi mid))))
+            hi)))))
+
 (defun base-record (w recs r asap aoff ssap si sj)
   "Bucket record R from the base account at ASAP+AOFF with slots SI..SJ (key already in
    place)."
@@ -740,23 +760,7 @@
       (when (< (length (worker-bkeys w)) (* 32 n))
         (let ((v (make-array (* 32 n) :element-type '(unsigned-byte 8)))) (setf (worker-bkeys w) v)))
       (replace (worker-bkeys w) (worker-keys w) :end2 (* 32 n))
-      (flet ((slots-end (aoff)
-               ;; the end of the base account at AOFF's slots, from SI
-               (when (and (< si s1) (minusp (cmp-sap ssap (+ +header+ (* si +slot+)) asap aoff 20)))
-                 (error "~A: storage record ~D belongs to no account (S5)" (eita.state.snapshot:snap-dir s) si))
-               ;; galloping, then bisecting: a giant storage's records are not all read here
-               (flet ((same (k) (zerop (cmp-sap ssap (+ +header+ (* k +slot+)) asap aoff 20))))
-                 (if (or (>= si s1) (not (same si)))
-                     si
-                     (let ((lo si) (step 1))   ; LO is the account's
-                       (declare (type fixnum lo step))
-                       (loop while (and (< (+ lo step) s1) (same (+ lo step)))
-                             do (setf lo (+ lo step) step (* 2 step)))
-                       (let ((hi (min s1 (+ lo step))))   ; HI is past it
-                         (declare (type fixnum hi))
-                         (loop while (> (- hi lo) 1)
-                               do (let ((mid (ash (+ lo hi) -1))) (if (same mid) (setf lo mid) (setf hi mid))))
-                         hi))))))
+      (flet ((slots-end (aoff) (slots-end s asap aoff ssap si s1)))
         (dotimes (k n)
           (let* ((aoff (+ +header+ (* (+ a0 k) +acct+)))
                  (base-key (eita.state.snapshot:sap-be asap aoff 20)))
