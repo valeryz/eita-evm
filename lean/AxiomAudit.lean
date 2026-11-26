@@ -213,7 +213,7 @@ open Lean
     constant fails until it is reviewed and listed. -/
 def externAllowed : List (Name × Name × String) :=
   -- The JIT emitters' corpus gates: each runs the
-  -- emitter over the fixture corpus as emitJIT itself runs it -- dagSlots through its
+  -- emitter over the fixture corpus as the chunk emitter runs it -- dagSlots through its
   -- pointer-memoized `dagSlotsImpl` (the reference is never executed: structural dedup is
   -- 2^k on DUP-shared trees), and the IR fold (dynCosts -> regionStep -> foldStep ->
   -- execOp) through the C Keccak for a constant-input KECCAK256. They gate the shipped
@@ -224,8 +224,8 @@ def externAllowed : List (Name × Name × String) :=
                 ``Evm.CL.X86JIT.x86_chunks_lower, ``Evm.CL.X86JIT.x86_chunks_no_alias,
                 ``Evm.CL.X86JIT.x86_chunks_only_abs64]
   gates.flatMap fun t =>
-    [(t, ``Evm.CL.ARM64.JIT.dagSlots, "emitter corpus gate: emitJIT's own dagSlotsImpl"),
-     (t, ``Evm.Crypto.keccak256Bytes, "emitter corpus gate: the IR fold's constant KECCAK256, emitJIT's own C Keccak")]
+    [(t, ``Evm.CL.ARM64.JIT.dagSlots, "emitter corpus gate: the chunk emitter's own dagSlotsImpl"),
+     (t, ``Evm.Crypto.keccak256Bytes, "emitter corpus gate: the IR fold's constant KECCAK256, the chunk emitter's own C Keccak")]
 
 def ours (env : Environment) (c : Name) : Bool :=
   match env.getModuleIdxFor? c with

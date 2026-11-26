@@ -9,7 +9,7 @@ extension points.
 
 | Module | Role |
 |---|---|
-| `src/evm/` (package `eita.evm`) | EVM core: per-fork semantics, the tiers, host callbacks, `apply-tx` (`tx.lisp`), the event stream (`stream.lisp`), the observation seam (`observe.lisp`, `observe-tx.lisp`) and subscriptions over it (`hooks.lisp`, docs/hooks.md); chain hooks for precompiles, frame-init checks (`chain-frame-init`, the single entry point for tx, CALL and CREATE) and SELFDESTRUCT (`seams.lisp`) |
+| `src/evm/` (package `eita.evm`) | EVM core: per-fork semantics, running frames on the threaded interpreter, host callbacks, `apply-tx` (`tx.lisp`), the event stream (`stream.lisp`), the observation seam (`observe.lisp`, `observe-tx.lisp`) and subscriptions over it (`hooks.lisp`, docs/hooks.md); chain hooks for precompiles, frame-init checks (`chain-frame-init`, the single entry point for tx, CALL and CREATE) and SELFDESTRUCT (`seams.lisp`) |
 | `src/input/` (`eita.input`) | the block decoder (a JSON-RPC block object's bytes straight to a `chain-block`), and the **block source** seam: `fetch-block`, `fetch-verified-block`, `fetch-block-hash`, `fetch-receipts`, `fetch-uncles` ask `*block-source*`; `directory-block-source` reads per-block files (docs/block-input.md) |
 | `src/evm/run-tx.lisp` | one user transaction: effective gas price, upfront debit, execution, refund cap (London+), EIP-7623 floor (Prague+), fee settlement; hooks: prewarm, upfront extra, fee |
 | `src/chains/block-system.lisp` (`eita.chain`) | pre/post-block system calls: EIP-4788 (Cancun+), EIP-2935 (Prague+) by default; chain hooks |

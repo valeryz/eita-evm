@@ -38,11 +38,10 @@
 
 ;;; --- The engine's code version -------------------------------------------------------
 ;;; A content hash of the code that runs (native/code-version.lisp: the Lisp sources,
-;;; libeita, the emitJIT daemon): what persisted state and observers record as its provenance.
+;;; libeita): what persisted state and observers record as its provenance.
 (defvar *engine-code-version* nil)
 (defun engine-code-version ()
   (or *engine-code-version*
       (setf *engine-code-version*
             (code-version :home (eita-home)
-                          :extra (list (or (nonempty-env "EITA_LIB") (native-path "libeita" :error nil))
-                                       *emit-jit*)))))
+                          :extra (list (or (nonempty-env "EITA_LIB") (native-path "libeita" :error nil)))))))

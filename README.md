@@ -27,7 +27,7 @@ Eita replays a chain and verifies it: every block's header against its parent (E
 receipts root, the senders against their signatures, and the state root against the header
 at anchors — with full state from genesis, snapshots, and resume from a verified anchor. It
 runs Ethereum mainnet from genesis and the ethereum/tests BlockchainTests battery green on
-two execution tiers. Load it into a Lisp REPL and you can execute transactions against a
+a threaded interpreter emitted from the spec. Load it into a Lisp REPL and you can execute transactions against a
 world you build, or against a test's pre-state, and inspect balances, storage, logs and the
 state root.
 
@@ -79,7 +79,6 @@ repository; the engine, the spec, the proofs and the emitters are all here.
             ▼
   lean/Evm/CL/       emitters ──► c/handlers.S          ARM64 threaded interpreter
                               ──► c/handlers-x86-elf.S  x86-64 threaded interpreter
-                              ──► emitJIT daemon        per-chunk native JIT
                               ──► src/generated/host.lisp
                                   gas formulas, fork tables, and the effect layer
                                   (CALL/CREATE/SSTORE/SELFDESTRUCT, tx application,
@@ -100,7 +99,7 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 - **The proofs**: the IR compiler's soundness against the spec; the emitted handlers'
   denotations (ARM64 and x86-64 instruction semantics in Lean); the effect layer against
   each fork's `processTransaction`, `SELFDESTRUCT`, system calls and block rewards; the
-  call-gas and SSTORE gas routines; PUSH-n wide loads; the JIT code arena's safety; the
+  call-gas and SSTORE gas routines; PUSH-n wide loads; the chunk JIT's model (below); the
   header-validity rules. The axiom closure of the audited theorems is checked against a
   committed baseline (`scripts/verify-axioms.sh`): Lean's standard axioms, plus, for the theorems proved by
   evaluation, `native_decide`'s auxiliary axioms (listed; docs/trusted-surface.md). The statements
@@ -112,6 +111,13 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 - **Generated, not hand-written**: `c/handlers.S`, `c/handlers-x86-elf.S` and
   `src/generated/host.lisp` are committed and must be byte-identical to what the
   emitters produce (`scripts/verify-host-emit.sh`).
+- **The chunk JIT is not part of this repository for now.** On real replays it does not yet
+  beat the threaded interpreter: the time goes to state access rather than to executing
+  opcodes, so it needs more work. Its Lean model and proofs remain:
+  `lean/Evm/CL/ARM64/JIT.lean`, `lean/Evm/CL/ARM64/JITEmit.lean`, `lean/Evm/CL/ARM64/ChunkGas*.lean`,
+  `lean/Evm/CL/X86JIT.lean`, `lean/Evm/CL/CodeArena.lean`, `lean/Evm/CL/Arena.lean` and
+  `lean/Evm/CL/ChunkMemExpand.lean`, with the emitter's byte-exact gate
+  (`scripts/verify-jit-emit.sh`).
 - **The host** (`src/`): Common Lisp (SBCL), the ASDF system `eita`. World state, frames, the callbacks the
   handlers yield to, tx and block application, the chain specs and the replay driver.
   Where it decides something the spec owns (a gas cost, a fork rule, an effect), it calls
@@ -122,7 +128,7 @@ repository; the engine, the spec, the proofs and the emitters are all here.
 - **What is proved, checked and trusted**: [`docs/VERIFIED.md`](docs/VERIFIED.md); the numbers per
   component in [`scripts/generated/verification-stats.md`](scripts/generated/verification-stats.md).
 - **ethereum/tests**: the Cancun battery (`LegacyTests/Cancun/BlockchainTests`, 111,983
-  tests, Frontier..Cancun) passes on both tiers, the threaded interpreter and the JIT:
+  tests, Frontier..Cancun) passes on the threaded interpreter:
   `pass=111835 fail=0 skip=40 xfail=108`, every expected failure listed with its reason
   (`docs/testing.md`, `src/fixtures/expected-failures.txt`). Also green: the current
   `ValidBlocks` (Cancun + Prague) and execution-spec-tests' blockchain fixtures (Cancun +
@@ -146,7 +152,7 @@ repository; the engine, the spec, the proofs and the emitters are all here.
   evidence there, not a proof.
 - **Not checked**: the proof-of-work seal (ethash); RLP-level block defects (the decoder
   reads JSON-RPC block objects, not raw RLP).
-- **Platforms**: macOS arm64, Linux aarch64 and x86-64; interpreter and JIT tiers on each.
+- **Platforms**: macOS arm64, Linux aarch64 and x86-64.
 
 ## Build
 
@@ -190,9 +196,8 @@ export LD_LIBRARY_PATH=/usr/local/lib:$(cd lean && lean --print-prefix)/lib
 ```
 
 `./build.sh` ends with `bin/eita`, one executable holding the whole engine, with the native
-libraries (and the `emitJIT` daemon) copied beside it: `bin/` can be moved as a whole.
-`./build.sh --leanless` skips Lean: it builds libeita from the committed generated files,
-and you run the interpreter tier (`EITA_NO_JIT=1`).
+libraries copied beside it: `bin/` can be moved as a whole.
+`./build.sh --leanless` skips Lean: it builds libeita from the committed generated files.
 
 The heap is an SBCL runtime option: `bin/eita` starts with the one it was built with
 (`EITA_HEAP_MB`, default 8192 MB); per run, give it before the command:
@@ -237,7 +242,6 @@ own folds and notifications on the verified blocks of a replay.
 
 ```sh
 bin/eita fixtures <BlockchainTests file or directory>...   # docs/testing.md
-EITA_NO_JIT=1 bin/eita fixtures <...>                      # interpreter tier
 scripts/verify-host-emit.sh                                # generated code == emitters
 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   # docs/block-input.md
 bin/eita engine --chain hoodi --state DIR --jwt FILE            # docs/run-a-node.md
@@ -264,7 +268,7 @@ interface, documented there.
 | `c/`, `lean/c/` | libeita: the emitted handlers, per-tx state tables, precompiles |
 | `eita.asd`, `ocicl.csv` | the ASDF systems (`eita`, `eita/chains`, `eita/fixtures`, `eita/cli`, `eita/test`), the pinned Lisp dependencies |
 | `src/native/`, `src/core/` | where the native libraries are and their FFI; u256, hex, RLP, keccak |
-| `src/evm/` | the EVM host: tiers (JIT, threaded interpreter), frames, journal, callbacks, precompiles, tx application, the observation seam and event stream |
+| `src/evm/` | the EVM host: frames on the threaded interpreter, the journal, callbacks, precompiles, tx application, the observation seam and event stream |
 | `src/generated/host.lisp` | Lean-emitted: gas formulas, fork tables, the effect layer |
 | `src/state/` | world state; full state: layered snapshots, anchors, state-root checks, resume; the trie |
 | `src/input/` | block decoding and the block-source seam |
@@ -280,10 +284,6 @@ interface, documented there.
 - **The Engine API beyond validate-only**: sync to the CL's head, reorgs, an incremental
   state root per block — from a verifying replayer to a full execution client.
 - The proof obligations listed in `scripts/generated/refinement-coverage.md`, down to zero.
-- The x86-64 JIT's proofs at parity with ARM64: the chunk's head charge, op sites,
-  terminators and trampolines under the x86-64 semantics (the handlers, gas routines and
-  region flush are proved; the x86-64 JIT already passes the same test batteries); and JIT
-  images for Leanless builds, which run the interpreter tier today.
 - Block-STM parallel execution (spec in `lean/Evm/Parallel`, proved) in the replay.
 - Amsterdam (staged in `lean/Evm/Amsterdam`).
 

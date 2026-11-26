@@ -28,7 +28,7 @@ Tools, not part of the claim and not in the totals:
 
 | Component | Statement lines | Proof lines | Theorems | `sorry` | `native_decide` | Axioms |
 |---|---:|---:|---:|---:|---:|---|
-| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 3,009 (3,004 + 5) | 0 | 1 | 0 | 6 | — |
+| [Tools: emitter drivers, test vectors, replay executables](https://github.com/valeryz/eita-evm/tree/main/lean)<br>`lean/*.lean` | 2,882 (2,877 + 5) | 0 | 1 | 0 | 6 | — |
 
 `native_decide` trusts the Lean compiler's evaluation of a decision procedure (an extra axiom per use): see [`docs/trusted-surface.md`](../../docs/trusted-surface.md#native_decide).
 
@@ -64,4 +64,4 @@ Tools, not part of the claim and not in the totals:
 - `sorry`: 11 in `lean/Evm`, equal to the 11 of `scripts/generated/refinement-coverage.md` (the generator fails otherwise); 0 elsewhere. By component: Opcode refinement relations 1, Effect layer 1, ARM64 backend and shared lowering 1, Chain specs 1, Trie and RLP 7.
 - Axioms: all 86 entries of `scripts/generated/axiom-audit.txt` map to their declaring file (the generator fails otherwise); the Velvet and Veil rows count their own gates' checks.
 - Theorems: 3,053 in the claim rows, plus 1 in the tools; 293 `example` blocks are counted as statement/proof lines but not as theorems.
-- Files: 437 in the claim rows, 26 tools; other lines (imports, namespaces, `#` commands): 3,643.
+- Files: 437 in the claim rows, 25 tools; other lines (imports, namespaces, `#` commands): 3,643.

@@ -17,7 +17,7 @@ open Lake DSL System
 
     Linux (aarch64): secp256k1/mcl in /usr/local/lib, libcrypto in /usr/lib64
     (Amazon Linux) or /usr/lib/aarch64-linux-gnu (Debian/Ubuntu).
-    The deploy executables (emitARM64/emitHostCL/emitJIT)
+    The deploy executables (emitARM64/emitHostCL)
     are emitters/validators — none run the threaded interp, so none need a
     handler lib. (interpFixtures, which does, must additionally link
     `c/libeita.so` — built by c/Makefile, which exports the same eita_handler_*
@@ -97,9 +97,6 @@ lean_exe emitHostCL where
 
 lean_exe emitRepriceCL where
   root := `EmitRepriceCL
-
-lean_exe emitJIT where
-  root := `EmitJIT
 
 lean_exe callGasVectors where
   root := `CallGasVectors
@@ -190,12 +187,6 @@ target blake2f.o pkg : FilePath := do
   let srcJob ← inputTextFile <| pkg.dir / "c" / "blake2f.c"
   buildO oFile srcJob (← cFlags) #[] "cc"
 
-/-- Build c/uds.c → uds.o (Unix-domain-socket FFI for the emit server). -/
-target uds.o pkg : FilePath := do
-  let oFile  := pkg.buildDir / "c" / "uds.o"
-  let srcJob ← inputTextFile <| pkg.dir / "c" / "uds.c"
-  buildO oFile srcJob (← cFlags) #[] "cc"
-
 /-- Build c/csu_shim.c → csu_shim.o. Supplies __libc_csu_init/__libc_csu_fini
     for the inconsistent Lean v4.29.1/v4.35.0 Linux toolchains (aarch64 and x86_64):
     old-style bundled Scrt1.o references those symbols, glibc >= 2.34 dropped
@@ -221,10 +212,9 @@ extern_lib libevmc pkg := do
   let p256   ← p256verify.o.fetch
   let kzg    ← point_evaluation.o.fetch
   let b2f    ← blake2f.o.fetch
-  let uds    ← uds.o.fetch
   let csu    ← csu_shim.o.fetch
   let name := nameToStaticLib "evmc"
-  buildStaticLib (pkg.staticLibDir / name) #[keccak, sha, rmd, ecr, bn, mclc, bls, p256, kzg, b2f, uds, csu]
+  buildStaticLib (pkg.staticLibDir / name) #[keccak, sha, rmd, ecr, bn, mclc, bls, p256, kzg, b2f, csu]
 
 lean_exe recoveryVectors where
   root := `RecoveryVectors

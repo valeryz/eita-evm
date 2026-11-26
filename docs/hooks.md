@@ -287,8 +287,8 @@ The rules:
 - **Read a fold's state inside `eita:with-fold-state`.** Handlers run on the hooks thread and
   the REPL on another; inside it, no handler runs, so every fold reflects whole blocks. Copy
   what you need and leave: the handlers wait meanwhile, and behind them the replay.
-- **Never walk the node's own tables from the REPL while blocks run**: the world state, the
-  JIT cache and the engine's tables mutate on the replay thread without locks. Ask a fold for
+- **Never walk the node's own tables from the REPL while blocks run**: the world state
+  and the engine's tables mutate on the replay thread without locks. Ask a fold for
   what you need instead.
 - **Long computations run outside the lock**, on the REPL's thread or a thread of their own.
 - **Unsubscribe before changing a handler's arguments**, then subscribe again; a redefinition

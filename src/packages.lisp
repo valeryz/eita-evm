@@ -24,14 +24,14 @@
            #:%eita-bls-map-fp-to-g1 #:%eita-bls-map-fp2-to-g2 #:%eita-bls-pairing
            #:%eita-bn254-add #:%eita-bn254-mul #:%eita-bn254-pairing #:%eita-ecrecover
            #:%eita-modexp #:%eita-p256-verify #:%eita-point-evaluation #:%jumpdest-map #:%mmap
-           #:%mprotect #:%ripemd160-hash #:%run-program #:%set-fork #:%sha256-hash
+           #:%mprotect #:%ripemd160-hash #:%set-fork #:%sha256-hash
            #:%ts-access-addr #:%ts-access-addrs #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
            #:%ts-orig-get #:%ts-orig-record #:%ts-refund-add #:%ts-reset #:%ts-revert
            #:%sh-revert-storage #:%sh-touch #:%sh-touch-at #:%sh-touch-count
            #:%sh-touch-reset #:%sh-watch #:%sh-watch-clear #:%ws-copy #:%ws-drop #:%ws-free #:%ws-get #:%ws-new #:%ws-put #:%ws-remove
            #:*image-p* #:at-startup #:code-version #:code-version-manifest #:defstartup
            #:dir-of #:eita-file #:eita-home #:eita-keccak256 #:eita-lib-ext #:eita-run
-           #:emit-jit-path #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
+           #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
            #:home-relative #:native-path #:nonempty-env #:open-native #:run-startup!
            #:source-file))
 
@@ -44,7 +44,7 @@
            #:u256-write #:word-int #:words-u256))
 
 (defpackage #:eita.evm
-  (:documentation "The EVM: interpreter and JIT tiers, frames and arenas, the journal, the host callbacks
+  (:documentation "The EVM: the threaded interpreter, frames and arenas, the journal, the host callbacks
    (CALL/CREATE family, precompiles), the Lean-emitted host effects (generated/host.lisp),
    transaction application, the observation seam and the event stream.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.state #:eita.input #:eita.chain)
@@ -54,7 +54,7 @@
            #:*chain-tx-prewarm-hook* #:*chain-upfront-extra-hook* #:*chain-value-transfer-hook*
            #:*chain-value-transfer-log-hook* #:*code-hash-memo* #:*cur-block* #:*cur-tx*
            #:*current-address* #:*current-block-number* #:*current-world* #:*el-fork-ord*
-           #:*fork-ord* #:*jit-stats* #:*last-sub-outcome* #:*last-tx-logs* #:*last-tx-output*
+           #:*fork-ord* #:*last-sub-outcome* #:*last-tx-logs* #:*last-tx-output*
            #:*last-verdict* #:*mpt-tracking* #:*network-fork-ords* #:*p256verify*
            #:*prague-delegation* #:*receipt-cumulative-gas* #:*system-seed* #:*trace-frames*
            #:*trace-step* #:*trace-tx* #:*tx-origin* #:+acct-destroyed+ #:+acct-touched+

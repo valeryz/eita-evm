@@ -1,7 +1,7 @@
 ;;;; native/startup.lisp — what a saved image redoes when it starts.
 ;;;;
 ;;;; Loading the engine opens shared libraries, allocates foreign buffers, caches pointers into
-;;;; libeita and reads the environment (EITA_NO_JIT, EITA_TRACE_*, …) into variables. A process
+;;;; libeita and reads the environment (EITA_TRACE_*, …) into variables. A process
 ;;;; that loads the sources does all of that as it starts. The executable (bin/eita) was
 ;;;; loaded when it was BUILT: when it starts, its libraries are closed, its foreign memory is
 ;;;; gone and the environment is the run's, not the build's. So every such load-time

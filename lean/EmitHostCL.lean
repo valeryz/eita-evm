@@ -22,7 +22,6 @@ import Evm.CL.EffectCall          -- the derived cb-call effect; proved in Effec
 import Evm.CL.EffectTx            -- the derived apply-tx effect; proved in EffectTxProof
 import Evm.CL.EffectSystem        -- the derived system call; proved in EffectSystemProof
 import Evm.CL.EffectBlock         -- the derived block credits; proved in EffectBlockProof
-import Evm.CL.ARM64.RunProgramDenote  -- the JIT dispatch-table builder; proved in the same file
 
 /-! Emit the host-layer decision logic as Common Lisp.
 
@@ -101,10 +100,6 @@ def main : IO Unit := do
   IO.println ";; ommer rewards (to London), the EIP-4895 withdrawals (from Shanghai). Proved equal to"
   IO.println ";; every fork's Evm.Frontier.Vm.Block.postBlock in Evm.CL.EffectBlockProof."
   IO.println Evm.CL.EffectBlock.creditsCL
-  IO.println ""
-  IO.println ";; The JIT dispatch table (RunProgramDenote.build; = the manifest scan: tableLookup_build)."
-  IO.println ";; The replay's JIT loader and tests/audit-jit.lisp call it; the caller frees the table."
-  IO.println Evm.CL.ARM64.RunProgramDenote.buildCL
   IO.println ""
   IO.println ";; CL-side revert-journal-to dispatch (world-state entry types;"
   IO.println ";; native types are reverted by eita_ts_revert)."
