@@ -67,9 +67,13 @@
 
 (defun state-dir ()
   "Where anchors, snapshots and root-check markers live: EITA_STATE_DIR (else, for existing
-   deployments, EITA_FACTLOG_DIR)."
-  (or (let ((d (sb-ext:posix-getenv "EITA_STATE_DIR"))) (and d (plusp (length d)) d))
-      (sb-ext:posix-getenv "EITA_FACTLOG_DIR") "/tmp/eita-state/"))
+   deployments, EITA_FACTLOG_DIR). Always ends with a slash so MERGE-PATHNAMES places
+   files inside the directory."
+  (let ((d (or (let ((v (sb-ext:posix-getenv "EITA_STATE_DIR"))) (and v (plusp (length v)) v))
+               (sb-ext:posix-getenv "EITA_FACTLOG_DIR") "/tmp/eita-state/")))
+    (if (and (plusp (length d)) (char= (char d (1- (length d))) #\/))
+        d
+        (concatenate 'string d "/"))))
 
 (defun checkpoint-interval (h)
   "Mirror of Evm.Trie.CheckpointSchedule.checkpointInterval: 2^clamp(log2 h − 3, 10, 20)."
@@ -101,6 +105,17 @@
 (defparameter *anchor-queue* '()
   "Anchors frozen but not yet checked, oldest first: (block expected-hex). An anchor waits
    until its layer is on disk, and at the tip until it is `reorg-window` deep.")
+(defparameter *deferred-anchors* '()
+  "Frozen anchor heights whose expected stateRoot arrives in a later header (e.g., Avalanche
+   Helicon/SAE where header.stateRoot commits to settledHeight < number).")
+
+(defun resolve-deferred-anchor! (settled-height expected-hex)
+  "If SETTLED-HEIGHT was frozen as a deferred anchor, promote it to *ANCHOR-QUEUE* with
+   EXPECTED-HEX from the settling header."
+  (when (and settled-height expected-hex (member settled-height *deferred-anchors*))
+    (setf *deferred-anchors* (remove settled-height *deferred-anchors*)
+          *anchor-queue* (append *anchor-queue* (list (list settled-height expected-hex))))
+    t))
 (defparameter *base-check-due* nil "A compacted base (its block) whose check is to start.")
 (defun reorg-window ()
   "Blocks a reorg may undo (the chain-spec's; Ethereum finality is two epochs). At the tip
@@ -350,14 +365,14 @@
    layer, a compaction), collect a finished root check, start the next one, prune."
   (writer-check!)
   (root-check-finish!)
-  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*)))) ; @veil root-check-poll!/compact
+  (let ((m (compaction-step! n (append (mapcar #'first *anchor-queue*) *deferred-anchors*)))) ; @veil root-check-poll!/compact
     (when m (setf *base-check-due* m)))
   (unless *pending-root* ; @veil root-check-poll!/idle
     (if *base-check-due* ; @veil root-check-poll!/base-due
         (let* ((m (shiftf *base-check-due* nil))
                (path (eita.state.snapshot:snap-path (snapshot-dir) m))
                (manifest (eita.state.snapshot:read-manifest path)))
-          (spawn-root-check! m (getf manifest :state-root) ; @veil root-check-poll!/manifest-root
+          (spawn-root-check! m (or (getf manifest :state-root) (second (find m (read-anchors) :key #'''first :from-end t))) ; @veil root-check-poll!/manifest-root
                              (list (list :base m (getf manifest :content-hash))) :base))
         (let ((a (first *anchor-queue*))) ; @veil root-check-poll!/anchor
           (when a

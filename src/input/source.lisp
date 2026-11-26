@@ -44,11 +44,13 @@
       (error "block ~D: not available from the block source ~A" n (block-source-name (block-source)))))
 
 ;;; Block integrity: a block is only as good as its bytes, so it is checked against its own
-;;; hash, keccak(RLP(header)) (decode-block computes it), before it is replayed. With the
-;;; parent link run-block already checks, a chain of blocks is then hash-linked end to end.
+;;; hash, keccak(RLP(header)) (decode-block computes it, using Coreth's 30-field header RLP
+;;; when extDataHash is present), before it is replayed. With the parent link run-block
+;;; already checks, a chain of blocks is then hash-linked end to end.
 (defun fetch-verified-block (n)
-  "FETCH-BLOCK, checked: its header must hash to its `hash`. A copy that does not is
-   replaced by the source's REFETCH, when it has one; if that does not hash either, stop loud."
+  "FETCH-BLOCK, checked: its header must hash to its `hash`.
+   A copy that does not is replaced by the source's REFETCH, when it has one; if that does
+   not hash either, stop loud."
   (let ((blk (fetch-block n)))
     (if (= (blk-header-hash blk) (blk-hash blk))
         blk
@@ -104,11 +106,18 @@
         (values (decode-block b i)))))
 
 (defun directory-block-source (dir &key (name nil))
-  "A source over DIR's block files (<n>.json or <n>.json.gz). Blocks are decoded on demand
-   and the last 300 kept (the BLOCKHASH window reads 256 back)."
+  "A source over DIR's block files (<n>.json or <n>.json.gz), plus an optional
+   ancestor-hashes.json map ({number: \"0x...\"} for the 256-block BLOCKHASH window on
+   bounded resumes). Blocks are decoded on demand and the last 300 kept."
   (let* ((dir (pathname (if (char= (char (namestring dir) (1- (length (namestring dir)))) #\/)
                             (namestring dir) (concatenate 'string (namestring dir) "/"))))
-         (cache (make-hash-table :test 'eql)))
+         (cache (make-hash-table :test 'eql))
+         (ancestors (let ((p (probe-file (merge-pathnames "ancestor-hashes.json" dir))))
+                      (when p
+                        (let ((ht (make-hash-table :test 'eql))
+                              (obj (jsown:parse (alexandria:read-file-into-string p))))
+                          (dolist (pair (rest obj) ht)
+                            (setf (gethash (parse-integer (car pair)) ht) (hex->int (cdr pair)))))))))
     (labels ((path (n) (or (probe-file (merge-pathnames (format nil "~D.json" n) dir))
                            (probe-file (merge-pathnames (format nil "~D.json.gz" n) dir))))
              (block-n (n)
@@ -120,6 +129,7 @@
       (make-block-source
        :name (or name (format nil "files in ~A" (namestring dir)))
        :block #'block-n
+       :hash (when ancestors (lambda (n) (gethash n ancestors)))
        :forget-above (lambda (top) (loop for k being the hash-keys of cache when (> k top) do (remhash k cache)))))))
 
 (defun default-block-source ()

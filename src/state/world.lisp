@@ -30,6 +30,7 @@
    an absent account (precompiles included) or an empty CREATE. Journaled (type 11).")
 (defconstant +acct-faulted+ 2 "Its fields were loaded from the cold tier (fault-account!).")
 (defconstant +acct-wiped+ 4 "Its storage was removed wholesale since the table began.")
+(defconstant +acct-multi-coin+ 8 "Avalanche Coreth: legacy 5-field multi-coin account RLP.")
 (defvar +no-code+ (make-array 0) "An account's code when it has none (no entry).")
 
 (defstruct (acct-table (:constructor %make-acct-table (keys vals mask)))

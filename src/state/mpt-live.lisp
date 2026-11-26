@@ -302,7 +302,7 @@
   (null (eita.mpt:mtrie-top trie)))
 
 (defun mpt-slot-key (slot)
-  (eita.mpt:%keccak (eita.mpt:int->be-bytes-fixed slot 32)))
+  (eita.mpt:%keccak (eita.mpt:normalize-slot-bytes (eita.mpt:int->be-bytes-fixed slot 32))))
 
 (defun mpt-slot-value (val)
   "The trie's leaf value for a slot: RLP(minimal-BE(val)). Byte-for-byte the

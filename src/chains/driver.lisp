@@ -224,10 +224,20 @@
       (setf (gethash n *block-hashes*) (blk-hash blk))
       ;; Layer points: freeze the hot set (no pause; written in the background). An anchor's
       ;; root check is queued; at the tip every block is a layer (a reorg drops layers).
+      ;; On chains with asynchronous settlement (Avalanche Helicon/SAE), header.stateRoot
+      ;; commits to settledHeight < N, so a frozen anchor waits for its settling header.
       (when (and *full-state* layer-point)
-        (let ((anchor (anchor-due-p n)))
+        (let* ((sh (blk-settled-height blk))
+               (deferred-sae (and sh (< sh n)))
+               (anchor (anchor-due-p n)))
+          (when deferred-sae
+            (eita.state::resolve-deferred-anchor! sh (blk-state-root blk)))
           (when (or anchor *tip-freeze* (layer-due-p n) (hot-over-budget-p n))
-            (anchor! world n (blk-state-root blk) :anchor anchor)))
+            (cond ((and anchor deferred-sae)
+                   (anchor! world n nil :anchor nil)
+                   (pushnew n eita.state::*deferred-anchors*))
+                  (t
+                   (anchor! world n (if deferred-sae nil (blk-state-root blk)) :anchor anchor)))))
         ;; finished background work into the stack; collect / start root checks
         (root-check-poll! n))
       ;; subscriptions' :executed handlers: the world after N at hand (eita:simulate)
@@ -274,7 +284,8 @@
    records (the stream's :rollback), block hashes and the source's blocks. Returns T+1."
   (let ((top (rollback-to! world fork))) ; @veil rollback-chain!/rollback
     ;; an anchor above TOP belongs to the abandoned branch
-    (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*))
+    (setf *anchor-queue* (remove-if (lambda (a) (> (first a) top)) *anchor-queue*)
+          eita.state::*deferred-anchors* (remove-if (lambda (b) (> b top)) eita.state::*deferred-anchors*))
     (stream-rollback! top)
     (loop for b being the hash-keys of *block-hashes* when (> b top) do (remhash b *block-hashes*))
     (source-call #'block-source-forget-above top)

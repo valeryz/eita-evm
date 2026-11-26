@@ -68,7 +68,8 @@
        (if (and (>= a 0) (acct-flag-p tb a +acct-faulted+))
            (let ((code (acct-code-entry tb a)))
              (values t (acct-nonce tb a) (acct-balance tb a)
-                     (world-code-hash code) (acct-flag-p tb a +acct-marked+) code))
+                     (world-code-hash code) (acct-flag-p tb a +acct-marked+) code
+                     (acct-flag-p tb a +acct-multi-coin+)))
            nil)))
     (:slot
      (destructuring-bind (addr slot) args
@@ -100,6 +101,10 @@
   "keccak of N as WIDTH big-endian bytes (32 octets; any thread)."
   (keccak256-bytes (eita.state.snapshot::int->octets n width)))
 
+(defun slot-key-hash (slot)
+  "keccak of SLOT as 32 big-endian bytes, applying Coreth NormalizeStateKey when *CORETH-TRIE* is T."
+  (keccak256-bytes (eita.mpt:normalize-slot-bytes (eita.state.snapshot::int->octets slot 32))))
+
 (defvar *hkey-cache* (make-array 4096 :initial-element nil) "address -> keccak (replay thread).")
 (defvar *hslot-cache* (make-array 65536 :initial-element nil) "slot -> keccak (replay thread).")
 
@@ -109,13 +114,17 @@
         (cdr e)
         (let ((h (key-hash n width))) (setf (svref cache i) (cons n h)) h))))
 (defun addr-hkey (addr) (cached-key-hash *hkey-cache* addr 20))
-(defun slot-hslot (slot) (cached-key-hash *hslot-cache* slot 32))
+(defun slot-hslot (slot)
+  (let* ((i (logand (u256-word slot 0) (1- (length *hslot-cache*)))) (e (svref *hslot-cache* i)))
+    (if (and e (eql (car e) slot))
+        (cdr e)
+        (let ((h (slot-key-hash slot))) (setf (svref *hslot-cache* i) (cons slot h)) h))))
 
 (defun snap-fault-account (addr)
   "The fault hook: ADDR's fields from the stack (fault-account! called it on the account's
    first touch)."
   (incf (getf *snap-stats* :acct-faults))
-  (multiple-value-bind (found nonce balance codehash exists-empty code)
+  (multiple-value-bind (found nonce balance codehash exists-empty code multi-coin)
       (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr)) #'slot-hslot) ; @veil snap-fault-account/view
     (when found
       (with-acct (tb a) *current-world* addr
@@ -131,7 +140,8 @@
                         ;; seed the code hash memo: no keccak for code read by hash
                         (setf (gethash code *code-hash-memo*) codehash)
                         (intern-code codehash code)))))
-        (when exists-empty (acct-set-flag! tb a +acct-marked+))))))
+        (when exists-empty (acct-set-flag! tb a +acct-marked+))
+        (when multi-coin (acct-set-flag! tb a +acct-multi-coin+))))))
 
 (defun snap-fault-slot (addr slot)
   "A slot is faulted iff its key is present in ADDR's packed table (fault-slot! calls
@@ -212,7 +222,7 @@
                    ;; storage touched, account never faulted: its fields as they are below
                    (multiple-value-bind (found nonce balance codehash flag)
                        (eita.state.snapshot:view-account below-layers below-base a (and v2 (lambda () (key-hash a 20)))
-                                                         (lambda (k) (key-hash k 32)))
+                                                         #'''slot-key-hash)
                      (if found (list nonce balance codehash flag) (list 0 0 eita.state.snapshot:+empty-code-hash+ nil))))))
            (slots (r)
              (let ((kv '())) (acct-slots-map (lambda (k v) (push (cons k v) kv)) tb r) kv)))
@@ -241,14 +251,15 @@
                              recs)
                      #'< :key #'first))
       (destructuring-bind (hkey r) (rest e)
-        (dolist (kv (sort (mapcar (lambda (kv) (let ((h (key-hash (car kv) 32))) (list (eita.state.snapshot:octets->int h) h (cdr kv))))
+        (dolist (kv (sort (mapcar (lambda (kv) (let ((h (slot-key-hash (car kv)))) (list (eita.state.snapshot:octets->int h) h (cdr kv))))
                                   (funcall slots r))
                           #'< :key #'first))
           (eita.state.snapshot:writer-slot w hkey (second kv) (third kv)))
         (destructuring-bind (nonce balance codehash mark) (funcall fields r)
           (eita.state.snapshot:writer-account w hkey (acct-addr tb r)
                                               (logior (if mark eita.state.snapshot::+flag-exists-empty+ 0)
-                                                      (if (acct-flag-p tb r +acct-wiped+) eita.state.snapshot::+flag-wiped+ 0))
+                                                      (if (acct-flag-p tb r +acct-wiped+) eita.state.snapshot::+flag-wiped+ 0)
+                                                      (if (acct-flag-p tb r +acct-multi-coin+) eita.state.snapshot::+flag-multi-coin+ 0))
                                               nonce balance codehash))))
     (eita.state.snapshot:writer-finish w (loop for h being the hash-keys of codes using (hash-value c) collect (cons h c))
                                        :provenance provenance)))
@@ -409,7 +420,7 @@
                             (destructuring-bind (run p n) (rest job)
                               (let ((tmp (eita.state.snapshot:layer-tmp-path dir p n)) (fin (eita.state.snapshot:layer-path dir p n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'''first :from-end t))) ; @veil start-compaction!/compose
                                                           run nil :parent p
                                                           :provenance (format nil "eita minor compaction ~D-~D, code ~A" p n (engine-code-version)))
                                 (eita.state.snapshot:snap-publish dir n tmp :final fin) ; @veil start-compaction!/publish
@@ -418,7 +429,7 @@
                             (destructuring-bind (run n) (rest job)
                               (let ((tmp (eita.state.snapshot:snap-tmp-path dir n)))
                                 (when (probe-file tmp) (sb-ext:run-program "rm" (list "-rf" (namestring tmp)) :search t))
-                                (eita.state.snapshot:write-composed tmp *chain-id* n (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) ; @veil start-compaction!/compose
+                                (eita.state.snapshot:write-composed tmp *chain-id* n (or (getf (eita.state.snapshot:snap-manifest (first run)) :state-root) (second (find n (read-anchors) :key #'''first :from-end t))) ; @veil start-compaction!/compose
                                                           run base
                                                           :provenance (format nil "eita major compaction to ~D over ~D, code ~A"
                                                                               n (eita.state.snapshot:snap-block base) (engine-code-version)))

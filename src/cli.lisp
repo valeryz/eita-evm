@@ -26,7 +26,7 @@
 
 (defparameter +usage+
   "usage: eita <command> [arguments]
-  replay --chain ethereum|hoodi|devnet|arc|arc-testnet|arc-mainnet|base|opt|world --from N [--to M|tip]
+  replay --chain ethereum|hoodi|devnet|arc|arc-testnet|arc-mainnet|base|opt|world|avalanche|avalanche-fuji --from N [--to M|tip]
          [--blocks DIR] [--state DIR] [--checkpoint-every N] [--source FILE]
          [--observer FILE] [--resume N] [--genesis FILE] [--lazy | --full-state]
   engine --chain ethereum|hoodi|devnet --state DIR --jwt FILE [--engine-listen 127.0.0.1:8551]

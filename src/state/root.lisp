@@ -840,10 +840,13 @@
 (defun snapshot-root-2 (s ls threads)
   "(values root-bytes n-accounts n-slots) of the version 2 base S under the version 2
    layers LS (newest first): the state the stack reads as (Lean `view`, S1 applied)."
-  (let ((na 0) (ns 0) (lock (sb-thread:make-mutex)))
+  (let ((na 0) (ns 0) (lock (sb-thread:make-mutex))
+        (coreth (or eita.mpt:*coreth-trie*
+                    (and (member (getf (eita.state.snapshot:snap-manifest s) :chain-id) '(43114 43113)) t))))
     (flet ((feed (st g w)
              (declare (ignore w))
-             (let ((sst (make-stack-trie 0)) (key (make-array 32 :element-type '(unsigned-byte 8))) (a 0) (n 0))
+             (let ((eita.mpt:*coreth-trie* coreth)
+                   (sst (make-stack-trie 0)) (key (make-array 32 :element-type '(unsigned-byte 8))) (a 0) (n 0))
                (declare (type fixnum a n))
                (multiple-value-bind (lo hi) (eita.state.snapshot::key-range g 4 32)
                  (eita.state.snapshot:compose-accounts-2
@@ -855,13 +858,15 @@
                   (lambda (sap off nslots wiped)
                     (declare (ignore wiped))
                     (let ((nonce (minimal-be sap (+ off 56) 8)) (balance (minimal-be sap (+ off 64) 32))
-                          (codehash (copy-sap sap (+ off 96) 32 (make-array 32 :element-type '(unsigned-byte 8)))))
+                          (codehash (copy-sap sap (+ off 96) 32 (make-array 32 :element-type '(unsigned-byte 8))))
+                          (flags (eita.state.snapshot::sap-be sap (+ off 52) 4)))
                       (when (eita.state.snapshot::s1-included-p
                              (eita.state.snapshot::sap-be sap (+ off 56) 8) (eita.state.snapshot::sap-be sap (+ off 64) 32)
                              (eita.state.snapshot::sap-be sap (+ off 96) 32) (plusp nslots)
-                             (logtest 1 (eita.state.snapshot::sap-be sap (+ off 52) 4)))
+                             (logtest 1 flags))
                         (copy-sap sap off 32 key)
-                        (st-push st key 0 (eita.mpt:account-leaf-value nonce balance (st-root-bytes (st-finish sst)) codehash))
+                        (st-push st key 0 (eita.mpt:account-leaf-value nonce balance (st-root-bytes (st-finish sst)) codehash
+                                                                       (logtest eita.state.snapshot::+flag-multi-coin+ flags)))
                         (incf a))
                       (st-reset sst 0)))
                   :release t))

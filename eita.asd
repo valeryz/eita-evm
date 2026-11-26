@@ -54,7 +54,8 @@
                (:file "input/source")
                (:file "evm/run-tx")
                (:file "evm/networks")
-               ;; full state: snapshots, recovery, anchors, the layered world
+               ;; full state: MPT, snapshots, recovery, anchors, the layered world
+               (:file "state/mpt")
                (:file "state/snapshot")
                (:file "state/recovery")
                (:file "state/anchors")
@@ -65,7 +66,6 @@
                (:file "chains/chain-spec")
                (:file "chains/driver")
                (:file "evm/simulate")         ; eita:simulate: what-if txs in an overlay (an :executed handler's)
-               (:file "state/mpt")
                (:file "chains/receipts")
                (:file "state/worlds")
                (:file "state/root")
@@ -84,6 +84,7 @@
                (:file "arc-precompiles")
                (:file "arc")
                (:file "op")
+               (:file "avalanche")
                (:file "replay")))
 
 (defsystem "eita/fixtures"
