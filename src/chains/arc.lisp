@@ -19,7 +19,7 @@
 ;;;;
 ;;;; Run: eita replay --chain arc-mainnet|arc-testnet --from N [--to M | --to tip] …
 ;;;;   (Arc testnet RPC is public: default https://rpc.testnet.arc.io, override
-;;;;    with ARC_RPC_URL. EITA_NO_JIT=1 for interp-only. EITA_OBSERVER=<file>
+;;;;    with ARC_RPC_URL. EITA_OBSERVER=<file>
 ;;;;    installs an observer — see src/evm/ "Observation seam".)
 
 

@@ -87,7 +87,9 @@
    data) ...), :created (the new contract's address, for a creation). A transaction the
    rules reject (nonce, balance, intrinsic gas) signals an error naming why."
   (let* ((from (addr from)) (to (and to (addr to)))
-         (n (or nonce (eita.state:nonce-of world from)))
+         (n (or nonce (let ((eita.evm:*current-world* world))   ; load FROM first: a lazy world or
+                        (eita.state:fault-account! from)            ; an overlay holds no field unread
+                        (eita.state:nonce-of world from))))
          (tx (eita.evm:make-tx :type 0 :sender from :to to :nonce n :gas-limit gas
                                    :gas-price gas-price :value value :data (bytes data)
                                    :access-list access-list :chain-id (getf *block* :chain-id)))
@@ -114,6 +116,7 @@
   (getf (transact world :from from :to nil :data code :value value :gas gas) :created))
 
 (defun call (world &key from to data (value 0) (gas 10000000))
-  "Execute a transaction on a COPY of WORLD (WORLD is unchanged), like eth_call: returns the
-   same plist as TRANSACT."
-  (transact (eita.state:copy-world* world) :from (or from 0) :to to :data data :value value :gas gas))
+  "Execute a transaction in an overlay on WORLD (`eita:simulate`; WORLD is unchanged), like
+   eth_call: returns the same plist as TRANSACT."
+  (let ((eita.evm:*current-world* world))
+    (simulate (lambda () (transact world :from (or from 0) :to to :data data :value value :gas gas)))))

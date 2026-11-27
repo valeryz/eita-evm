@@ -29,12 +29,6 @@
 ;; metadata) — defaults to Cancun when never called.
 (defcfun ("eita_set_fork" %set-fork) :void (ord :uint64))
 
-;; The chunk-dispatch trampoline, emitted from the Lean spec
-;; (`IR.executeProgram` via `Evm.CL.ARM64.RunProgram`). Returns
-;; 0 = halted, 1 = manifest miss (spec: .invalidJumpDest),
-;; 2 = fuel exhausted (spec: .outOfGas).
-(defcfun ("eita_execute_program" %run-program) :uint64
-  (state :pointer) (entries :pointer) (run-chunk :pointer) (fuel :uint64))
 (defcfun ("eita_keccak256" eita-keccak256) :void
   (input :pointer) (inlen :uint64) (output :pointer))
 (defcfun ("sha256_hash" %sha256-hash) :void
@@ -107,7 +101,7 @@
 (defcfun ("eita_ts_revert" %ts-revert) :void
   (ts :pointer) (ar :pointer) (target :uint64))
 
-;;; libc: anonymous mappings (the JIT code arena, guard-paged arenas).
+;;; libc: anonymous mappings (the guard-paged arenas).
 (defcfun ("mmap" %mmap) :pointer
   (addr :pointer) (len :size) (prot :int) (flags :int)
   (fd :int) (offset :int64))

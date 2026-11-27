@@ -63,6 +63,7 @@ The handlers, each a function (or a symbol naming one):
 | `:log` | a log record | each committed log |
 | `:state-change` | a change record | each net state change |
 | `:block` | a block record | after the block's other handlers |
+| `:executed` | a block record | on the replay thread as soon as the block ran, before its verdict: the world after it is at hand (`eita:simulate`) |
 | `:checkpoint` | `n` | the node is about to make block N a layer point: persist through N now |
 | `:rollback` | `n` | a reorg rolled the chain back to block N |
 | `:finalize` | | the run ends |
@@ -71,7 +72,7 @@ The records are property lists:
 
 | record | fields |
 |---|---|
-| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :txs` (the tx records) |
+| block | `:number :hash :parent-hash :timestamp :coinbase :base-fee :gas-limit :gas-used :received-ms` (when the block source learned of the block, ms since the epoch, or NIL) `:txs` (the tx records) |
 | tx | `:block :index :hash :type :from :to` (NIL: a creation) `:value :nonce :gas-limit :gas-used :status` (1 success, 0 revert or halt) `:gas-price` (effective) `:logs :transfers :changes` |
 | log | `:block :tx :index` (the block's logIndex) `:address :topics` (integers) `:data` (octets) |
 | transfer | `:block :tx :kind` (`:tx` the transaction's value, `:call`, `:create`, `:selfdestruct`, `:chain` a chain's own move) `:depth :from :to :value` |
@@ -252,23 +253,25 @@ log.
 
 ## Developing hooks live from Emacs
 
-`examples/hooks/swank.lisp` starts a Swank (SLIME) or Slynk (SLY) server in the node,
-listening on 127.0.0.1 only:
+`bin/eita` serves a Swank REPL (SLIME's) while it runs `replay`, `engine` or `repl`, when
+`EITA_SWANK_PORT` names a port. It listens on 127.0.0.1 only:
 
 ```sh
-export SWANK_LOADER=/path/to/slime/swank-loader.lisp     # or SLYNK_LOADER=/path/to/sly/slynk/slynk-loader.lisp
-export EITA_SWANK_PORT=4005
-bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita replay --chain ethereum --blocks DIR --from 1 --to 100000 --observer my-hooks.lisp
+EITA_SWANK_PORT=4005 bin/eita repl                       # or a REPL session, no replay
 ```
 
-with `(load "examples/hooks/swank.lisp")` at the top of `my-hooks.lisp` (or
-`bin/eita repl --load examples/hooks/swank.lisp` for a REPL session). Load the server of the
-SLIME or SLY your Emacs runs: the two sides must be the same version.
+The server is Swank from SLIME 2.32, pinned in `ocicl.csv` and compiled into `bin/eita`; use
+SLIME 2.32 in Emacs (another version connects, after a version warning). A port in use leaves
+the command running without a REPL (`[swank] not started on 127.0.0.1:4005: …`). A connection
+that fails is logged and the server goes on listening.
 
-- **Connect:** `M-x slime-connect` (SLIME) or `M-x sly-connect` (SLY), host `127.0.0.1`,
-  port 4005.
+- **Connect:** `M-x slime-connect`, host `127.0.0.1`, port 4005.
 - **A remote node:** forward the port over SSH, then connect to `127.0.0.1:4005` locally:
   `ssh -L 4005:127.0.0.1:4005 user@node-host`.
+- **SLY** speaks to Slynk, not Swank: load Slynk from your SLY checkout in the hooks file
+  instead, `(load "/path/to/sly/slynk/slynk-loader.lisp") (slynk-loader:init)
+  (setf slynk::*loopback-interface* "127.0.0.1") (slynk:create-server :port 4006 :dont-close t)`.
 
 A session:
 
@@ -287,8 +290,8 @@ The rules:
 - **Read a fold's state inside `eita:with-fold-state`.** Handlers run on the hooks thread and
   the REPL on another; inside it, no handler runs, so every fold reflects whole blocks. Copy
   what you need and leave: the handlers wait meanwhile, and behind them the replay.
-- **Never walk the node's own tables from the REPL while blocks run**: the world state, the
-  JIT cache and the engine's tables mutate on the replay thread without locks. Ask a fold for
+- **Never walk the node's own tables from the REPL while blocks run**: the world state
+  and the engine's tables mutate on the replay thread without locks. Ask a fold for
   what you need instead.
 - **Long computations run outside the lock**, on the REPL's thread or a thread of their own.
 - **Unsubscribe before changing a handler's arguments**, then subscribe again; a redefinition
@@ -312,6 +315,43 @@ The rules:
   per tracked key) and do not keep records past their block.
 - **Handlers name functions by symbol** (`'on-block`): one indirection per call, and live
   redefinition.
+
+## Simulation: what-if transactions on a block's state
+
+An `:executed` handler runs on the replay thread right after its block, with the world as the
+block left it. Inside `eita:simulate` it can run transactions on that state that are never
+committed:
+
+```lisp
+(eita:subscribe "quote" :executed
+  (lambda (blk)
+    (eita:simulate
+      (lambda ()
+        (eita:sim-set :code executor runtime-octets)           ; an eth_call state override
+        (eita:sim-tx :from searcher :to executor :data calldata :gas 1000000 :tip 1000000000)))))
+;; => (:status 1 :gas-used 131204 :egp … :output #(…) :logs ((address topics data) …))
+```
+
+| function | what |
+|---|---|
+| `(eita:simulate fn)` | call FN in an overlay on the state after the newest block; everything it changes is dropped when it returns |
+| `(eita:sim-tx &key from to data value gas tip fund block)` | a transaction on the replay's own transaction path, at the next block's context; FUND tops the sender up |
+| `(eita:sim-read kind addr &optional slot)` | `:balance`, `:nonce`, `:code`, `:storage` in the overlay |
+| `(eita:sim-set kind addr …)` | `(:balance addr v)`, `:nonce`, `:code`, `(:storage addr slot v)`: a state override |
+| `(eita:sim-slots-read fn)` | FN's value and its read set: the storage slots `(addr . slot)` and accounts `(addr . :account)` it read first (in a fresh overlay every first read is a fault) |
+
+**How.** The overlay is the layered world's own tier mechanism: the world's account table is
+replaced by an empty one whose fault hooks read the replaced table first, then the colder tiers
+(layers and base, or a lazy world's RPC); the empty table is dropped on return. Inside it the
+observers, the read stream, the read-set recorder and the incremental root check are off, so a
+simulation reaches neither the world, nor the fact log, nor a layer, nor a read set (the `hooks`
+suite runs the mainnet block with simulations and compares the runner's output and the state).
+The transactions are the replay's: the same derived effect, fees and chain hooks as a block's.
+
+**Cost.** A transaction in a simulation costs what the same transaction costs in a block, plus
+faulting the state it reads into the overlay. The replay waits for `:executed` handlers: at the
+tip it is waiting for the next block anyway; behind it, an `:executed` handler slows the replay,
+so do nothing there you do not need behind the tip (`eita.state:at-tip-p`).
 
 ## Querying history
 

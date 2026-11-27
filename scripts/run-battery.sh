@@ -4,8 +4,7 @@
 #
 #   scripts/run-battery.sh <fixture-dir> [log]
 #
-# Environment is passed through (EITA_NO_JIT=1 for the interp tier, EITA_LIB
-# to point at a side-built libeita; EITA_BIN for another executable than bin/eita;
+# Environment is passed through (EITA_LIB to point at a side-built libeita; EITA_BIN for another executable than bin/eita;
 # SBCL_ARGS for runtime options such as --dynamic-space-size 16GB — stTimeConsuming
 # needs more than the default). Prints one line per leaf directory and a
 # total; the per-test PASS/FAIL lines go to the log (default: stdout). Exit 0 only when tests

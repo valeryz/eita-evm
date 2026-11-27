@@ -62,9 +62,7 @@
                      (tag 'eita.chain::run-post-block! #'second (constantly eita.chain::+postblock-tx+))
                      (with-output-to-string (*standard-output*) (eita.fixtures:main paths)))
                 (mapc (lambda (f o) (setf (fdefinition f) o)) fns origs))))
-    (values (format nil "~{~A~^~%~}" (remove-if (lambda (l) (eql 0 (search "jit: " l)))
-                                                (uiop:split-string out :separator '(#\Newline))))
-            (reverse *accesses*))))
+    (values out (reverse *accesses*))))
 
 (defun code-hash (code) (let ((h 0)) (loop for x across (eita.core:keccak256-bytes code) do (setf h (logior (ash h 8) x))) h))
 

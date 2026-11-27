@@ -28,7 +28,7 @@ message), refund and calldata-floor rules, fee settlement, end-of-transaction de
 | `(new-world &key fork alloc)` | a world at a fork (`"Frontier"` … `"Cancun"`, `"Prague"`, `"Osaka"`); ALLOC: `((address :balance … :nonce … :code … :storage ((slot . value) …)) …)` |
 | `(transact world &key from to value data gas gas-price nonce access-list)` | run and commit one transaction (TO nil: create); returns `(:status :gas-used :output :logs :created)` |
 | `(deploy world &key from code value gas)` | create a contract from init code; its address |
-| `(call world &key from to data value gas)` | like `eth_call`: run on a copy, the world unchanged |
+| `(call world &key from to data value gas)` | like `eth_call`: run in an overlay (`simulate`), the world unchanged |
 | `(balance w a)`, `(nonce w a)`, `(code w a)`, `(storage w a slot)` | inspect |
 | `(fund w a wei)`, `(set-code w a code)`, `(set-storage w a slot v)` | edit the world directly |
 | `(state-root w)` | the Merkle-Patricia state root a block header would commit to |
@@ -44,8 +44,7 @@ the per-block system calls. To run real blocks, use the driver: `(replay "ethere
 
 ## A session
 
-(The transcript below is a real run; `EITA_NO_JIT=1` gives the same results on the
-interpreter tier.)
+(The transcript below is a real run.)
 
 The fixture part reads ethereum/tests from `lean/external/ethereum-tests` (`docs/testing.md`
 says how to fetch it). The last transaction is refused by the rules (Bob holds 1,000 wei and
@@ -99,7 +98,6 @@ PASS basefeeExample_Shanghai
 ---
 summary: pass=4 fail=0 skip=0 xfail=0
 invalid blocks: rejected=0 rejected-other=0 accepted=0 undecoded=0 unchecked=0
-jit: codes=2 no-jit=0 frames-jit=3 frames-interp=0 manifest-misses=0 chunk-evictions=0
 NIL
 ```
 

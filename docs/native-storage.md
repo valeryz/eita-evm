@@ -49,7 +49,7 @@ Every Lisp path that touches storage goes through the native accessors. Core (`s
 | `storage-of`, `(setf storage-of)` (+ the read/write stream: `view-log-read/-write :storage`) | state/world.lisp | the effect layer's one view | the same |
 | `fault-slot!`, `*fault-slot-hook*` (snapshot `snap-fault-slot`, RPC lazy state) | state/world.lisp, state/snapshot-world.lisp, chains/driver.lisp | first-touch load | miss path: the hook installs into the native table |
 | `world-storage-wipe!`, `*storage-wipe-hook*` | state/world.lisp, state/snapshot-world.lisp | SELFDESTRUCT / CREATE-over-storage wipe | `eita_ws_drop` (the account) |
-| `storage-wipe-journaled!` (+ `*cold-storage-map-hook*`, `snap-cold-storage-map`) | evm/calls.lisp, state/snapshot-world.lisp | a journaled wipe of RAM + cold-tier slots | `eita_ws_map` over the account, one journal entry per slot |
+| `storage-wipe-journaled!` (+ `cold-storage-wipe!`) | evm/calls.lisp, state/world.lisp | a creation's wipe: RAM slots journaled, the cold tier by the WIPED bit | `eita_ws_map` over the account, one journal entry per RAM slot |
 | `account-uncreate!` | state/world.lisp | revert of a CREATE drops the account's storage | `eita_ws_drop` |
 | `spec-restore-journal-entry` type 0 (generated) | generated/host.lisp | revert of an SSTORE | restored natively by `eita_sh_revert_storage` first (§4) |
 | `do-storage-changes`, `observe-slot-touch!`, `observe-tx-end!` | evm/observe-tx.lisp | observers' pre/post values | the first-touch log and the current value (§5) |
@@ -104,7 +104,7 @@ SSTORE, not one; an under-sized arena refuses the transaction rather than answer
 A key absent from a lazy world's table calls out once (`cb-storage-fault`): the Lisp fault-in
 (snapshot / RPC) installs the value in the slot table and the native effect continues (still
 absent: the value is zero). An account first seen under a world calls out once for its id
-(`cb-storage-learn`). Wipes and cold-storage maps call into Lisp. No effect runs in Lisp.
+(`cb-storage-learn`). Wipes call into Lisp. No effect runs in Lisp.
 
 Observers see storage in three tiers:
 
@@ -126,7 +126,6 @@ Observers see storage in three tiers:
 - Effects: the EIP-2200/2929/3529 vectors and every GeneralStateTests SSTORE, refund and revert
   directory (`stSStoreTest`, `stRefundTest`, `stRevertTest`, `stSelfBalance`, the create-collision
   directories).
-- Engine: the tier differential (`EITA_DIFF_TIERS`: each top-level frame on the JIT and the
-  interpreter, both on the native path), and a mainnet replay range with the header gate.
+- Engine: a mainnet replay range with the header gate.
 - Observers: `tests/native-storage-hooks.lisp` (fixture rows equal with and without the watch;
   rows and watched accesses equal a recorded digest).

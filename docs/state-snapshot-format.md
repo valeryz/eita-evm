@@ -4,11 +4,14 @@ The persisted state of a replay: immutable, sorted, fixed-width files that a pro
 read-only, laid out so that one block's state root can be recomputed from the subtries its
 writes touch.
 
-**Status.** This document specifies format version 2. The engine today reads and writes the
-legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); version 2's writer, reader,
-fences and `compose-range` (§3, §6; `src/state/snapshot.lisp`) are not yet on its paths. A
-converter turns a verified v1 state into v2 (§10, "The converter"), after which v1 is read
-only by the converter. Lean definitions and
+**Status.** This document specifies format version 2. A chain replayed from genesis runs on
+the legacy version 1 ([Appendix A](#appendix-a-legacy-format-v1)); a chain started from an
+import (§10, "Import from reth") runs on version 2: its base, its layers, their compaction and
+the anchors' root check (docs/layered-snapshots.md, "A stack over a version 2 base"). The
+frontier and the root worker (§7, §8) are not built yet: a version 2 stack is root-checked at
+anchors, as a version 1 stack is. `eita convert-snapshot` turns a verified v1 state into a
+root-checked v2 base and its anchor (§10, "The converter"); it does not write the first
+frontier yet. Once the chains on v1 have moved, v1 is read only by the converter. Lean definitions and
 proofs, and the Veil models of the protocols, exist for the whole of v2 (§11). The Veil models
 cite the code they describe with `@planned` where that code is not yet written
 (`verify/protocols/CheckCode.lean` maps each such name to the section below that specifies it).
@@ -113,7 +116,9 @@ fault's check. The raw slot number is not stored: the fact log's `storage_diff` 
 and a lookup by raw slot (`view-slot`, the execution fault) hashes it first. An imported base
 (§10, "Import from reth") may not know an address: its field is then 20 zero bytes, which
 the address 0x00…00 itself never has with its own `hkey`; the record a layer writes for that
-account, once the replay touches it, carries the address.
+account, once the replay touches it, carries the address. The replay never reads the field
+(it faults an account by the address the EVM touched); it is for exports and metrics, which
+must treat zero as unknown.
 
 ### code.dat and code.idx
 
@@ -190,9 +195,10 @@ range of `accounts.dat`, and every subtrie of a contract's storage trie one cont
 
 **Storage wipe.** When a contract is created on an address that already has storage (EELS
 `destroy_storage`), or destroyed before Cancun, the cold slots cannot be enumerated by raw key.
-The wipe is a journaled WIPED flag on the address: the cold tier reads 0 under it
-(`snap-fault-slot`), slots in RAM are journaled one by one, and observers get one
-`storage_wipe` event. The effect equals EELS `destroy_storage` on the view.
+The wipe is a WIPED flag on the address, set by the creation and cleared by its revert (bit 1
+of journal entry 10): the cold tier reads 0 under it (`snap-fault-slot`), and slots in RAM are
+journaled one by one. Observers see the slots the transaction touched, as for SELFDESTRUCT. The
+effect equals EELS `destroy_storage` on the view. Both formats wipe this way.
 
 ## 5. Layers
 
@@ -296,7 +302,7 @@ Bottom level first keeps every level of 8 KiB or more page-aligned without paddi
 bucket's entry and its 15 siblings (512 B) share one page. Size per anchor: Ethereum 5.15 GB
 (`accounts.frt` 0.57 GB, `storage.frt` 2.75 GB, `roots.dat` 1.8 GB), Arc under 0.2 GB.
 
-The root worker writes `frontier-N/` (at every anchor; the converter writes the first) and is
+The root worker writes `frontier-N/` (at every anchor; the converter is to write the first) and is
 its only reader; execution never reads it. Major compaction checks it entry by entry at its
 base block (§9); a resume self-checks its dense levels against the root (§10).
 
@@ -517,18 +523,64 @@ eita-reth-export --datadir DIR --chain-id N | eita import-reth --state STATE-DIR
 - **The root gate.** Only when that root equals header H's `stateRoot` does the manifest gain
   `:root-checked t` and the directory become `snap-H/`. On a mismatch it stays in
   `.tmp-snap-H/`, which nothing reads, and the command exits 1.
+- **Replaying from it.** `eita replay --state STATE-DIR --resume H --from H+1 …` runs on the
+  base: it is not yet an anchor, so the replay checks its root once more before the first
+  block and records the anchor, and the stack above it is version 2
+  (docs/layered-snapshots.md, "A stack over a version 2 base").
 
 ### The converter (v1 to v2)
 
-The converter reads a verified v1 composition (merge-joining its layers), composes it, applies
-S1, hashes `addr` and `slot`, and writes v2 records into 4,096 bucket files by the top 12 bits
-of `hkey` / `haddr` (contracts over 1M slots into per-contract sub-buckets by the top byte of
-`hslot`). It sorts each bucket in RAM (about 55 MB) and writes `accounts.dat` / `storage.dat`
-with their fences, then runs the full-pass root over the result, emitting `frontier-N/` at d(n)
-for every trie. If the root differs from the header root at N the output is discarded;
-otherwise it publishes `snap-N/` and `frontier-N/` and appends the anchor line. Ethereum: about
-417–634 GB read and 452 GB written; Arc: minutes. The v1 reader is deleted once the converted
-chains have run in shadow mode.
+A chain replayed from genesis has a version 1 stack (Appendix A). The converter turns the state
+at one of its anchors into a version 2 base, root-checked, with its anchor line, so the chain
+continues on version 2 from there:
+
+```
+eita convert-snapshot --from V1-STATE-DIR --to V2-STATE-DIR [--tmp DIR] [--threads N] [--block N]
+eita replay --chain C --state V2-STATE-DIR --resume N …
+```
+
+`src/state/convert.lisp`. The input is the composition of the newest passed anchor of
+`V1-STATE-DIR` (or the one at `--block N`) whose components are all sealed; each component's
+manifest must hash to the content hash the anchor recorded. The input is only read.
+
+1. **Partition.** Chunks of 4,096 base accounts run in parallel, as the version 1 root check
+   reads them: the addresses the layers mention are merged in, each composed over the base
+   (`compose-range` over its layer and base slot runs: newest wins, tombstones dropped, stopped
+   at a wipe), and S1 decides which accounts remain. Every address and slot is hashed (keccak
+   in batches, from the mappings) and written as a version 2 record into one of 4,096 bucket
+   files, by the top 12 bits of `hkey` / `haddr`, in `--tmp` (default `V2-STATE-DIR`). An
+   account's slots are contiguous in their bucket. A storage of over 1M slots goes to 256
+   files of its own, by the top byte of `hslot`.
+2. **Sort and write.** Bucket by bucket in key order, a pool of `--threads` sorts buckets in RAM
+   (the accounts by `hkey`; the slot runs by `haddr`, each by `hslot`), at most `--threads` + 2
+   ahead of the writer. The version 2 writer (the one an import and a layer use) checks S2, S4
+   and S5 and builds the fences in the same pass; a large storage's 256 files are sorted and
+   written one at a time where its account falls. Codes are copied (the code files have the
+   same format in both versions). Each bucket file is deleted once read.
+3. **The root gate.** `snapshot-root` recomputes the state root from the written records. Only
+   if it equals the header root at N (the top component's `:state-root`) does the manifest
+   gain `:root-checked t`, the directory become `snap-N/` and the line `(N expected computed T
+   hash)` go into `V2-STATE-DIR/anchors.sexp`; a replay then resumes from N without checking
+   again. On a mismatch the output stays in `.tmp-snap-N/` (nothing reads it; a replay deletes
+   it at startup) and the command exits 1.
+
+Memory: the bucket write buffers (8,192 × 32 KiB), a chunk's records per thread, and the
+sort window (about 55 MB a bucket on Ethereum). Disk in `--tmp`: about the size of the version
+2 base, transient. Measured (x300, Zen 3, NVMe, `nice 19`, `ionice -c3`, 4 threads, 6 GB
+heap, beside the production replays): Arc at 33,030,144 (a version 1 base and 13 layers, 11.7 GB;
+3.7M accounts and 102M slots composed, one storage of 34.6M slots) in 16 min: partition 5.6
+min, sort and write 6.7 min, codes and fences 2.2 min, root 1.3 min; peak RSS 5.7 GB; the root
+matched the header's, and a replay of the next 32,768 blocks over it passed all eight anchors
+(the last equal to the production replay's).
+Ethereum at 26.33M (430M accounts, 1.69B slots), from a slice (every 64th chunk of the base:
+6.7M accounts, 18.4M slots, 2.4 GB of buckets, in 177 s: partition 81 s, sort and write 74 s,
+root 18 s, 3.0 GB peak RSS) scaled by bytes (×91): about 4.5–6 h, 217 GB of buckets in `--tmp`
+at the end of the partition, a 230 GB base, under 6 GB of heap.
+
+Not yet: the converter does not write `frontier-N/` (§7). The full pass that would emit it
+is `snapshot-root`'s, whose stack tries close every subtrie at the frontier depth as they go;
+emitting them needs the frontier file writer of §7, which the root worker will own. Until
+then a converted chain is root-checked at anchors, as any version 2 stack is.
 
 ## 11. What is proved, modelled and checked
 
@@ -583,5 +635,3 @@ Differences from v2:
   compacted base is root-checked after it is written, before it replaces the old one.
 - **Minor compaction.** Over 16 disk layers, a run of eight is composed into one
   (`docs/layered-snapshots.md`).
-- **Raw-slot wipes.** `storage-wipe-journaled!` journals every non-zero slot of a wiped
-  contract, cold ones included (enumerated by raw key).

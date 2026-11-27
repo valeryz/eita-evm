@@ -9,14 +9,18 @@
 ;;;;   eita repl [--load FILE]...               a REPL in the EITA package
 ;;;;   eita check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
 ;;;;   eita import-reth --state DIR [--threads N] FILE|-   a base from rust/reth-export's stream
+;;;;   eita convert-snapshot --from DIR --to DIR [--tmp DIR] [--threads N] [--block N]
 ;;;;   eita recovery resume|peek|gc STATE-DIR
 ;;;;   eita version
 ;;;;
 ;;;; The heap is an SBCL runtime option, given before the command:
 ;;;;   eita --dynamic-space-size 16GB --end-runtime-options fixtures …
 ;;;; (the image's default is the heap it was built with: build.sh, EITA_HEAP_MB). Every
-;;;; environment variable the engine reads (EITA_NO_JIT, EITA_TRACE_*, …) works as with the
+;;;; environment variable the engine reads (EITA_TRACE_*, …) works as with the
 ;;;; sources: the image reads them when it starts (native/startup.lisp).
+;;;;
+;;;; EITA_SWANK_PORT=N: `replay`, `engine` and `repl` serve a Swank REPL on 127.0.0.1:N
+;;;; (src/swank.lisp; docs/hooks.md, "Developing hooks live from Emacs").
 
 (in-package #:eita.cli)
 
@@ -33,8 +37,11 @@
   check-root [--parent PID] SNAP-DIR [LAYER-DIR...] [THREADS]
   import-reth --state DIR [--threads N] FILE|-
                                    a root-checked base from a reth node (rust/reth-export)
+  convert-snapshot --from DIR --to DIR [--tmp DIR] [--threads N] [--block N]
+                                   a verified v1 state as a root-checked v2 base and anchor
   recovery resume|peek|gc DIR      the resume point / garbage collection of a state directory
   version                          the engine version and code version
+Swank: EITA_SWANK_PORT=4005 serves a REPL on 127.0.0.1:4005 to replay, engine and repl
 Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/quickstart.md)")
 
 (define-condition usage-error (simple-error) ())
@@ -65,7 +72,66 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   (or (and s (ignore-errors (parse-integer s)))
       (usage-error "~A: not a number: ~A" name s)))
 
+;;; --- Swank: a live REPL into a running command (src/swank.lisp) ---------------------------
+;;; Loopback only: from another host, forward the port (ssh -L). Started by the long-running
+;;; commands (replay, engine, repl), never at build time and never by the short ones, which
+;;; run beside a replay and would take its port. Swank's threads serve it; the replay never
+;;; waits on a client. Never walk the world or the JIT cache from it while blocks run (they
+;;; mutate on the replay thread without locks): ask a fold (docs/hooks.md).
+
+(defvar *swank-default-port* nil
+  "When EITA_SWANK_PORT is unset, for `replay` and `engine`: NIL (no Swank), or a function of
+   the chain name (a string, or NIL) returning the port or NIL. A program built on this CLI
+   sets its own default.")
+
+;; Swank loads its contribs at run time from its source tree, which it records when it is
+;; loaded: the build's. In the executable that is the ocicl/ beside bin/, wherever the tree
+;; has moved since the build.
+(eita.native:at-startup (swank-paths swank-loader::*source-directory* swank-loader::*fasl-directory* swank::*load-path*)
+  (let ((src (and (eita.native:executable-dir)
+                  (first (directory (merge-pathnames "../ocicl/slime-*/swank.asd" (eita.native:executable-dir)))))))
+    (when src
+      (let ((dir (make-pathname :name nil :type nil :defaults src)))
+        (setf swank-loader::*source-directory* dir
+              swank-loader::*fasl-directory* (asdf:apply-output-translations dir)
+              swank::*load-path* (list (swank-loader::contrib-dir swank-loader::*fasl-directory*)
+                                       (swank-loader::contrib-dir dir)))))))
+
+(defun swank-port (chain default)
+  "EITA_SWANK_PORT (0: none), else, with DEFAULT, *swank-default-port*'s for CHAIN."
+  (let ((v (eita.native:nonempty-env "EITA_SWANK_PORT")))
+    (cond (v (let ((p (or (ignore-errors (parse-integer v)) (usage-error "EITA_SWANK_PORT: not a number: ~A" v))))
+               (and (plusp p) p)))
+          ((and default *swank-default-port*) (funcall *swank-default-port* chain)))))
+
+(defun start-swank (chain &key (default t))
+  "Start the Swank server for a command on CHAIN: its port, or NIL (none configured, or it
+   could not start: a replay does not die of a REPL)."
+  (let ((port (swank-port chain default)))
+    (when port
+      (handler-case
+          (let ((swank::*log-output* (make-broadcast-stream)))
+            (eita-swank:serve port)
+            (format t "~&[swank] live REPL on 127.0.0.1:~D (ssh -L ~D:localhost:~D …)~%" port port port)
+            (finish-output)
+            port)
+        (error (e) (format *error-output* "~&[swank] not started on 127.0.0.1:~D: ~A~%" port e) nil)))))
+
+(defmacro with-swank ((chain &key (default t)) &body body)
+  "BODY with the Swank server of CHAIN's command running; closed when BODY returns."
+  (let ((port (gensym "PORT")))
+    `(let ((,port (start-swank ,chain :default ,default)))
+       (unwind-protect (progn ,@body)
+         (when ,port (ignore-errors (eita-swank:stop ,port)))))))
+
+(defun option (args name)
+  (second (member name args :test #'string=)))
+
 (defun cmd-replay (args)
+  (with-swank ((option args "--chain"))
+    (replay-command args)))
+
+(defun replay-command (args)
   (multiple-value-bind (o rest)
       (parse-options args '(("--chain" :value) ("--from" :value) ("--to" :value) ("--blocks" :value)
                             ("--state" :value) ("--checkpoint-every" :value) ("--source" :value)
@@ -87,6 +153,10 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
   t)
 
 (defun cmd-engine (args)
+  (with-swank ((option args "--chain"))
+    (engine-command args)))
+
+(defun engine-command (args)
   (multiple-value-bind (o rest)
       (parse-options args '(("--chain" :value) ("--state" :value) ("--jwt" :value)
                             ("--engine-listen" :value) ("--genesis" :value) ("--blocks" :value)))
@@ -111,10 +181,11 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
     (format t "~&;; Eita ~A — (in-package :eita) is current: (new-world), (transact …), (call …); docs/quickstart.md~%"
             (eita-version))
     (sb-ext:enable-debugger)
-    (let ((*package* (find-package :eita)))
-      (handler-bind ((serious-condition #'invoke-debugger))
-        (dolist (f (getf o :load)) (load f))
-        (sb-impl::toplevel-repl nil))))
+    (with-swank (nil :default nil)
+      (let ((*package* (find-package :eita)))
+        (handler-bind ((serious-condition #'invoke-debugger))
+          (dolist (f (getf o :load)) (load f))
+          (sb-impl::toplevel-repl nil)))))
   t)
 
 (defun cmd-check-root (args)
@@ -122,6 +193,17 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 
 (defun cmd-import-reth (args)
   (eita.state.root:import-main args))
+
+(defun cmd-convert-snapshot (args)
+  (multiple-value-bind (o rest)
+      (parse-options args '(("--from" :value) ("--to" :value) ("--tmp" :value) ("--threads" :value) ("--block" :value)))
+    (when rest (usage-error "convert-snapshot: unexpected ~{~A~^ ~}" rest))
+    (unless (and (getf o :from) (getf o :to)) (usage-error "convert-snapshot: --from and --to are required"))
+    (sb-ext:exit :code (if (eita.state.root:convert-snapshot
+                            (getf o :from) (getf o :to) :tmp (getf o :tmp)
+                            :threads (if (getf o :threads) (int-arg (getf o :threads) "--threads") (eita.state.snapshot:hardware-threads))
+                            :block (and (getf o :block) (int-arg (getf o :block) "--block")))
+                           0 1))))
 
 (defun cmd-recovery (args)
   (destructuring-bind (&optional what dir &rest more) args
@@ -145,7 +227,8 @@ Heap: eita --dynamic-space-size 16GB --end-runtime-options <command> ...  (docs/
 
 (defparameter +commands+
   '(("replay" . cmd-replay) ("engine" . cmd-engine) ("fixtures" . cmd-fixtures) ("repl" . cmd-repl)
-    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth) ("recovery" . cmd-recovery) ("version" . cmd-version)))
+    ("check-root" . cmd-check-root) ("import-reth" . cmd-import-reth)
+    ("convert-snapshot" . cmd-convert-snapshot) ("recovery" . cmd-recovery) ("version" . cmd-version)))
 
 (defun register-command (name function)
   "Add the subcommand NAME, run as (FUNCTION args) after the engine started: a program that

@@ -160,11 +160,7 @@
       (setf (mem-ref state :pointer 504) *tx-arena-root*)
       (setf *current-address* target
             *current-state*   state)
-      ;; Init code runs once per deployment — never hot: straight to the interp, as
-      ;; cb-create's init frames.
-      (cond (create (storage-host-sync!) (eita-run state))
-            (*diff-tiers* (diff-run-tiers state code))
-            (t (run-frame state code)))
+      (run-frame state)
       (let* ((status (frame-status state))
              (gas-left (if (eq status :halt) 0 (mem-ref state :uint64 8)))
              ;; copy BEFORE scrubbing the memory: the output pointer points into it

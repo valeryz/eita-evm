@@ -211,9 +211,12 @@
 
 (defun journal-created! (arena addr)
   "Journal that ADDR was CREATE'd in this frame (type 10) so a revert un-creates it
-   (code/nonce/storage, and existence unless it existed before: the entry's old value is
-   1 when ADDR was already marked present). Balance is restored by its own type-2 entry."
-  (journal-push! arena 10 addr 0 (if (account-marked-p *current-world* addr) 1 0)))
+   (code/nonce/storage, and existence unless it existed before; `account-uncreate!`). The
+   entry's old value: bit 0, ADDR was already marked present; bit 1, the creation's
+   storage wipe set ADDR's WIPED bit (`storage-wipe-journaled!`, called just before).
+   Balance is restored by its own type-2 entry."
+  (journal-push! arena 10 addr 0 (logior (if (account-marked-p *current-world* addr) 1 0)
+                                         (if (eql (shiftf *create-wiped* nil) addr) 2 0))))
 
 (defun ts-table-mask (gas-limit min-gas cap)
   "The probe mask of a per-tx table for a tx of GAS-LIMIT whose every entry costs at least

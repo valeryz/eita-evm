@@ -24,12 +24,12 @@ Before a pull request:
 scripts/verify-host-emit.sh          # generated files == emitters; effect proofs check
 scripts/verify-axioms.sh             # no new axioms
 scripts/verify-coverage.sh           # proof debt does not grow
-bin/eita fixtures <a relevant BlockchainTests directory>    # and with EITA_NO_JIT=1
+bin/eita fixtures <a relevant BlockchainTests directory>
 sbcl --load ~/.local/share/ocicl/ocicl-runtime.lisp --eval '(push (truename ".") asdf:*central-registry*)' \
      --eval '(asdf:test-system "eita")' --quit            # the Lisp test suites (docs/testing.md)
 ```
 
-For a change to execution, run the Cancun battery on both tiers (`docs/testing.md`) and
+For a change to execution, run the Cancun battery (`docs/testing.md`) and
 say so in the pull request. Commit messages say what changed and why; a proof or test that
 covers the change is named.
 

@@ -1,7 +1,6 @@
 ;;;; audit-lib.lisp — shared harness for the native-handler audits.
 ;;;;
-;;;; Loaded (via LOAD, into the caller's package) by audit-native.lisp
-;;;; and audit-jit.lisp. Defines the EvmState field offsets, the audit
+;;;; Loaded (via LOAD, into the caller's package) by audit-native.lisp. Defines the EvmState field offsets, the audit
 ;;;; callback vtable, U256 limb I/O, and the fixture-plist → EvmState
 ;;;; builder + snapshot/compare helpers. Expects CFFI to be loaded and
 ;;;; the caller's package to :use #:cl #:cffi.

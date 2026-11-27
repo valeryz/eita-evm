@@ -228,7 +228,7 @@ action w_swap {                          -- @code write-layer!/swap (substitute 
 }
 
 /-! ## Replay thread: a fault reads the stack without the lock (@code snap-fault-account/view,
-@code snap-fault-account/code, @code snap-fault-slot/view, @code snap-cold-storage-map/view) -/
+@code snap-fault-account/code, @code snap-fault-slot/view; a wipe is the account record's WIPED bit, read by the account view) -/
 action d_begin {
   require gpc = GIdle ∧ dpc = DIdle
   rset C := instack C

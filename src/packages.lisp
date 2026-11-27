@@ -24,14 +24,14 @@
            #:%eita-bls-map-fp-to-g1 #:%eita-bls-map-fp2-to-g2 #:%eita-bls-pairing
            #:%eita-bn254-add #:%eita-bn254-mul #:%eita-bn254-pairing #:%eita-ecrecover
            #:%eita-modexp #:%eita-p256-verify #:%eita-point-evaluation #:%jumpdest-map #:%mmap
-           #:%mprotect #:%ripemd160-hash #:%run-program #:%set-fork #:%sha256-hash
+           #:%mprotect #:%ripemd160-hash #:%set-fork #:%sha256-hash
            #:%ts-access-addr #:%ts-access-addrs #:%ts-access-slot #:%ts-created-insert #:%ts-created-p
            #:%ts-orig-get #:%ts-orig-record #:%ts-refund-add #:%ts-reset #:%ts-revert
            #:%sh-revert-storage #:%sh-touch #:%sh-touch-at #:%sh-touch-count
            #:%sh-touch-reset #:%sh-watch #:%sh-watch-clear #:%ws-copy #:%ws-drop #:%ws-free #:%ws-get #:%ws-new #:%ws-put #:%ws-remove
            #:*image-p* #:at-startup #:code-version #:code-version-manifest #:defstartup
            #:dir-of #:eita-file #:eita-home #:eita-keccak256 #:eita-lib-ext #:eita-run
-           #:emit-jit-path #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
+           #:executable-dir #:forget-shared-objects! #:freeze-lisp-manifest!
            #:home-relative #:native-path #:nonempty-env #:open-native #:run-startup!
            #:source-file))
 
@@ -44,7 +44,7 @@
            #:u256-write #:word-int #:words-u256))
 
 (defpackage #:eita.evm
-  (:documentation "The EVM: interpreter and JIT tiers, frames and arenas, the journal, the host callbacks
+  (:documentation "The EVM: the threaded interpreter, frames and arenas, the journal, the host callbacks
    (CALL/CREATE family, precompiles), the Lean-emitted host effects (generated/host.lisp),
    transaction application, the observation seam and the event stream.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.state #:eita.input #:eita.chain)
@@ -54,7 +54,7 @@
            #:*chain-tx-prewarm-hook* #:*chain-upfront-extra-hook* #:*chain-value-transfer-hook*
            #:*chain-value-transfer-log-hook* #:*code-hash-memo* #:*cur-block* #:*cur-tx*
            #:*current-address* #:*current-block-number* #:*current-world* #:*el-fork-ord*
-           #:*fork-ord* #:*jit-stats* #:*last-sub-outcome* #:*last-tx-logs* #:*last-tx-output*
+           #:*fork-ord* #:*last-sub-outcome* #:*last-tx-logs* #:*last-tx-output*
            #:*last-verdict* #:*mpt-tracking* #:*network-fork-ords* #:*p256verify*
            #:*prague-delegation* #:*receipt-cumulative-gas* #:*system-seed* #:*trace-frames*
            #:*trace-step* #:*trace-tx* #:*tx-origin* #:+acct-destroyed+ #:+acct-touched+
@@ -101,7 +101,7 @@
    layered snapshot world, anchors and state-root checks.")
   (:use #:cl #:cffi #:eita.native #:eita.core #:eita.evm #:eita.input #:eita.chain)
   (:export
-           #:*anchor-queue* #:*cold-storage-map-hook* #:*fault-account-hook*
+           #:*anchor-queue* #:*fault-account-hook*
            #:*fault-slot-hook* #:*mpt-armed* #:*observe-capture* #:*observer* #:*pending-root*
            #:*tip-freeze* #:*view-log* #:+acct-marked+ #:account-delete! #:account-mark!
            #:*chain-head* #:at-tip-p
@@ -109,7 +109,7 @@
            #:acct-bits #:acct-clear-flag! #:acct-code #:acct-code-entry #:acct-empty-p #:acct-flag-p
            #:acct-nonce #:acct-set-flag! #:acct-slots #:acct-slots-map #:acct-table-intern-words #:anchor!
            #:anchor-compositions #:anchor-due-p #:balance-clear! #:balance-delta! #:balance-of
-           #:bytes->hex-string #:code-clear! #:code-of #:copy-world*
+           #:bytes->hex-string #:code-clear! #:code-of #:cold-storage-wipe! #:copy-world*
            #:drop-stale-rootouts! #:fault-account! #:fault-slot! #:finish-anchors!
            #:genesis-base! #:hot-over-budget-p #:layer-due-p #:load-genesis-alloc #:make-world
            #:map-accts #:mpt-post-block-hook #:mpt-stop-worker #:nonce-clear! #:nonce-of
@@ -123,9 +123,9 @@
   (:use #:cl)
   (:export
            #:*foreign-layer* #:+empty-code-hash+ #:acct-fields #:advise-sequential #:component-of
-           #:component-path #:compose-address #:compose-range #:composition-string #:hardware-threads
+           #:component-path #:compose-accounts-2 #:compose-address #:compose-range #:composition-string #:hardware-threads
            #:int->octets #:key-range #:layer-account #:layer-map-slots #:layer-path #:layer-slot
-           #:layer-tmp-path #:lookup-account #:make-merge #:make-obuf #:make-run #:make-writer
+           #:layer-tmp-path #:lookup-account #:lookup-account-h #:make-merge #:make-obuf #:make-run #:make-writer
            #:mapping-sap #:merge-account #:merge-finish #:obuf-count #:obuf-free #:obuf-sap
            #:octets->int #:parse-composition #:read-manifest #:release-range #:s1-included-p #:sap-be
            #:snap #:snap-account #:snap-acct #:snap-block #:snap-close #:snap-code #:snap-content-hash
@@ -157,10 +157,11 @@
 
 (defpackage #:eita.state.root
   (:documentation "The streaming state root of a snapshot stack (the anchors' root check; `eita check-root`), and
-   the root-gated import of another client's state (`eita import-reth`).")
+   the root-gated import of another client's state (`eita import-reth`) and of a version 1 state
+   (`eita convert-snapshot`).")
   (:use #:cl #:cffi)
   (:export
-           #:assemble #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
+           #:assemble #:convert-snapshot #:convert-stack #:dense-above-p #:frontier-subref #:import-main #:import-reth #:main
            #:make-stack-trie #:snapshot-root
            #:st-finish #:st-push #:st-reset #:st-root-bytes))
 
@@ -238,6 +239,8 @@
    #:replay
    ;; subscriptions: handlers fed each verified block (src/evm/hooks.lisp, docs/hooks.md)
    #:subscribe #:unsubscribe #:subscriptions #:with-fold-state
+   ;; what-if transactions on the state after a block, in an overlay (src/evm/simulate.lisp)
+   #:simulate #:sim-tx #:sim-read #:sim-set #:sim-slots-read
    ;; the engine, re-exported: worlds, transactions, the block-source and observation seams,
    ;; chain specs
    #:make-world #:world-state-root #:make-tx #:apply-tx #:run-evm-tx #:*current-world*
@@ -256,4 +259,4 @@
 (defpackage #:eita.cli
   (:documentation "bin/eita: the command line (src/cli.lisp).")
   (:use #:cl)
-  (:export #:main #:register-command))
+  (:export #:main #:register-command #:*swank-default-port*))

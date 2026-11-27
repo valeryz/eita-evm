@@ -1,7 +1,7 @@
 # The x86-64 backend
 
-Eita runs on x86-64 as well as ARM64, at both execution tiers: the threaded interpreter and the
-chunk JIT. Both backends are emitted from the same Lean instruction layer, so a block replayed on
+Eita runs on x86-64 as well as ARM64, on the threaded interpreter. Both backends are emitted
+from the same Lean instruction layer, so a block replayed on
 the two machines is a cross-check that neither backend alone gives. Every x86-64 artifact is
 printed from Lean; nothing in it is hand-written assembly.
 
@@ -27,8 +27,7 @@ printed from Lean; nothing in it is hand-written assembly.
 | encoding | fixed 4-byte words | variable length (ModRM/SIB/REX); branch relaxation (`Relax.lean`) chooses rel8/rel32 |
 | interpreter file | `c/handlers.S` | `c/handlers-x86-elf.S` (`lake exe emitX86Interp elf`) |
 | host gas routines | `ARM64.CallGas`, `ARM64.SstoreGas` | `X86CallGas`, `X86SstoreGas` |
-| JIT chunks | `ARM64.JIT.emitChunkGen` over `ChunkOut` | the same algorithm, x86-64 instance (`X86JIT.lean`) |
-| code arena | RW/RX double-mapped views, `eita_clear_icache` | plain `mmap` RW/RX; the icache flush is a no-op (x86 caches are coherent) |
+| JIT chunks (Lean model) | `ARM64.JIT.emitChunkGen` over `ChunkOut` | the same algorithm, x86-64 instance (`X86JIT.lean`) |
 
 The x86-64 Linux build also links `csu_shim`, which supplies `__libc_csu_init`/`__libc_csu_fini`
 for the Lean toolchain's old-style `Scrt1.o` against glibc ≥ 2.34. The baseline is
@@ -81,9 +80,11 @@ predicates are packed into one register as bits. They are proved under `AsmSem`
 (`X86CallGasSem`, `X86SstoreGasSem`: program → plan → spec, as on ARM64) and byte-exact against
 clang. `libeita.so` links natively on x86-64 Linux with every `eita_*` symbol the replay loads.
 
-## 4. The JIT tier (`lean/Evm/CL/X86JIT.lean`)
+## 4. The JIT chunks (`lean/Evm/CL/X86JIT.lean`)
 
-The chunk algorithm is one definition with two instances; the ARM64 output is byte-identical to
+The chunk JIT's runtime is not part of this repository for now (see the README: on real replays
+it does not yet beat the threaded interpreter); its Lean model, described here, and its proofs
+are. The chunk algorithm is one definition with two instances; the ARM64 output is byte-identical to
 its single-target form.
 
 - `ChunkOut.callSym` — an op site (enter a flat handler, continue at the label after) is
@@ -97,18 +98,16 @@ its single-target form.
   base-register stores, and the cache reload (TOS only on x86-64).
 
 A chunk is made of the instruction forms the handlers' lowering already produces (`spScale`, then
-`x86Items`). Every external reference is an abs64 slot (`QuadSym`, relocation kind 5, which the
-SBCL loader writes as eight bytes); the fault symbols and `_eita_sync_and_ret` are reached through
+`x86Items`). Every external reference is an abs64 slot (`QuadSym`, relocation kind 5, eight bytes
+the loader writes); the fault symbols and `_eita_sync_and_ret` are reached through
 per-chunk trampolines (`lea rax, [rip + Lsym_x]; jmp [rax]`, rax dead on every such path), so a
 mapped image needs no `rel32` reach into `libeita.so`. A gas gadget is `sub r15, n; jb Lx_oog` —
 `GInstr.denote`'s `n ≤ gas` as the carry flag. `_eita_execute_program` is an `XItem` frame unit in
-`X86Interp`; the image's chunk runner is `X86Run`'s prologue plus `jmp rsi`. `emitJIT` picks the
-image for the host (`System.Platform.target`; `EITA_JIT_ARCH=x86|arm64` overrides).
+`X86Interp`; the image's chunk runner is `X86Run`'s prologue plus `jmp rsi`.
 
 **Size budget.** Chunks overlap (each runs through interior JUMPDESTs to its terminator), so a
 contract with many JUMPDESTs can expand to hundreds of millions of chunk ops. Over 4,000,000 chunk
-ops (`maxProgramOps`) the emitter refuses the program; the replay counts it `no-jit` and runs it
-on the interpreter tier (`jit-fallback … over the JIT tier's budget`).
+ops (`maxProgramOps`) the emitter refuses the program.
 
 ## 5. The x86-64 semantics (`X86Sem.lean`, `X86FlagProv.lean`, `X86SemCtrl.lean`, `X86Xfer.lean`)
 
@@ -178,5 +177,5 @@ trampolines' own code; the encoder's bytes against the ISA (gated against clang,
 
 The Lean checks `x86_chunks_lower`, `x86_chunks_only_abs64` and `x86_chunks_no_alias` run over the
 fixture corpus's chunks. Conformance on x86-64 Linux is the same as on ARM64: the fixture
-battery ([`testing.md`](testing.md)) at both tiers, and replayed ranges compared line for line
+battery ([`testing.md`](testing.md)), and replayed ranges compared line for line
 with the ARM64 logs (per-tx gas against the receipts, the header gate).

@@ -679,16 +679,3 @@ void eita_helper_exp(u256 *result, const u256 *base, const u256 *e) {
     }
     *result = r;
 }
-
-/* ---- JIT icache maintenance ------------------------------------------- *
- * Flush the instruction cache for a freshly-written JIT chunk. The replay
- * arena writes machine bytes through a RW alias and executes them through a
- * RX alias of the same physical pages; on ARM64 the I-cache must be made
- * coherent with the D-cache writes before execution. __builtin___clear_cache
- * lowers to the correct `dc cvau` / `ic ivau` / `dsb`/`isb` sequence on both
- * arm64 macOS and Linux, so this is one portable entry the SBCL loader calls
- * regardless of platform. */
-void eita_clear_icache(void *addr, uint64_t len) {
-    char *p = (char *)addr;
-    __builtin___clear_cache(p, p + len);
-}

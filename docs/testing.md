@@ -7,7 +7,7 @@
 | `scripts/verify-host-emit.sh` | the committed generated files (`src/generated/host.lisp`, `c/handlers.S`, `c/handlers-x86-elf.S`, `c/generated/storage_effect.c`, `c/generated/limb_ops.h`) are byte-identical to what the Lean emitters produce; the effect-layer proofs (`Evm.CL.Effect*Proof`) check, with no `sorry`; no gas-schedule constant copied by hand into the Lisp or the storage-host C (`scripts/check-derived-gas.py`); the interpreter runs against checking callbacks (`c/test_interp`) |
 | `scripts/verify-axioms.sh` | the axiom closure of the audited theorems (`lean/AxiomAudit.lean`) matches the committed baseline (`scripts/generated/axiom-audit.txt`): no new axiom, `sorry` or `native_decide` slips in |
 | `scripts/verify-coverage.sh` | the refinement-coverage ratchet (`scripts/refinement_coverage.py`): the count of open refinement obligations may only go down; the same generator writes `scripts/generated/verification-stats.md` (per-component statement / proof lines, theorems, `sorry`, axiom closure) and the gate fails on its drift |
-| `scripts/verify-jit-emit.sh`, `verify-asm-*.sh`, `verify-x86-*.sh` | the ARM64 and x86-64 encoders, instruction items and handler gadgets against their Lean denotations and test vectors |
+| `scripts/verify-jit-emit.sh`, `verify-asm-*.sh`, `verify-x86-*.sh` | the ARM64 and x86-64 encoders, instruction items and handler gadgets against their Lean denotations and test vectors (`verify-jit-emit.sh`: the chunk JIT's emitted leaf cores, byte-exact; the JIT's runtime is not in this repository, see the README) |
 
 ## The Lisp test suites
 
@@ -17,9 +17,8 @@ u256-width regressions of JUMP, RETURN and CALL memory expansion), the modexp ga
 MPT oracles (mainnet genesis root, incremental trie = rebuild), the streaming state root
 against the trie, layered snapshots against the Lean model, the Arc PQ precompile on its real
 call, the recovery decisions and the call-gas and SSTORE-gas natives against the Lean vector
-generators (`lake build recoveryVectors callGasVectors sstoreGasVectors`), the JIT against the
-interpreter (`audit-jit`), the Engine API's genesis blocks and fork windows (`engine`), and a
-BlockchainTests sample on both tiers (`EITA_TEST_FIXTURES`, a `ValidBlocks` directory, else
+generators (`lake build recoveryVectors callGasVectors sstoreGasVectors`), the Engine API's
+genesis blocks and fork windows (`engine`), and a BlockchainTests sample (`EITA_TEST_FIXTURES`, a `ValidBlocks` directory, else
 `lean/external/ethereum-tests`). A suite whose prerequisite is missing is reported SKIP with
 the reason; `EITA_TEST_GATES=1` adds the three Lean gates above. The Engine API's own checks
 (the edge's `cargo test`, `tests/engine-checks.py` against a running node) are in
@@ -45,9 +44,7 @@ bin/eita fixtures <test.json | flat directory>...
 scripts/run-battery.sh <fixture tree> [log]        # one SBCL per directory, a TOTAL line
 ```
 
-Each runs on two tiers: the JIT (default: hot code compiled by the Lean-emitted JIT, via
-the `emitJIT` daemon) and the threaded interpreter (`EITA_NO_JIT=1`). Both must give the
-same verdict on every test (`diff <(grep pass= a.sum | sort) <(grep pass= b.sum | sort)`).
+Both run every frame on the threaded interpreter emitted from the Lean spec.
 
 ### The Cancun battery
 
@@ -59,12 +56,10 @@ tests in 3,288 files, Frontier..Cancun:
 git clone https://github.com/ethereum/tests lean/external/ethereum-tests
 git -C lean/external/ethereum-tests checkout c67e485f
 B=lean/external/ethereum-tests/LegacyTests/Cancun/BlockchainTests
-SBCL_ARGS="--dynamic-space-size 16GB" EITA_NO_JIT=1 scripts/run-battery.sh $B /tmp/interp.log > /tmp/interp.sum
-SBCL_ARGS="--dynamic-space-size 16GB"               scripts/run-battery.sh $B /tmp/jit.log    > /tmp/jit.sum
-diff <(grep pass= /tmp/interp.sum | sort) <(grep pass= /tmp/jit.sum | sort)
+SBCL_ARGS="--dynamic-space-size 16GB" scripts/run-battery.sh $B /tmp/battery.log > /tmp/battery.sum
 ```
 
-Expected on both tiers (about 30 minutes each, sequential):
+Expected (about 30 minutes, sequential):
 
     TOTAL pass=111835 fail=0 skip=40 xfail=108
     invalid blocks: rejected=5960 rejected-other=34 accepted=6 undecoded=498 unchecked=6
@@ -92,7 +87,6 @@ and execution-spec-tests' `fixtures_blockchain_tests.tgz` (Cancun + Prague: 38,8
 V=lean/external/ethereum-tests/LegacyTests/Cancun/BlockchainTests/ValidBlocks
 for d in bcExample bcStateTests bcEIP1559 bcEIP4844-blobtransactions bcUncleTest; do
   bin/eita fixtures $V/$d | tail -3
-  EITA_NO_JIT=1 bin/eita fixtures $V/$d | tail -3
 done
 ```
 

@@ -1,8 +1,8 @@
 name: CI
 
 # Lean build with every proof, the axiom-closure audit, the refinement-coverage ratchet,
-# the emitted-artifact drift check, libeita, and a BlockchainTests sample on both tiers
-# (the threaded interpreter and the JIT) plus the Lean interpreter's own replay.
+# the emitted-artifact drift check, libeita, and a BlockchainTests sample on the threaded
+# interpreter plus the Lean interpreter's own replay.
 on:
   push:
     branches: [main]
@@ -130,17 +130,14 @@ jobs:
 
       # The full corpus needs ~16 GB per SBCL (docs/testing.md); hosted runners have ~16 GB
       # in total, so CI runs a fixed sample and the full battery stays a manual gate.
-      - name: BlockchainTests sample, interpreter tier and JIT tier
+      - name: BlockchainTests sample
         run: |
           V=/tmp/legacytests/Cancun/BlockchainTests/ValidBlocks
           fail=0
           for d in bcExample bcStateTests bcEIP1559 bcEIP4844-blobtransactions bcUncleTest bcEIP1153-transientStorage; do
-            for tier in interp jit; do
-              if [ $tier = interp ]; then export EITA_NO_JIT=1; else unset EITA_NO_JIT; fi
-              out=$(bin/eita --dynamic-space-size 4GB --end-runtime-options fixtures "$V/$d" 2>&1 | grep -v '^;')
-              echo "$d [$tier]: $(echo "$out" | grep '^summary:')"
-              echo "$out" | grep -q '^summary: .* fail=0 ' || { echo "$out" | grep -E '^(FAIL|XPASS|ERROR)' | head; fail=1; }
-            done
+            out=$(bin/eita --dynamic-space-size 4GB --end-runtime-options fixtures "$V/$d" 2>&1 | grep -v '^;')
+            echo "$d: $(echo "$out" | grep '^summary:')"
+            echo "$out" | grep -q '^summary: .* fail=0 ' || { echo "$out" | grep -E '^(FAIL|XPASS|ERROR)' | head; fail=1; }
           done
           exit $fail
 
@@ -221,9 +218,8 @@ jobs:
           cmake --build /tmp/mcl/build -j4 >/dev/null && cmake --install /tmp/mcl/build >/dev/null
       - name: Build (Leanless)
         run: ./build.sh --leanless
-      - name: Quickstart, interpreter tier
+      - name: Quickstart
         env:
-          EITA_NO_JIT: "1"
           DYLD_LIBRARY_PATH: /opt/homebrew/lib
         run: |
           bin/eita repl --load examples/quickstart.lisp < /dev/null | grep -q '^state root: 0x'

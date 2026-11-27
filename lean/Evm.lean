@@ -148,7 +148,7 @@ import Evm.Amsterdam.Spec.BlockAccessList
 import Evm.Amsterdam.Spec.IntrinsicGasFloor
 
 -- IR pipeline (bytecode → IR.Op chunks; under refactor per
--- toward shared interp/JIT infra).
+-- toward shared interp/chunk infra).
 import Evm.IR.Types
 import Evm.IR.Compile
 import Evm.IR.Emit

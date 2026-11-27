@@ -6,7 +6,7 @@
 ## byte-identical, which scripts/verify-host-emit.sh checks).
 ##
 ##   ./build.sh              full build (Lean toolchain via elan)
-##   ./build.sh --leanless   no Lean: use the committed generated files, interpreter only
+##   ./build.sh --leanless   no Lean: use the committed generated files
 ##
 ## Needs SBCL and ocicl (https://github.com/ocicl/ocicl; run `ocicl setup` once). EITA_HEAP_MB
 ## (default 8192) is bin/eita's default heap; `bin/eita --dynamic-space-size N --end-runtime-options
@@ -29,11 +29,10 @@ else
 fi
 
 ## Leanless: --leanless, or auto when lake is absent. Skips the Lean emitters and uses the
-## COMMITTED generated artifacts. Run interp-only (EITA_NO_JIT=1): the JIT needs the Lean
-## emitJIT daemon.
+## COMMITTED generated artifacts.
 LEANLESS=0
 [ "${1:-}" = "--leanless" ] && LEANLESS=1
-command -v lake >/dev/null 2>&1 || { echo "lake not found -> Leanless build (interp-only)"; LEANLESS=1; }
+command -v lake >/dev/null 2>&1 || { echo "lake not found -> Leanless build"; LEANLESS=1; }
 
 echo "[0/6] vendor/blst (BLS12-381; the Lean executables and libeita link it), vendor/secp256k1"
 if [ ! -f vendor/blst/bindings/blst.h ]; then
@@ -51,9 +50,9 @@ fi
 if [ "$LEANLESS" = 0 ]; then
   echo "[1/6] mathlib olean cache (no-op when up to date)"
   ( cd lean && lake exe cache get )
-  echo "[2/6] lake build: the emitters and the emitJIT daemon (a runtime dependency of the JIT)"
-  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL emitHostC emitRV32 emitJIT )
-  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h} from the Lean spec"
+  echo "[2/6] lake build: the emitters"
+  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL emitHostC emitRV32 )
+  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, c/handlers-rv32.S, src/generated/host.lisp, c/generated/host.{c,h} from the Lean spec"
   ## `lake env` puts the toolchain's lib dir on the library path (Linux needs it).
   ( cd lean && lake env ./.lake/build/bin/emitARM64 )  > c/handlers.S
   ( cd lean && lake env ./.lake/build/bin/emitX86Interp elf ) > c/handlers-x86-elf.S
@@ -72,7 +71,7 @@ if [ "$LEANLESS" = 0 ]; then
   ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore )         > c/generated/sstore_gas.c
   ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore-vectors ) > c/test_sstore_gas.c
 else
-  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp, c/generated/host.{c,h}"
+  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, c/handlers-rv32.S, src/generated/host.lisp, c/generated/host.{c,h}"
 fi
 
 echo "[4/6] build libeita, libkeccak_batch, libeita_pq, the Engine API edge ($(uname -s)/$(uname -m))"
@@ -98,13 +97,12 @@ rm -f /tmp/eita-build-$$.log
 [ -x bin/eita ] || { echo "ERROR: bin/eita was not built" >&2; exit 1; }
 ## The native artifacts beside the executable: bin/ moves as a whole (src/native/libraries.lisp
 ## looks next to the executable first).
-for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" c/libeita_base."$LIBEXT" lean/.lake/build/bin/emitJIT \
+for f in c/libeita."$LIBEXT" c/libkeccak_batch."$LIBEXT" c/libeita_pq."$LIBEXT" c/libeita_base."$LIBEXT" \
          rust/engine-api/target/release/eita-engine-api; do
   [ -f "$f" ] && cp -p "$f" bin/
 done
 
 echo "Build OK: $(bin/eita version | head -1)"
-if [ "$LEANLESS" = 1 ]; then echo "  (Leanless -> run interp-only: EITA_NO_JIT=1)"; fi
 echo "  REPL:      bin/eita repl                                  (docs/quickstart.md)"
 echo "  fixtures:  bin/eita fixtures <BlockchainTests dir or file> (docs/testing.md)"
 echo "  a chain:   bin/eita replay --chain ethereum --blocks DIR --from 1 --to 1000   (docs/block-input.md)"

@@ -2,7 +2,8 @@
 
 The JIT's chunk pieces — the gas gadgets, the u256 cores, the region flush —
 are emitted from one `AInstr` algebra and *denoted*: the theorems below relate
-the instructions to what the region means, on ARM64 and x86-64.
+the instructions to what the region means, on ARM64 and x86-64. The JIT's runtime
+is not part of this repository for now (see the README); this model and its proofs are.
 
 ## The semantics: `Evm.CL.AsmRun`
 

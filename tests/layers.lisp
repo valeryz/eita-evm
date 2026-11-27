@@ -190,7 +190,66 @@
                           (eita.state.root:snapshot-root (snap-path *dir* 100) :threads 2
                                                         :layers (mapcar #'snap-dir (reverse layers)))
                           want)
-                (setf eita.state.root::*big* big)))))))))
+                (setf eita.state.root::*big* big)))
+            ;; the converter (state/convert.lisp): the v1 stack as a v2 base, every storage a
+            ;; giant in even rounds; its records are the model's, its root the v1 stack's
+            (let ((big eita.state.root::*big*) (tmp (snap-tmp-path (format nil "~Av2/" *dir*) blk)))
+              (setf eita.state.root::*big* (if (evenp r) 0 big))
+              (unwind-protect (eita.state.root:convert-stack base layers tmp (format nil "~Aconv/" *dir*) :threads (1+ (rnd 3)))
+                (setf eita.state.root::*big* big))
+              (let ((v2 (open-snap tmp)))
+                (check-base-2 (list r :convert) v2 acc sto)
+                (check-fences (list r :convert) v2)
+                (check (list r :convert-view) (view-mismatches '() v2 acc sto) 0)
+                (check (list r :convert-root) (eita.state.root:snapshot-root tmp :threads 2) want)))))))))
+
+(defun convert-gate ()
+  "`convert-snapshot` from a state directory, over many chunks (12,000 accounts, a layer
+   across them): it takes the composition the anchor names, publishes the v2 base and its
+   anchor when the root is the header's, and quarantines it when it is not."
+  (mapc #'snap-close *open*)
+  (setf *open* '())
+  (sb-ext:run-program "rm" (list "-rf" *dir*) :search t)
+  (let ((acc (make-hash-table)) (sto (make-hash-table :test 'equal)) (d '()))
+    (dotimes (i 12000)
+      (let ((addr (* 7919 (1+ i))))
+        (setf (gethash addr acc) (if (zerop (mod i 11)) (list 0 0 +ec+ t) (list (rnd 3) (1+ (rnd 9)) +ec+ nil)))
+        (dotimes (k (if (zerop (mod i 5)) (rnd 40) 0)) (setf (gethash (cons addr (rnd 100)) sto) (1+ (rnd 1000))))))
+    (dotimes (i 400)                    ; the layer: changes, wipes, new accounts across the range
+      (let ((addr (if (evenp i) (* 7919 (1+ (rnd 12000))) (+ 3 (* 7919 (rnd 12000))))))
+        (push (list addr (list (rnd 3) (rnd 3) +ec+ (zerop (rnd 3))) (zerop (rnd 7))
+                    (sort (remove-duplicates (loop repeat (rnd 6) collect (cons (rnd 100) (rnd 3))) :key #'car) #'< :key #'car))
+              d)))
+    (setf d (sort (remove-duplicates d :key #'first) #'< :key #'first))
+    (let* ((base (write-base 100 acc sto)) (layer (write-layer 100 200 d))
+           (root (eita.state.root:snapshot-root (snap-path *dir* 100) :threads 2 :layers (list (layer-path *dir* 100 200))))
+           (comps (mapcar #'component-of (list base layer)))
+           (out (format nil "~Aout/" *dir*)) (bad (format nil "~Abad/" *dir*)))
+      (with-open-file (a (merge-pathnames "anchors.sexp" *dir*) :direction :output :if-exists :supersede)
+        (let ((*print-pretty* nil)) (prin1 (list 200 (concatenate 'string "0x" root) root t (composition-string comps)) a)) (terpri a))
+      ;; the layer's manifest given the header root (the content hash covers the files only)
+      (let ((m (read-manifest (layer-path *dir* 100 200))))
+        (setf (getf m :state-root) (concatenate 'string "0x" root))
+        (with-open-file (f (merge-pathnames "MANIFEST.sexp" (layer-path *dir* 100 200)) :direction :output :if-exists :supersede)
+          (let ((*print-pretty* nil) (*print-case* :downcase)) (prin1 m f) (terpri f))))
+      (let ((got (let ((big eita.state.root::*big*))   ; storages over 20 slots as giants (global: the pool reads it)
+                   (setf eita.state.root::*big* 20)
+                   (unwind-protect (eita.state.root:convert-snapshot *dir* out :threads 3)
+                     (setf eita.state.root::*big* big)))))
+        (check :convert-published (and got (probe-file (snap-path out 200)) t) t)
+        (when got
+          (let ((v2 (open-snap (snap-path out 200))))
+            (check :convert-root (eita.state.root:snapshot-root (snap-path out 200) :threads 2) root)
+            (check :convert-version (snap-version v2) 2)
+            (check :convert-anchor (eita.state.recovery:read-anchors out)
+                   (list (list 200 t (getf (snap-manifest v2) :content-hash)))))))
+      ;; and a header root it does not have: quarantined, no anchor
+      (with-open-file (a (merge-pathnames "anchors.sexp" *dir*) :direction :output :if-exists :supersede)
+        (prin1 (list 100 "0x00" "00" t (composition-string (list (component-of base)))) a) (terpri a))
+      (check :convert-gate (eita.state.root:convert-snapshot *dir* bad :threads 2) nil)
+      (check :convert-quarantined (and (probe-file (snap-tmp-path bad 100)) (not (probe-file (snap-path bad 100)))
+                                       (not (probe-file (merge-pathnames "anchors.sexp" bad))) t)
+             t))))
 
 (defun gc-spares-frozen-layer ()
   "A frozen RAM layer whose layer-P-N/ the writer has published but not yet swapped into the
@@ -216,7 +275,7 @@
          (old-env (sb-ext:posix-getenv "EITA_STATE_DIR"))
          (saved (list eita.state::*hot-budget-bytes* eita.state::*written* eita.state::*layers* eita.state::*base*
                       eita.state::*current-world* eita.state::*keep-zero-slots* eita.state::*fault-account-hook*
-                      eita.state::*fault-slot-hook* eita.state::*storage-wipe-hook* eita.state::*cold-storage-map-hook*))
+                      eita.state::*fault-slot-hook* eita.state::*storage-wipe-hook*))
          (world (eita.state:make-world))
          (most 0) (one 0) (drops 0) (dropped '()))
     (ensure-directories-exist dir)
@@ -246,11 +305,11 @@
       (eita.state::stop-background!)
       (mapc #'snap-close (remove-if-not #'snap-p (cons eita.state::*base* eita.state::*layers*)))
       ;; back-world! installed the snapshot hooks: the suites after this one run on plain worlds
-      (destructuring-bind (budget written layers base cw kz fa fs sw cs) saved
+      (destructuring-bind (budget written layers base cw kz fa fs sw) saved
         (setf eita.state::*hot-budget-bytes* budget eita.state::*written* written eita.state::*layers* layers
               eita.state::*base* base eita.state::*current-world* cw eita.state::*keep-zero-slots* kz
               eita.state::*fault-account-hook* fa eita.state::*fault-slot-hook* fs
-              eita.state::*storage-wipe-hook* sw eita.state::*cold-storage-map-hook* cs))
+              eita.state::*storage-wipe-hook* sw))
       (if old-env (sb-posix:setenv "EITA_STATE_DIR" old-env 1) (sb-posix:unsetenv "EITA_STATE_DIR")))
     (check :tip-one-block-measured (plusp one) t)
     (check :tip-written-bounded (<= most (+ (floor (* 1024 1024) 4) one)) t)
@@ -295,7 +354,7 @@
                  eita.state::*pending-root* eita.state::*anchor-queue* eita.state::*compactor* eita.state::*compactor-job*
                  eita.state::*compactor-result* eita.state::*retired* eita.state::*current-world*
                  eita.state::*keep-zero-slots* eita.state::*fault-account-hook* eita.state::*fault-slot-hook*
-                 eita.state::*storage-wipe-hook* eita.state::*cold-storage-map-hook*))
+                 eita.state::*storage-wipe-hook*))
          (saved (mapcar #'symbol-value vars))
          (world (eita.state:make-world))
          (tag (list :reorg sub))
@@ -519,6 +578,38 @@
                                                                        (int->octets codehash 32)))))
     (eita.mpt:bytes->hex (eita.state.root:st-root-bytes (eita.state.root:st-finish st)))))
 
+;;; The replay's reader over a version 2 stack: by address and slot (`view-account`,
+;;; `view-slot`, `view-has-storage-p`), the hashes computed on demand, with a frozen RAM
+;;; layer (keyed by address, as the world is) above the disk layers.
+
+(defun ram-layer-of (d)
+  "A frozen RAM layer holding the delta D (`rand-delta`'s shape; codehashes empty)."
+  (let ((tb (eita.state::make-acct-table)))
+    (dolist (e d)
+      (destructuring-bind (addr (nonce balance codehash mark) wiped slots) e
+        (declare (ignore codehash))
+        (let ((a (eita.state::acct-table-intern tb addr)))
+          (setf (eita.state::acct-nonce tb a) nonce (eita.state::acct-balance tb a) balance)
+          (eita.state::acct-set-flag! tb a eita.state::+acct-faulted+)
+          (when mark (eita.state::acct-set-flag! tb a eita.state::+acct-marked+))
+          (when wiped (eita.state::acct-set-flag! tb a eita.state::+acct-wiped+))
+          (dolist (kv slots) (eita.state::acct-slot-put! tb a (car kv) (cdr kv))))))
+    (eita.state::make-ram-layer :block 999 :accts tb)))
+
+(defun mixed-mismatches (layers base acc sto)
+  "How many of the address-keyed reader's answers differ from the model (`mat`)."
+  (let ((bad 0))
+    (multiple-value-bind (ma ms) (mat acc sto)
+      (loop for addr from #x1000 below (+ #x1000 40)
+            do (multiple-value-bind (found n b c flag) (view-account layers base addr (lambda () (hk addr)) #'hs)
+                 (unless (equalp (and found (list n b c flag)) (gethash addr ma)) (incf bad)))
+               (loop for slot below 12
+                     do (unless (= (view-slot layers base addr slot (lambda () (hk addr)) (hs slot)) (gethash (cons addr slot) ms 0))
+                          (incf bad)))
+               (unless (eq (view-has-storage-p layers base addr (hk addr) #'hs) (has-storage ms addr))
+                 (incf bad))))
+    bad))
+
 (defvar *mutants-caught* (list :wipe 0 :tombstone 0 :mark 0))
 
 (defun round-2 (r)
@@ -541,6 +632,22 @@
           (setf blk n)))
       (dolist (l layers) (check-fences (list r :v2-layer) l))
       (check (list r :v2-stack-view k) (view-mismatches layers base acc sto) 0)
+      (check (list r :v2-stack-mixed k) (mixed-mismatches layers base acc sto) 0)
+      (let ((d (mapcar (lambda (e) (list* (first e) (append (subseq (second e) 0 2) (list +ec+ (fourth (second e)))) (cddr e)))
+                       (rand-delta)))
+            (acc2 (model-copy acc)) (sto2 (model-copy sto)))
+        (apply-delta acc2 sto2 d)
+        (check (list r :v2-ram-over-stack k) (mixed-mismatches (cons (ram-layer-of d) layers) base acc2 sto2) 0))
+      ;; minor: the oldest run composed into one layer (Lean `compose_run_view`)
+      (when (>= k 2)
+        (let* ((j (+ 2 (rnd (1- k)))) (run (last layers j))
+               (p (snap-parent (car (last run)))) (n (snap-block (first run)))
+               (tmp (layer-tmp-path *dir* p n)) (fin (layer-path *dir* p n)))
+          (write-composed tmp 1 n "0x00" run base :parent p)
+          (snap-publish *dir* n tmp :final fin)
+          (let ((stack (append (butlast layers j) (list (open-snap fin)))))
+            (check-fences (list r :v2-minor) (car (last stack)))
+            (check (list r :v2-minor j) (view-mismatches stack base acc sto) 0))))
       ;; the mutants: the same deltas with one rule dropped from the layers
       (dolist (mutant '(:wipe :tombstone :mark))
         (let ((ml (loop for (p . d) in deltas
@@ -568,7 +675,14 @@
                 (merge-finish m '())))
             (snap-publish *dir* 1 tmp1)
             (check (list r :v2-root) (v2-state-root nb)
-                   (eita.state.root:snapshot-root (snap-path *dir* 1) :threads 1)))))
+                   (eita.state.root:snapshot-root (snap-path *dir* 1) :threads 1))
+            ;; the streaming root of the v2 base, and of the stack it was compacted from
+            (check (list r :v2-root-base) (eita.state.root:snapshot-root (snap-path *dir* blk) :threads 2) (v2-state-root nb))
+            (dolist (threads '(1 3))
+              (check (list r :v2-root-stack threads)
+                     (eita.state.root:snapshot-root (snap-path *dir* 100) :threads threads
+                                                   :layers (mapcar #'snap-dir (reverse layers)))
+                     (v2-state-root nb))))))
       ;; the base before the layers: compose-range over it alone is the model's base
       (check (list r :v2-base-kept) (view-mismatches '() base acc0 sto0) 0))))
 
@@ -658,6 +772,7 @@
   (loop for (mutant n) on *mutants-caught* by #'cddr
         do (check (list :mutant-caught mutant) (plusp n) t))
   (format t "v2 mutants caught (rounds): ~{~(~A~) ~D~^, ~}~%" *mutants-caught*)
+  (convert-gate)
   (fences-at-scale)
   (writer-refuses)
   (gc-spares-frozen-layer)

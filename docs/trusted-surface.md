@@ -2,7 +2,7 @@
 
 Eita's EVM semantics are written in Lean 4 as a clause-by-clause translation of the Ethereum
 execution specs (EELS), and the parts that execute — the ARM64 and x86-64 interpreters, the
-JIT's chunk code, the gas routines and the host's effect code (`src/generated/host.lisp`) —
+gas routines and the host's effect code (`src/generated/host.lisp`) —
 are **emitted from that spec** and drift-checked (`scripts/verify-host-emit.sh`). What remains is
 code that is *trusted, not derived*: hand-written C and C++, and the third-party libraries it
 links. This page lists all of it, so a reader knows exactly where a bug could hide that the
@@ -20,11 +20,11 @@ Called from the generated handlers for operations too large to inline:
 | `eita_helper_shl`, `_shr`, `_sar`, `_byte`, `_signextend` | 256-bit bit operations |
 | `eita_helper_calldataload`, `_calldatacopy`, `_codecopy`, `_returndatacopy`, `_returndata_to_mem`, `_mcopy` | reads past the end of a buffer yield zeros; offsets are full 256-bit values |
 | `eita_helper_keccak256`, `eita_keccak256` | KECCAK256 over memory |
-| `eita_jumpdest_map`, `eita_run`, `eita_run_program`, `eita_clear_icache` | jump-destination analysis and the entry trampolines |
+| `eita_jumpdest_map`, `eita_run`, `eita_run_program` | jump-destination analysis and the entry trampolines |
 
 **How it is checked:** `c/test_compute.c` compares every helper against GMP on edge constants and
 random operands (about 17.9M cases), including the 64-bit wrap of buffer offsets; the Ethereum
-test fixtures run through these helpers on both execution tiers.
+test fixtures run through these helpers.
 
 ## Hand-written C: transaction-scoped state — `c/tx_state.c` (205 lines)
 
@@ -49,7 +49,7 @@ SSTORE gas (`orig_record`, `orig_get`), the refund counter, EIP-1153 transient s
 | `rust/pq` (separate `libeita_pq`) | Arc's post-quantum precompile: SLH-DSA-SHA2-128s verify | the `slh-dsa` crate at the version arc-node pins |
 | `rust/base` (separate `libeita_base`) | Base's native precompiles from Beryl: the B-20 factory and tokens, the policy and activation registries, from Cobalt the transaction-context and nonce-manager precompiles. Their logic is not restated: it is base/base's `base-common-precompiles` at the release Base runs, linked with base/base's own `Cargo.lock`; the shim forwards and holds no rule. Which addresses they are, the call boundary and the price of every world operation they perform are Lean (`Evm.Optimism.Beryl.Spec.NativePrecompiles`), emitted into `src/chains/op.lisp`'s host | base/base `crates/common/precompiles` @ v1.5.6 |
 
-**How they are checked:** the ethereum/tests precompile fixtures on both tiers, the EIP test
+**How they are checked:** the ethereum/tests precompile fixtures, the EIP test
 vectors for 2537 and 4844 (`c/test_bls12381.cpp`, `c/test_point_evaluation.c`), `lake exe
 cryptoTests` (below), and mainnet replay with state-root checks. Gas for every precompile is computed in Lean, not here.
 
@@ -110,7 +110,7 @@ was unsound five ways (`rejects_*`). It assumes, and does not prove:
 
 ## Platform glue (no EVM semantics)
 
-`lean/c/uds.c` (the JIT emit server's socket), `lean/c/x86_run.c` (the x86-64 emitter's test
+`lean/c/x86_run.c` (the x86-64 emitter's test
 harness), `lean/c/csu_shim.c` (a glibc ≥ 2.34 link shim). A bug here can crash a run but cannot
 change a result silently.
 
@@ -243,7 +243,7 @@ incremental root checker tracks dirty slots. Its primitives: `eita_sh_fault` (`e
 lazy world is loaded through `cb-storage-fault`, the world's fault hook, and read again; absent = zero; the
 observers' first touch), `eita_sh_sload` (`limb_copy`, and the value kept as the current one),
 `eita_sh_access_slot` / `eita_sh_orig_record` (the native TxState, unchanged). **Checked by** the fixtures
-(every GeneralStateTests storage directory), the differential (JIT vs interpreter), a 30,000-block mainnet replay,
+(every GeneralStateTests storage directory), a 30,000-block mainnet replay,
 and `tests/native-storage-hooks.lisp`; the lint `check-derived-gas.py` covers its C (no gas constant outside the
 emitted file).
 
@@ -309,8 +309,7 @@ emitted native routines (`eita_sstore_gas_*`, proved in `Evm.CL.ARM64.SstoreGasS
 | `eita_sh_set_storage` | appends a type-0 entry in `journal-push!`'s layout (type, addr, key, old = the current value), then (self, key) := w, removed when w = 0 in a full world (`world-storage-set`); the root checker's dirty slot through the hook |
 | `eita_sh_revert_storage` | for a revert's slice, newest first: each type-0 entry restored into the slot table (the id from the cache, or from learn on a miss) and retyped 255 (skipped by the host loop and `eita_ts_revert`); returns the count; stops at the first un-create entry (type 10), below which the host replays in order; off while the read stream is on (the Lisp restore streams each write) |
 
-**Checked by** the fixtures (every SSTORE/refund/revert directory), the tier differential (JIT vs interpreter on
-the one path), `c/test_storage_host.c` (the native revert alone restores a slice whose accounts
+**Checked by** the fixtures (every SSTORE/refund/revert directory), `c/test_storage_host.c` (the native revert alone restores a slice whose accounts
 collide in the cache) and the replay.
 
 ### Lisp accessors and hook tiers — tested

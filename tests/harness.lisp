@@ -11,8 +11,7 @@
 ;;;;   (eita.test:run-all :only '("mpt-genesis"))        some
 ;;;;
 ;;;; Prerequisites: the Lean vector generators (lake build recoveryVectors callGasVectors
-;;;; sstoreGasVectors) for the vector audits, the emitJIT daemon for the JIT audit, an
-;;;; ethereum/tests checkout for the BlockchainTests sample (EITA_TEST_FIXTURES, else
+;;;; sstoreGasVectors) for the vector audits, an ethereum/tests checkout for the BlockchainTests sample (EITA_TEST_FIXTURES, else
 ;;;; lean/external/ethereum-tests). EITA_TEST_GATES=1 also runs the Lean gates
 ;;;; (scripts/verify-host-emit.sh, verify-axioms.sh, verify-coverage.sh): minutes to hours.
 
@@ -71,6 +70,7 @@
     ("readset" "readset.lisp")
     ("engine" "engine.lisp")
     ("hooks" "hooks.lisp")
+    ("swank" "swank.lisp")
     ("arc-pq" "arc-pq.lisp"
      :requires ,(lambda () (unless (eita.native:native-path "libeita_pq" :error nil)
                              "libeita_pq not built (make -C c)")))
@@ -83,15 +83,13 @@
     ("audit-sstore-gas" "audit-sstore-gas.lisp"
      :requires ,(lambda () (unless (lean-exe "sstoreGasVectors") "lake build sstoreGasVectors"))
      :argument ,(lambda () (lean-vectors "sstoreGasVectors")))
-    ("audit-jit" "audit-jit.lisp"
-     :requires ,(lambda () (unless (probe-file (eita.native:emit-jit-path)) "lake build emitJIT")))
     ("audit-native" "audit-native.lisp"
      :requires ,(lambda () "known broken before the ASDF restructure too: its callback vtable leaves
      the SLOAD-family entries null, so the first such opcode faults at pc=0 (a harness bug, not
      an engine one; the same handlers pass every fixture through the engine's callbacks)"))
     ("fixtures" "fixtures.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
-    ("diff-tiers" "diff-tiers.lisp"
+    ("snapshot-tiers" "snapshot-tiers.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))
     ("native-storage-hooks" "native-storage-hooks.lisp"
      :requires ,(lambda () (unless (fixtures-dir) "no ethereum/tests checkout (EITA_TEST_FIXTURES)")))

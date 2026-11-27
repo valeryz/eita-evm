@@ -385,10 +385,6 @@
 (defun world-storage-get (w addr slot)
   (with-acct (tb a) w addr (values (acct-slot-get tb a slot))))
 
-(defvar *cold-storage-map-hook* nil
-  "(lambda (addr fn)): FN (slot value) for every cold-tier (snapshot) slot of ADDR that RAM
-   does not override. NIL when RAM is the whole world (fixtures, an in-memory run).")
-
 (defun world-storage-set (w addr slot val)
   (with-acct (tb a) w addr
     (if (and (zerop val) (not *keep-zero-slots*))
@@ -445,6 +441,19 @@
   (with-acct (tb a) w addr (acct-slots-drop! tb a))
   (when *storage-wipe-hook* (funcall *storage-wipe-hook* addr)))
 
+(defun cold-storage-wipe! (w addr)
+  "A creation's storage wipe of what lies below RAM (EELS destroy_storage): in a
+   snapshot-backed world the account's WIPED bit (`*storage-wipe-hook*`), under which its
+   cold slots read 0 — one owner for both snapshot formats, since a version 2 stack cannot
+   enumerate an account's slots by raw key. True when this call set the bit (the
+   creation's journal entry records it, `account-uncreate!` clears it); NIL in a world
+   held in RAM, or when the bit was already set."
+  (when *storage-wipe-hook*
+    (with-acct (tb a) w addr
+      (unless (acct-flag-p tb a +acct-wiped+)
+        (funcall *storage-wipe-hook* addr)
+        t))))
+
 (defun account-delete! (w addr)
   "The storage view's account deletion (EELS destroy_account: SELFDESTRUCT at tx end, the
    EIP-161 sweep, the EIP-161 coinbase rule): balance, nonce, code, the whole storage and the
@@ -460,15 +469,19 @@
 (defun account-uncreate! (w addr was-present)
   "Undo a CREATE (journal entry 10): code, nonce and storage go — the creation's
    collision rule guarantees the account had none of them before — and the existence mark
-   goes unless the account was present before the CREATE (WAS-PRESENT = 1: an existing
+   goes unless the account was present before the CREATE (WAS-PRESENT bit 0: an existing
    empty account, pre-Spurious Dragon). The balance has its own journal entry. The storage
-   table is dropped without the wipe hook (nothing below it was ever faulted)."
+   table is dropped without the wipe hook; the creation's storage wipe journaled every slot
+   RAM held before it (`storage-wipe-journaled!`), and those entries, undone next, put them
+   back. WAS-PRESENT bit 1: that wipe set the account's WIPED bit (`cold-storage-wipe!`),
+   cleared here so the slots below RAM read again."
   (when *observe-capture* (observe-acct-touch! addr))
   (when *view-log* (view-log-write :account addr 0 t nil))
   (with-acct (tb a) w addr
     (setf (acct-code tb a) +no-code+ (acct-nonce tb a) 0)
     (acct-slots-drop! tb a)
-    (unless (eql was-present 1) (acct-clear-flag! tb a +acct-marked+))))
+    (unless (logbitp 0 was-present) (acct-clear-flag! tb a +acct-marked+))
+    (when (logbitp 1 was-present) (acct-clear-flag! tb a +acct-wiped+))))
 ;;; Observation gate (the observation seam, further down). It
 ;;; lives here, ahead of the fault seam, because the inline fault-slot! below
 ;;; tests it on every access: the first fault of a slot within a tx snapshots its

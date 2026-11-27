@@ -9,7 +9,10 @@ composers), `src/state/snapshot-world.lisp` (the replay's stack, writer, compact
 `src/state/anchors.lisp` (anchors, root checks), `src/state/root.lisp` (the root checker over a
 stack), `src/state/recovery.lisp` (resume point, GC). File format and the terms used here:
 [state-snapshot-format.md](state-snapshot-format.md); this document describes the running
-system, whose files are that document's legacy format (its Appendix A).
+system. Its files are in the format of the stack's base: that document's legacy format (its
+Appendix A) for a chain replayed from genesis, version 2 for a chain started from an import
+or converted from version 1 (`eita convert-snapshot`, state-snapshot-format.md §10) (§3, "A
+stack over a version 2 base").
 
 ## 1. The stack
 
@@ -98,7 +101,17 @@ content hash). A lone base is written as its bare hash.
 mentions it, else the base; a slot from the newest layer that sets it, 0 at the first layer that
 wiped its account, else the base. The account is then materialized by the inclusion rule S1
 (`s1-included-p`): present iff non-empty, with storage, or marked. Faults go through these
-(`snap-fault-account`, `snap-fault-slot`, `snap-cold-storage-map`).
+(`snap-fault-account`, `snap-fault-slot`).
+
+**A storage wipe** below RAM is the account's WIPED bit in the hot set, whatever removes the
+storage: SELFDESTRUCT and the EIP-161 sweep (`world-storage-wipe!`), and a creation over an
+address that holds storage (EELS `destroy_storage`, `storage-wipe-journaled!`). Under the bit
+a fault reads 0 without asking the stack, and the layer the hot set becomes records it (flag
+bit 2). A creation journals the slots RAM holds, zeros too, and sets the bit; its revert
+(journal entry 10, `account-uncreate!`) drops the account's slot table and clears the bit,
+and the journaled slots come back. No slot below RAM is enumerated: a wipe costs the same over
+a contract of one slot and of 20M, and observers see the slots the transaction touched (as for
+SELFDESTRUCT), not every slot the wipe removed.
 
 `compose-range` is the one merge of sorted record runs over a key range: a k-way merge, newest
 wins, stopping at a source that wiped the account (Lean `composeRuns`,
@@ -115,6 +128,50 @@ storage of over 1M slots is the exception: only its layers are composed (tombsto
 `giant-root` lays them over the base's records in place while it builds that storage's trie
 with every thread (split by the hashed keys' top byte; 6 B a slot off the heap). Ethereum at
 4.9M (22M accounts, 36M slots, up to 13 layers): 18.3–20.5 s.
+
+### A stack over a version 2 base
+
+A chain started from an import (`eita import-reth`, state-snapshot-format.md §10) or
+converted from version 1 (`eita convert-snapshot`, same section) has a version 2 base: records keyed by `keccak(addr)` and `keccak(slot)`, and possibly no
+addresses (reth's hashed tables hold none: an imported record's address field is zero). One
+rule decides the format of everything on disk: **a stack has its base's format**. Over a
+version 2 base the writer writes version 2 layers, compaction composes version 2 sources and
+the root check reads them as one version 2 stack.
+
+| tier | keyed by | who hashes |
+|---|---|---|
+| hot set, frozen RAM layers | address, slot (the world's tables) | nobody |
+| disk layers, base | `keccak(addr)`, `keccak(slot)` | the fault (replay thread), the writer (its own thread) |
+
+- **Faults.** `view-account` / `view-slot` walk the stack newest first, asking the RAM
+  layers by address and slot; at the first version 2 snap they hand the rest of the stack to
+  the hashed reader (`lookup-account-h`, `view-slot-h`). The hashes are computed only when
+  the walk gets there (a RAM layer that answers needs none), through two direct-mapped caches
+  on the replay thread (4,096 addresses, 65,536 slots), so an account and the run of its
+  slots a contract touches hash the address once. Whether an empty account has storage (S1)
+  compares the RAM layers' slots, hashed, with the disk tiers' (`view-has-storage-p`).
+- **The writer** (`write-ram-tables` → `write-layer-2`) hashes each address and slot of the
+  frozen hot set on its own thread, sorts them and writes them through the version 2 writer
+  (`make-writer`), the one owner of the order and the fences of a base, an import and a layer.
+  The record carries the address the EVM touched.
+- **Compaction.** Minor and major are one pass, `compose-accounts-2`: the sources' account
+  runs merged by hashed key, each account's slots composed under it up to a source that wiped
+  it. Major drops tombstones and applies S1; minor keeps them and ORs the WIPED bits.
+- **The root check** (`snapshot-root` over a version 2 base and layers) runs the same pass
+  over each 16th of the key space into two stack tries per thread: no sort, no scratch
+  files. The importer's root gate is that pass over a base alone.
+- **Addresses.** Nothing on the replay's paths reads a record's address field. The world, the
+  observers and the fact log key everything by the address the EVM touched (an account is
+  always faulted by address). A layer's record carries it, so an imported account's address
+  is on disk once the replay has touched it; a zero address field means only "not known yet",
+  which an export or a metric that lists accounts from a snapshot must not read as 0x00…00.
+
+`tests/snapshot-tiers.lisp` runs 13 BlockchainTests directories in RAM, over a version 1
+base and over the same base converted to version 2 (addresses zeroed): a layer per block and
+the stack's root every block, then minor and major compaction, root-checked. The roots and the
+observers' output (the fact log's inputs) must be identical across the tiers. A reth dev chain
+(storage v2) tests the import end to end: its state at block 16 imported, blocks 17-46
+replayed with a root check at every block, and a resume from the anchor at 30.
 
 ## 4. Invariants
 

@@ -192,7 +192,8 @@
                      (receipts-push! (tx-type tx) status gas *last-tx-logs*)
                      (observe tx-result n idx tx gas status egp)))
           ;; the driver's: the ommers tied to sha3Uncles before they pay, then the post-block effects
-          (run-post-block! world n blk total-gas coinbase block-ctx))
+          (run-post-block! world n blk total-gas coinbase block-ctx)
+          (when eita.evm::*hooks* (eita.evm::hooks-executed! n block-ctx)))   ; as the driver's, after the block
       (block-invalid (e) (return-from run-block-checked (cons (invalid-kind e) (princ-to-string e))))
       (error (e) (return-from run-block-checked (cons :error (remove #\Newline (princ-to-string e))))))
     (let ((bad (verify-block-header blk total-gas)))
@@ -299,6 +300,34 @@
           collect (progn (format t "~&INVALID accepted ~A: expected ~A~%" (getf test :name) expect)
                          (list :invalid-accepted expect))))
 
+(defun canonical-blocks (test)
+  "TEST's canonical chain. Reorg fixtures (RPC_API_Test, bcForkStressTest, bcMultiChainTest,
+   ...) carry side-chain blocks; the canonical chain is the parentHash walk back from
+   lastblockhash (a linear replay of every block double-applies the orphaned ones). All
+   blocks when the walk is not possible (no lastblockhash, a hash not found, or a walk that
+   does not reach genesis: a break midway would silently drop the chain's prefix)."
+  (let ((all (getf test :blocks)) (lbh (getf test :lastblockhash)))
+    (or (when (and lbh (plusp lbh))
+          (let ((by-hash (make-hash-table :test 'eql)) (chain '()))
+            (dolist (b all)
+              (let ((h (blk-hash b))) (when (and h (plusp h)) (setf (gethash h by-hash) b))))
+            (loop for h = lbh then (blk-parent-hash (first chain))
+                  for b = (gethash h by-hash)
+                  while b
+                  do (push b chain))
+            (when (and chain (eql (blk-parent-hash (first chain)) (getf test :genesis-hash)))
+              chain)))
+        all)))
+
+(defun install-block-hashes! (test blocks)
+  "The BLOCKHASH lookup: genesis and each of BLOCKS."
+  (setf *block-hashes* (make-hash-table :test 'eql))
+  (let ((gh (getf test :genesis-hash)) (gn (getf test :genesis-number)))
+    (when gh (setf (gethash (or gn 0) *block-hashes*) gh)))
+  (dolist (blk blocks)
+    (let ((h (blk-hash blk)) (n (blk-number blk)))
+      (when (and h n) (setf (gethash n *block-hashes*) h)))))
+
 (defun run-test (test)
   (let ((network (getf test :network)))
     ;; Skip transition networks ("HomesteadToDaoAt5", ...) — single-fork
@@ -308,43 +337,9 @@
     (set-fork! network))
   (let ((world (make-world))
         (*current-world* nil)
-        ;; Canonical-chain selection: reorg fixtures (RPC_API_Test,
-        ;; bcForkStressTest, bcMultiChainTest, ...) carry side-chain
-        ;; blocks; the canonical chain is the parentHash-walk back from
-        ;; lastblockhash. A linear replay of every block double-applies
-        ;; the orphaned ones. Falls back to all blocks when the walk
-        ;; isn't possible (no lastblockhash, or hash not found).
-        (blocks (let ((all (getf test :blocks))
-                      (lbh (getf test :lastblockhash)))
-                  (or (when (and lbh (plusp lbh))
-                        (let ((by-hash (make-hash-table :test 'eql)))
-                          (dolist (b all)
-                            (let ((h (blk-hash b)))
-                              (when (and h (plusp h))
-                                (setf (gethash h by-hash) b))))
-                          (let ((chain '()))
-                            (loop for h = lbh then (blk-parent-hash (first chain))
-                                  for b = (gethash h by-hash)
-                                  while b
-                                  do (push b chain))
-                            ;; Only trust a walk that anchors at genesis;
-                            ;; a break midway (block missing its hash)
-                            ;; would silently drop the chain's prefix.
-                            (when (and chain
-                                       (eql (blk-parent-hash (first chain))
-                                            (getf test :genesis-hash)))
-                              chain))))
-                      (getf test :blocks)))))
+        (blocks (canonical-blocks test)))
     (populate-world world (getf test :pre))
-    ;; Populate BLOCKHASH lookup: genesis + each canonical block.
-    (setf *block-hashes* (make-hash-table :test 'eql))
-    (let ((gh (getf test :genesis-hash))
-          (gn (getf test :genesis-number)))
-      (when gh (setf (gethash (or gn 0) *block-hashes*) gh)))
-    (dolist (blk blocks)
-      (let ((h (blk-hash blk))
-            (n (blk-number blk)))
-        (when (and h n) (setf (gethash n *block-hashes*) h))))
+    (install-block-hashes! test blocks)
     ;; The canonical chain is parent-linked from genesis, so a block its header gates refuse
     ;; fails the test; then the post-state, then the invalid blocks on it.
     (when (getf test :partial-pre)
@@ -440,11 +435,4 @@
     (format t "---~%summary: pass=~D fail=~D skip=~D xfail=~D~%" pass fail skip xfail)
     (format t "invalid blocks: rejected=~D rejected-other=~D accepted=~D undecoded=~D unchecked=~D~%"
             (getf *invalid-counts* :rejected) (getf *invalid-counts* :other)
-            (getf *invalid-counts* :accepted) (getf *invalid-counts* :undecoded) (getf *invalid-counts* :unchecked))
-    (format t "jit: codes=~D no-jit=~D frames-jit=~D frames-interp=~D manifest-misses=~D chunk-evictions=~D~%"
-            (getf *jit-stats* :codes-jit)
-            (getf *jit-stats* :codes-no-jit)
-            eita.evm::*frames-jit*
-            eita.evm::*frames-interp*
-            (getf *jit-stats* :manifest-misses)
-            (getf *jit-stats* :chunk-evictions 0))))
+            (getf *invalid-counts* :accepted) (getf *invalid-counts* :undecoded) (getf *invalid-counts* :unchecked))))

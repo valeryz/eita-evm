@@ -130,11 +130,9 @@ $(KBATCH): $(LEAN_C)/keccak_batch.c $(LEAN_C)/keccak_sha3.c | $(BUILD)
 ##   sym@PAGE            -> sym            (adrp takes the bare symbol)
 ## ELF shared objects make every global symbol interposable, so a direct
 ## `adrp`/PC-relative reference to one is illegal (R_AARCH64_ADR_PREL_PG_HI21
-## "may bind externally"). Mark these as `.protected`: still EXPORTED in .dynsym
-## (so the SBCL JIT loader can dlsym them to patch its movabs relocs) but
-## non-interposable, which makes the direct adrp refs legal in the .so. (`.hidden`
-## would also fix the link but drops them from .dynsym → the JIT can't resolve
-## eita_dispatch_ptr at run time.) No-op on the Mach-O Darwin build.
+## "may bind externally"). Mark these as `.protected`: still exported in .dynsym
+## but non-interposable, which makes the direct adrp refs legal in the .so.
+## No-op on the Mach-O Darwin build.
 ELF_PROTECTED := eita_fork_tables eita_dispatch_ptr eita_next eita_sync_and_ret
 $(BUILD)/handlers-elf.S: handlers.S | $(BUILD)
 	sed -E 's/^\.section __TEXT,__text,regular,pure_instructions$$/.text/; s/_eita/eita/g; s/([A-Za-z0-9_]+)@PAGEOFF/:lo12:\1/g; s/@PAGE//g' $< > $@
