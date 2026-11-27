@@ -14,8 +14,12 @@
 
 (in-package #:eita.evm)
 
-(let ((pass 0) (fail 0))
-  (labels ((chk (label ok &optional detail)
+(let ((pass 0) (fail 0)
+      (saved-spec eita.chain:*chain-spec*)
+      (saved-fork *fork-ord*)
+      (saved-prague *prague-delegation*))
+  (unwind-protect
+       (labels ((chk (label ok &optional detail)
              (if ok
                  (progn (incf pass) (format t "  PASS  ~A~%" label))
                  (progn (incf fail) (format t "  FAIL  ~A~@[: ~A~]~%" label detail))))
@@ -380,6 +384,10 @@
            (/= h-coreth h-eth))
       (chk "Coreth *header-rlp-mode* errors loudly when extDataHash is absent"
            coreth-missing-err)))
+    (eita.chain:install-chain-spec! (or saved-spec (eita.chain:make-chain-spec)))
+    (unless saved-spec (setf eita.chain:*chain-spec* nil))
+    (setf *fork-ord* saved-fork *prague-delegation* saved-prague)
+    (%set-fork saved-fork))
 
   (format t "~&avalanche: ~D passed, ~D failed~%" pass fail)
   (when (plusp fail) (eita.test:finish :code 1)))
