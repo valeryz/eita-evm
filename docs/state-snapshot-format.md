@@ -49,6 +49,7 @@ Byte order is big-endian throughout; keys compare by `memcmp`, which is then num
 ```
 <state-dir>/
   anchors.sexp                 one line per verified anchor: (N expected computed ok composition)
+  deferred-anchors.sexp        pending async-settlement (SAE) anchors awaiting a settling header or root check
   snap-B/                      a base
   layer-P-N/                   a layer: blocks P+1..N
   frontier-N/                  the frontier at anchor N
@@ -106,6 +107,7 @@ accounts.dat: 128 B, sorted by hkey          storage.dat: 96 B, sorted by (haddr
  32   20  addr      the address itself         32   32  hslot   keccak(slot)
  52    4  flags     bit 0 EXISTS (§4)          64   32  value   u256
                     bit 2 WIPED (layers, §5)
+                    bit 3 MULTI_COIN (Coreth 5-field leaf, §4 S1)
  56    8  nonce     u64
  64   32  balance   u256
  96   32  codehash  keccak(code); keccak("") for no code
@@ -179,8 +181,13 @@ These rules make a base's contents correspond one to one with the state trie's l
 
 - **S1, inclusion.** An account record exists iff the account is in the trie: non-empty
   (nonce > 0, balance > 0 or code), or empty but present, in which case `EXISTS` is set.
-  Emptiness ignores storage (EIP-161), so an empty account can hold storage; it is then in the
-  trie, and `EXISTS` is what keeps its record. No record means the account does not exist.
+  Emptiness ignores storage (EIP-161) and `MULTI_COIN`, so an empty account can hold storage;
+  it is then in the trie, and `EXISTS` is what keeps its record. When a chain uses Coreth's
+  5-field account leaf (`chain-spec-five-field-account`), bit 3 (`MULTI_COIN`, value 8)
+  records the 5th RLP boolean (`0x01` when set, `0x80` when clear; `lean/Evm/Avalanche/Trie.lean`);
+  it is preserved verbatim across layers, compaction and conversion whenever the account is
+  included, and is always 0 on 4-field chains (Ethereum, OP-Stack, Arc). No record means the
+  account does not exist.
 - **S2, storage.** A base holds a slot record iff its value is non-zero; no record reads 0.
 - **S3, code.** Every codehash other than `keccak("")` in `accounts.dat` has exactly one
   `code.dat` record. Code is content-addressed and stored once per stack.
@@ -209,7 +216,8 @@ A layer uses the base format with these differences:
 - **FieldsCover.** Every address the layer mentions has an account record with all its
   fields (the writer takes an untouched address's fields from the stack below). Flags: bit 0 is
   the existence mark of the replay's RAM (`world-accounts`), bit 2 WIPED: the address's storage
-  below this layer is gone. A deleted account is the record (0, 0, empty code, no mark).
+  below this layer is gone, bit 3 MULTI_COIN: carried verbatim from the RAM/cold account record
+  (0 on 4-field chains). A deleted account is the record (0, 0, empty code, no mark).
 - A slot record may hold 0: a **tombstone** that hides the value below.
 - `code.dat` holds only codes the stack below does not hold.
 - The manifest adds `:kind :layer :parent P`; `:state-root` is the header root at N.
@@ -454,6 +462,26 @@ line only after all of these hold:
  anchors.sexp: the line for N          ◀ N is a resume point
 ```
 
+#### Deferred (asynchronously-settled) anchors
+
+Chains with asynchronous execution (such as Avalanche SAE, where header H settles an earlier block
+S < H; `chain-spec-deferred-anchor-p`) do not carry block N's state root in header N. Freezing an
+anchor at N records `(N nil)` in `deferred-anchors.sexp` (atomic write, fsync, rename) instead of
+enqueueing a root check immediately. Compaction treats every unresolved deferred height as a
+barrier (like `*anchor-queue*`) so the layer at N stays intact until its expected root arrives.
+
+When a later header settles block S with state root R:
+- if `(S nil)` is deferred, it is updated to `(S R)` in `deferred-anchors.sexp` and queued for
+  root verification (`anchors.sexp` is appended only after the check passes, which removes S from
+  `deferred-anchors.sexp`);
+- any deferred entries at heights strictly below S that were skipped by a multi-block settlement
+  are expired and removed from `deferred-anchors.sexp`.
+
+A rollback to F drops deferred entries above F from both memory and `deferred-anchors.sexp`. On
+restart, `deferred-anchors.sexp` is reloaded (entries above the resume block are dropped;
+unresolved entries wait for their settling header, and already-resolved entries re-enter the
+root-check queue).
+
 ## 10. Crash consistency, recovery and GC
 
 ### Crash consistency
@@ -470,6 +498,8 @@ A is the newest anchor with a line.
 | a compaction, mid-way | `.tmp-snap-*` | the old base |
 | `snap-A/` published, line not appended | a base named by no verified line | the old composition; GC applies the rule below |
 | any point | the worker's RAM state (overlay, delta, undo) is lost | A, with `frontier-A/`: nothing recomputed |
+| deferred anchor frozen, before settling header | layer N + `(N nil)` in `deferred-anchors.sexp` | A (entries > A dropped) or `--resume N` (re-loads `(N nil)` and resolves on settling header) |
+| deferred anchor resolved, before root check finishes | layer N + `(N expected)` in `deferred-anchors.sexp` | A or `--resume N` (re-queues `(N expected)` for root check) |
 
 ### Recovery
 
@@ -519,7 +549,8 @@ eita-reth-export --datadir DIR --chain-id N | eita import-reth --state STATE-DIR
   S5, fences in the same pass) into `.tmp-snap-H/`, re-hashes every code, then recomputes the
   state root from the written records (`snapshot-root`: a stack trie over each 16th of the key
   space, every storage root first, no key hashing, no sort, two stack tries per thread). reth's
-  trie tables and stored roots are never read.
+  trie tables and stored roots are never read. Any chain-specific account flag (`MULTI_COIN`)
+  is carried in the streamed 128-byte account records (0 for Ethereum/OP-Stack/Arc).
 - **The root gate.** Only when that root equals header H's `stateRoot` does the manifest gain
   `:root-checked t` and the directory become `snap-H/`. On a mismatch it stays in
   `.tmp-snap-H/`, which nothing reads, and the command exits 1.
@@ -546,8 +577,10 @@ manifest must hash to the content hash the anchor recorded. The input is only re
 1. **Partition.** Chunks of 4,096 base accounts run in parallel, as the version 1 root check
    reads them: the addresses the layers mention are merged in, each composed over the base
    (`compose-range` over its layer and base slot runs: newest wins, tombstones dropped, stopped
-   at a wipe), and S1 decides which accounts remain. Every address and slot is hashed (keccak
-   in batches, from the mappings) and written as a version 2 record into one of 4,096 bucket
+   at a wipe), and S1 decides which accounts remain (preserving bit 3 `MULTI_COIN` on both
+   untouched base records and layered records). Every address and slot is hashed (keccak
+   in batches, applying `chain-spec-normalize-slot-key` when configured by the chain) and
+   written as a version 2 record into one of 4,096 bucket
    files, by the top 12 bits of `hkey` / `haddr`, in `--tmp` (default `V2-STATE-DIR`). An
    account's slots are contiguous in their bucket. A storage of over 1M slots goes to 256
    files of its own, by the top byte of `hslot`.

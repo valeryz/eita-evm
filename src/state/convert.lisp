@@ -29,6 +29,7 @@
 
 (defstruct (conv (:constructor %make-conv))
   base layers scratch accts slots
+  (normalize-slot-key nil)
   (lock (sb-thread:make-mutex :name "convert buckets"))
   (giants '())                          ; (hkey . its 256 buckets)
   (n-acct 0) (n-slot 0) (largest 0))
@@ -40,8 +41,8 @@
 ;;; v1 records (88 B: addr 20 · slot 32 · value 32), K of them batched in the worker's OFFS
 ;;; until hashed; the account's HADDR is set by `sink-begin`.
 
-(defstruct (sink (:constructor make-sink (w)))
-  w (na 0 :type fixnum) (spos 0 :type fixnum) (k 0 :type fixnum) (count 0 :type fixnum)
+(defstruct (sink (:constructor make-sink (w &optional normalize-slot-key)))
+  w (normalize-slot-key nil) (na 0 :type fixnum) (spos 0 :type fixnum) (k 0 :type fixnum) (count 0 :type fixnum)
   (haddr (make-array 32 :element-type '(unsigned-byte 8)) :type octets)
   (giant nil) (rel nil) (rel-from 0 :type fixnum))
 
@@ -58,7 +59,13 @@
   (let* ((w (sink-w sk)) (k (sink-k sk)) (offs (worker-offs w)) (keys (worker-keys w)) (zero (sb-sys:int-sap 0)))
     (declare (type fixnum k))
     (when (plusp k)
-      (keccak-into zero offs (worker-lens w) k keys)
+      (if (sink-normalize-slot-key sk)
+          (let ((tmp (make-array 32 :element-type '(unsigned-byte 8))))
+            (dotimes (i k)
+              (copy-sap zero (aref offs i) 32 tmp 0)
+              (eita.mpt:normalize-slot-bytes tmp)
+              (replace keys (eita.mpt:%keccak tmp) :start1 (* 32 i))))
+          (keccak-into zero offs (worker-lens w) k keys))
       (let ((g (sink-giant sk)))
         (unless g
           (let ((need (+ (sink-spos sk) (* k +s2+))))
@@ -142,7 +149,7 @@
                           (lambda (sap off) (push (eita.state.snapshot:sap-be sap off 20) l)))
                          (nreverse l))))
          (sbase (+ (sb-sys:sap-int ssap) +header+))
-         (sk (make-sink w)) (si s0))
+         (sk (make-sink w (conv-normalize-slot-key cv))) (si s0))
     (declare (type fixnum a0 a1 n si sbase))
     (hash-records w asap a0 n +acct+ 0 20)
     (when (< (length (worker-bkeys w)) (* 32 n))
@@ -170,7 +177,7 @@
                      (eita.state.snapshot:compose-range runs (lambda (sap off) (sink-slot sk (+ (sb-sys:sap-int sap) off)))
                                                         :drop-zero 52)
                      (let ((nslots (sink-end sk cv)))
-                       (destructuring-bind (nonce balance codehash mark)
+                       (destructuring-bind (nonce balance codehash mark &optional multi-coin)
                            (or lfields (eita.state.snapshot:acct-fields s ai))
                          (when (eita.state.snapshot:s1-included-p nonce balance codehash (plusp nslots) mark)
                            (let ((empty (and (zerop nonce) (zerop balance) (= codehash eita.state.snapshot::+empty-code-hash+))))
@@ -178,7 +185,10 @@
                                                 (fill recs 0 :start o :end (+ o +a2+))
                                                 (replace recs hkey :start1 o)
                                                 (eita.state.snapshot::put-be recs (+ o 32) addr 20)
-                                                (eita.state.snapshot::put-be recs (+ o 52) (if empty 1 0) 4)
+                                                (eita.state.snapshot::put-be recs (+ o 52)
+                                                                             (logior (if empty 1 0)
+                                                                                     (if multi-coin eita.state.snapshot::+flag-multi-coin+ 0))
+                                                                             4)
                                                 (eita.state.snapshot::put-be recs (+ o 56) nonce 8)
                                                 (eita.state.snapshot::put-be recs (+ o 64) balance 32)
                                                 (eita.state.snapshot::put-be recs (+ o 96) codehash 32))))))))
@@ -308,13 +318,14 @@
       (mapc #'sb-thread:join-thread pool))
     (when giants (error "convert: ~D giant storages without an account (S5)" (length giants)))))
 
-(defun convert-stack (base layers tmpdir scratch &key (threads (eita.state.snapshot:hardware-threads)) provenance)
+(defun convert-stack (base layers tmpdir scratch &key (threads (eita.state.snapshot:hardware-threads)) provenance normalize-slot-key)
   "The v2 base at TMPDIR (written, not published) of the state the v1 BASE (an open snap)
    under LAYERS (layer snaps, newest first) reads as; bucket files in the directory
    SCRATCH. Returns the manifest."
   (let* ((top (or (first layers) base)) (m (eita.state.snapshot:snap-manifest top))
          (srcs (cons base layers))
          (cv (%make-conv :base base :layers layers :scratch scratch
+                         :normalize-slot-key normalize-slot-key
                          :accts (make-buckets (format nil "~Aa" scratch) +nb+) :slots (make-buckets (format nil "~As" scratch) +nb+)))
          (files (+ (* 2 +nb+) (* 256 threads) 600))   ; the buckets, a giant's files per thread, the rest
          (t0 (get-internal-real-time)))
@@ -354,7 +365,7 @@
         when (and comps (every (lambda (c) (eita.state.snapshot:snap-sealed-p (eita.state.snapshot:component-path from c))) comps))
           return comps))
 
-(defun convert-snapshot (from to &key tmp (threads (eita.state.snapshot:hardware-threads)) block)
+(defun convert-snapshot (from to &key tmp (threads (eita.state.snapshot:hardware-threads)) block normalize-slot-key five-field-account)
   "Convert the v1 composition of FROM's anchor (`pick-composition`) into a root-checked v2
    base under TO, and record its anchor there. Returns snap-N/, or NIL on a root mismatch."
   (let* ((from (eita.state.snapshot::as-dir from)) (to (eita.state.snapshot::as-dir to))
@@ -378,8 +389,10 @@
              (when (probe-file final) (error "convert: ~A exists" final))
              (when (probe-file tmpdir) (sb-ext:run-program "rm" (list "-rf" (namestring tmpdir)) :search t))
              (convert-stack (car (last snaps)) (butlast snaps) tmpdir scratch :threads threads
+                            :normalize-slot-key normalize-slot-key
                             :provenance (format nil "eita convert-snapshot from v1 ~A" comp))
-             (multiple-value-bind (got expected) (snapshot-root tmpdir :threads threads)
+             (multiple-value-bind (got expected)
+                 (snapshot-root tmpdir :threads threads :five-field-account five-field-account)
                (format t "~&CL trie root : ~A~%header root  : ~A~%" got expected)
                (cond ((and expected (string-equal got expected))
                       (mark-root-checked tmpdir)

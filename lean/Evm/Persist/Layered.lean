@@ -182,10 +182,11 @@ section Mat
 variable {A S : Type} (ec : Nat)
 
 structure Acct where
-  nonce   : Nat
-  balance : Nat
-  code    : Nat
-  flag    : Bool
+  nonce     : Nat
+  balance   : Nat
+  code      : Nat
+  flag      : Bool
+  multiCoin : Bool := false
   deriving DecidableEq
 
 def Acct.isEmpty (f : Acct) : Bool := f.nonce == 0 && f.balance == 0 && f.code == ec
@@ -194,14 +195,24 @@ def Acct.isEmpty (f : Acct) : Bool := f.nonce == 0 && f.balance == 0 && f.code =
 def HasSto (s : State A S Acct) (a : A) : Prop := ∃ k, s.slot a k ≠ 0
 
 open Classical in
-/-- `merge-account`'s output for one address: what a base snapshot holds. -/
+/-- `merge-account`'s output for one address: what a base snapshot holds.
+    `multiCoin` (v2 account flag bit 3, Coreth 5-field account leaf) does not affect S1
+    emptiness and is preserved verbatim whenever the account is included. -/
 noncomputable def mat (s : State A S Acct) : State A S Acct where
   acct a := match s.acct a with
-    | none => if HasSto s a then some ⟨0, 0, ec, true⟩ else none
+    | none => if HasSto s a then some ⟨0, 0, ec, true, false⟩ else none
     | some f =>
       if f.isEmpty ec = false ∨ HasSto s a ∨ f.flag = true
       then some { f with flag := f.isEmpty ec } else none
   slot := s.slot
+
+theorem mat_preserves_multiCoin (s : State A S Acct) (a : A) (f g : Acct)
+    (hs : s.acct a = some f) (hm : (mat ec s).acct a = some g) :
+    g.multiCoin = f.multiCoin := by
+  simp only [mat, hs] at hm
+  split at hm
+  · injection hm with hfg; rw [← hfg]
+  · cases hm
 
 /-- Every layer the writer produces names the account fields of every address whose
     storage it touches (an address faulted in RAM brings its fields; one that was not —

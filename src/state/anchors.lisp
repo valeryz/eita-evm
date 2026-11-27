@@ -67,9 +67,13 @@
 
 (defun state-dir ()
   "Where anchors, snapshots and root-check markers live: EITA_STATE_DIR (else, for existing
-   deployments, EITA_FACTLOG_DIR)."
-  (or (let ((d (sb-ext:posix-getenv "EITA_STATE_DIR"))) (and d (plusp (length d)) d))
-      (sb-ext:posix-getenv "EITA_FACTLOG_DIR") "/tmp/eita-state/"))
+   deployments, EITA_FACTLOG_DIR). Always ends with a slash so MERGE-PATHNAMES places
+   files inside the directory."
+  (let ((d (or (let ((v (sb-ext:posix-getenv "EITA_STATE_DIR"))) (and v (plusp (length v)) v))
+               (sb-ext:posix-getenv "EITA_FACTLOG_DIR") "/tmp/eita-state/")))
+    (if (and (plusp (length d)) (char= (char d (1- (length d))) #\/))
+        d
+        (concatenate 'string d "/"))))
 
 (defun checkpoint-interval (h)
   "Mirror of Evm.Trie.CheckpointSchedule.checkpointInterval: 2^clamp(log2 h − 3, 10, 20)."
@@ -92,6 +96,7 @@
 (defparameter *last-good-anchor* nil)
 
 (defun anchors-path () (merge-pathnames "anchors.sexp" (state-dir)))
+(defun deferred-anchors-path () (merge-pathnames "deferred-anchors.sexp" (state-dir)))
 
 (defparameter *pending-root* nil
   "At most one root check in flight: (block expected-hex process out-path composition
@@ -101,6 +106,102 @@
 (defparameter *anchor-queue* '()
   "Anchors frozen but not yet checked, oldest first: (block expected-hex). An anchor waits
    until its layer is on disk, and at the tip until it is `reorg-window` deep.")
+(defparameter *deferred-anchors* '()
+  "Frozen anchor heights whose expected stateRoot arrives in a later header (e.g., Avalanche
+   Helicon/SAE where header.stateRoot commits to settledHeight < number). Persisted in
+   deferred-anchors.sexp alongside anchors.sexp so they survive a restart.")
+(defparameter *deferred-resolved* '()
+  "Alist ((block . expected-hex) ...) of deferred anchors whose settling header arrived and
+   that are queued/in-flight for root check, persisted until anchors.sexp records their verdict.")
+
+(defun read-deferred-anchors (&optional (path (deferred-anchors-path)))
+  "Read persisted deferred anchor entries ((block expected-hex-or-nil) ...) from PATH.
+   Torn lines are skipped."
+  (when (probe-file path)
+    (with-open-file (a path :direction :input)
+      (loop for line = (read-line a nil nil) while line
+            for form = (ignore-errors (let ((*read-eval* nil)) (read-from-string line)))
+            when (and (consp form) (integerp (first form)) (>= (length form) 2)
+                      (or (null (second form)) (stringp (second form))))
+              collect (list (first form) (second form))))))
+
+(defun save-deferred-anchors! (&optional (path (deferred-anchors-path)))
+  "Atomically persist *DEFERRED-ANCHORS* and *DEFERRED-RESOLVED* beside anchors.sexp."
+  (ensure-directories-exist path)
+  (let* ((entries (append (mapcar (lambda (n) (list n nil)) *deferred-anchors*)
+                          (mapcar (lambda (p) (list (car p) (cdr p))) *deferred-resolved*)))
+         (tmp (merge-pathnames ".tmp-deferred-anchors.sexp" (state-dir))))
+    (cond ((null entries)
+           (when (probe-file path) (ignore-errors (delete-file path)))
+           (fsync-directory-of path))
+          (t
+           (with-open-file (f tmp :direction :output :if-exists :supersede :if-does-not-exist :create)
+             (let ((*print-pretty* nil))
+               (dolist (e entries) (prin1 e f) (terpri f)))
+             (finish-output f)
+             (sb-posix:fsync (sb-sys:fd-stream-fd f)))
+           (sb-posix:rename (namestring tmp) (namestring path))
+           (fsync-directory-of path)))))
+
+(defun defer-anchor! (n)
+  "Record frozen block N as a deferred anchor awaiting its settling header, durably."
+  (unless (member n *deferred-anchors*)
+    (setf *deferred-anchors* (append *deferred-anchors* (list n)))
+    (save-deferred-anchors!))
+  n)
+
+(defun resolve-deferred-anchor! (settled-height expected-hex)
+  "Update deferred anchors when a settling header commits to SETTLED-HEIGHT with EXPECTED-HEX:
+   any deferred anchor strictly below SETTLED-HEIGHT was skipped by multi-block settlement and
+   is retired; SETTLED-HEIGHT itself (if deferred) is promoted to *ANCHOR-QUEUE*."
+  (when settled-height
+    (let ((changed nil) (promoted nil))
+      (let ((expired (remove-if-not (lambda (d) (< d settled-height)) *deferred-anchors*)))
+        (when expired ; @veil resolve-deferred-anchor!/expire
+          (dolist (d expired)
+            (format t "~&[anchor] block ~D skipped by settledHeight ~D (retired from deferred queue)~%"
+                    d settled-height))
+          (setf *deferred-anchors* (remove-if (lambda (d) (< d settled-height)) *deferred-anchors*)
+                changed t)))
+      (when (and expected-hex (member settled-height *deferred-anchors*)) ; @veil resolve-deferred-anchor!/promote
+        (setf *deferred-anchors* (remove settled-height *deferred-anchors*)
+              *anchor-queue* (append *anchor-queue* (list (list settled-height expected-hex)))
+              *deferred-resolved* (acons settled-height expected-hex
+                                         (remove settled-height *deferred-resolved* :key #'car))
+              changed t
+              promoted t))
+      (when changed (save-deferred-anchors!))
+      promoted)))
+
+(defun drop-deferred-above! (top)
+  "Forget deferred/resolved anchors above TOP (reorg rollback or resume below them)."
+  (let ((before-d (length *deferred-anchors*))
+        (before-r (length *deferred-resolved*)))
+    (setf *deferred-anchors* (remove-if (lambda (b) (> b top)) *deferred-anchors*)
+          *deferred-resolved* (remove-if (lambda (p) (> (car p) top)) *deferred-resolved*))
+    (when (or (/= before-d (length *deferred-anchors*))
+              (/= before-r (length *deferred-resolved*)))
+      (save-deferred-anchors!))))
+
+(defun restore-deferred-anchors! (top)
+  "On restart at TOP, reload surviving deferred anchors (<= TOP, not yet verified in
+   anchors.sexp) from deferred-anchors.sexp into *DEFERRED-ANCHORS* / *ANCHOR-QUEUE*."
+  (let ((verified (loop for r in (read-anchors) when (eq (fourth r) t) collect (first r)))
+        (entries (read-deferred-anchors)))
+    (setf *deferred-anchors* '()
+          *deferred-resolved* '())
+    (dolist (e entries)
+      (destructuring-bind (b expected) e
+        (when (and (<= b top) (not (member b verified)))
+          (if expected
+              (progn
+                (push (cons b expected) *deferred-resolved*)
+                (unless (assoc b *anchor-queue*)
+                  (setf *anchor-queue* (append *anchor-queue* (list (list b expected))))))
+              (pushnew b *deferred-anchors*)))))
+    (setf *deferred-anchors* (sort *deferred-anchors* #'<)
+          *deferred-resolved* (nreverse *deferred-resolved*))
+    (when entries (save-deferred-anchors!))))
 (defparameter *base-check-due* nil "A compacted base (its block) whose check is to start.")
 (defun reorg-window ()
   "Blocks a reorg may undo (the chain-spec's; Ethereum finality is two epochs). At the tip
@@ -264,6 +365,9 @@
           ;; the composition rides with the verdict: resume maps only the exact bytes whose
           ;; root was checked (I3)
           (append-anchor! (list n expected-hex computed (if ok t nil) (eita.state.snapshot:composition-string comps)))
+          (when (assoc n *deferred-resolved*)
+            (setf *deferred-resolved* (remove n *deferred-resolved* :key #'car))
+            (save-deferred-anchors!))
           (when (and ok (eq kind :stack))   ; a failed copy costs the copy, not the run
             (handler-case (retain-anchor! n (list n expected-hex computed t (eita.state.snapshot:composition-string comps)) comps)
               (error (e) (format t "~&[anchor] block ~D NOT retained: ~A~%" n e))))
@@ -290,6 +394,8 @@
    and a monitor reading those markers would report a check as running."
   (dolist (p (directory (merge-pathnames "state-*.rootout" (state-dir))))
     (ignore-errors (delete-file p)))
+  (let ((tmp-def (merge-pathnames ".tmp-deferred-anchors.sexp" (state-dir))))
+    (when (probe-file tmp-def) (ignore-errors (delete-file tmp-def))))
   ;; a snapshot or layer directory never renamed into place, or one moved aside, is one a
   ;; crash interrupted: never a resume point
   (dolist (p (loop for pat in '(".tmp-snap-*/" ".old-snap-*/" ".tmp-layer-*/" ".old-layer-*/" ".root-*/")
@@ -331,6 +437,8 @@
       (root-check-command (append (list (root-check-executable)
                                         "--dynamic-space-size" (root-check-heap-mb) "--end-runtime-options"
                                         "check-root" "--parent" (princ-to-string (sb-posix:getpid)))
+                                  (when (and *chain-spec* (chain-spec-five-field-account *chain-spec*))
+                                    (list "--five-field-account"))
                                   dirs (list (princ-to-string (root-check-threads)))))
     (sb-ext:run-program program args
                       :search t :output out :if-output-exists :supersede :wait nil
@@ -350,14 +458,14 @@
    layer, a compaction), collect a finished root check, start the next one, prune."
   (writer-check!)
   (root-check-finish!)
-  (let ((m (compaction-step! n (mapcar #'first *anchor-queue*)))) ; @veil root-check-poll!/compact
+  (let ((m (compaction-step! n (append (mapcar #'first *anchor-queue*) *deferred-anchors*)))) ; @veil root-check-poll!/compact
     (when m (setf *base-check-due* m)))
   (unless *pending-root* ; @veil root-check-poll!/idle
     (if *base-check-due* ; @veil root-check-poll!/base-due
         (let* ((m (shiftf *base-check-due* nil))
                (path (eita.state.snapshot:snap-path (snapshot-dir) m))
                (manifest (eita.state.snapshot:read-manifest path)))
-          (spawn-root-check! m (getf manifest :state-root) ; @veil root-check-poll!/manifest-root
+          (spawn-root-check! m (or (getf manifest :state-root) (second (find m (read-anchors) :key #'first :from-end t))) ; @veil root-check-poll!/manifest-root
                              (list (list :base m (getf manifest :content-hash))) :base))
         (let ((a (first *anchor-queue*))) ; @veil root-check-poll!/anchor
           (when a

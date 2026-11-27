@@ -52,6 +52,29 @@
 'Evm.Amsterdam.Vm.Gas.allocate_split' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Arc.Spec.BlockSystem.nextBaseFeeExpr_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
 'Evm.Arc.Spec.BlockSystem.smoothedGasUsedExpr_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Avalanche.Emit.mainnetForkOrdExpr_eq_spec' depends on axioms: [propext]
+'Evm.Avalanche.Emit.fujiForkOrdExpr_eq_spec' depends on axioms: [propext]
+'Evm.Avalanche.Emit.ethAnalogOrdExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.p256ActiveExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.saeActiveExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.extraDataOffsetExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.saeGasFloorExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.txGasUsedExpr_eq_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Avalanche.Emit.warpBlockchainIdGasExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.warpSendGasExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.warpReadGasExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.warpPredicateGasExpr_eq_spec' does not depend on any axioms
+'Evm.Avalanche.Emit.atomicTxGasExpr_eq_spec' depends on axioms: [propext]
+'Evm.Avalanche.Emit.gasClockTargetExpr_eq_spec' depends on axioms: [propext]
+'Evm.Avalanche.Emit.gasClockMinPriceExpr_eq_spec' depends on axioms: [propext]
+'Evm.Avalanche.Emit.gasClockPriceAtExpr_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.Avalanche.Emit.gasClockBaseFeeExpr_eq_spec' depends on axioms: [propext, Quot.sound]
+'Evm.Avalanche.Charging.fee_conservation' depends on axioms: [propext]
+'Evm.Avalanche.GasClock.beforeBlockRaw_excess_le' does not depend on any axioms
+'Evm.Avalanche.GasClock.fakeExpLoopCap_eq' depends on axioms: [propext]
+'Evm.Avalanche.GasClock.satFakeExp_fuel_sufficient' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Evm.Avalanche.Trie.normalizeStorageSlot_idempotent' depends on axioms: [propext, Quot.sound]
+'Evm.Avalanche.Header.stateRootBlock_le_number' depends on axioms: [propext, Quot.sound]
 'Evm.CL.ARM64.SstoreGasDenote.legacy_eq_spec' depends on axioms: [propext, Quot.sound]
 'Evm.CL.ARM64.SstoreGasDenote.eip1283_eq_spec' depends on axioms: [propext,
  Quot.sound,

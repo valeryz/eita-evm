@@ -8,7 +8,8 @@
 
 (defparameter +replay-chains+
   '(("ethereum" :ethereum) ("hoodi" :ethereum "hoodi") ("devnet" :ethereum "devnet") ("arc" :arc) ("arc-testnet" :arc "testnet") ("arc-mainnet" :arc "mainnet")
-    ("base" :op "base") ("opt" :op "opt") ("world" :op "world"))
+    ("base" :op "base") ("opt" :op "opt") ("world" :op "world")
+    ("avalanche" :avalanche "mainnet") ("avalanche-fuji" :avalanche "fuji"))
   "The chains REPLAY runs: name, driver, and the driver's network.")
 
 (defun setenv! (name value)
@@ -46,4 +47,5 @@
       (ecase driver
         (:ethereum (eita.chain.ethereum::main-ethereum args (or net "mainnet")))
         (:arc (eita.chain.arc::main-arc args (or net eita.chain.arc::*arc-net*)))
-        (:op (eita.chain.op::main-base args net))))))
+        (:op (eita.chain.op::main-base args net))
+        (:avalanche (eita.chain.avalanche::main-avalanche args (or net "mainnet")))))))

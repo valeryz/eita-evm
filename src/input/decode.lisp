@@ -22,6 +22,8 @@
   "Directory of this chain's block files (a pathname ending in /), from its chain spec.")
 (defvar *rpc-url* nil
   "This chain's JSON-RPC endpoint, from its chain spec; used by sources that speak RPC.")
+(defvar *header-rlp-mode* nil
+  "Header RLP encoding mode (NIL: Ethereum; :CORETH: Avalanche Coreth 30-field header), from its chain spec.")
 (defparameter *rpc-calls* 0 "RPC calls made by the source (reported in the run summary).")
 (defparameter *offline-misses* 0
   "Lazy-state reads the source could not answer (a run with misses is suspect).")
@@ -303,7 +305,11 @@
   txs withdrawals (uncle-count 0)       ; withdrawals: (index validator-index address amount)
   receipts                              ; the receipts file's (parse plists), or NIL: none at hand
   uncles                                ; the uncles file's headers (CHAIN-BLOCKs), or NIL
-  received-ms)                          ; when the block source learned of it (ms since the epoch), or NIL
+  received-ms                           ; when the block source learned of it (ms since the epoch), or NIL
+  ;; Avalanche Coreth / SAE header fields (NIL on non-Avalanche chains)
+  ext-data-gas-used block-extra-data settled-height
+  timestamp-ms target-exponent min-price-exponent
+  settled-gas-unix settled-gas-numerator settled-excess)
 
 (defdecoder decode-access-entry (addr keys)
     (("address" addr jint) ("storageKeys" keys jlist #'jint))
@@ -371,14 +377,70 @@
                                                      v))))))
     (coerce (rlp-encode-list items) 'octets)))
 
+(defun rlp-qty-item (v)
+  "Encode octet vector V as a minimal big-endian RLP byte string (empty when V is NIL or 0)."
+  (if (null v)
+      (rlp-encode-bytes (make-array 0 :element-type '(unsigned-byte 8)))
+      (rlp-encode-bytes (subseq v (or (position 0 v :test-not #'eql) (length v))))))
+
+(defun coreth-header-rlp (hf ext-data-hash ext-data-gas-used block-gas-cost
+                          ts-ms min-delay-excess target-exp min-price-exp
+                          settled-height settled-gas-unix settled-gas-num settled-excess)
+  "rlp(header) for an Avalanche Coreth header (`HeaderSerializable.EncodeRLP`, Lean
+   `Evm.Avalanche.Header.encodeCorethHeaderRlp`): 16 mandatory fields through extDataHash,
+   followed by up to 14 optional fields (trailing NILs omitted, interior NILs as 0x80)."
+  (let* ((base (loop for k below +header-required+
+                     for v = (svref hf k)
+                     collect (progn
+                               (unless v (error "Coreth header lacks ~A" (svref +header-fields+ k)))
+                               (if (member k +header-quantities+) (rlp-qty-item v) (rlp-encode-bytes v)))))
+         (opt-specs (list (cons (svref hf 15) t)   ; baseFeePerGas
+                          (cons ext-data-gas-used t)
+                          (cons block-gas-cost t)
+                          (cons (svref hf 17) t)   ; blobGasUsed
+                          (cons (svref hf 18) t)   ; excessBlobGas
+                          (cons (svref hf 19) nil) ; parentBeaconBlockRoot
+                          (cons ts-ms t)
+                          (cons min-delay-excess t)
+                          (cons target-exp t)
+                          (cons min-price-exp t)
+                          (cons settled-height t)
+                          (cons settled-gas-unix t)
+                          (cons settled-gas-num t)
+                          (cons settled-excess t)))
+         (last-opt (position-if #'car opt-specs :from-end t))
+         (opt-items (when last-opt
+                      (loop for (v . qtyp) in opt-specs
+                            for i from 0 to last-opt
+                            collect (cond ((null v) (rlp-encode-bytes (make-array 0 :element-type '(unsigned-byte 8))))
+                                          (qtyp (rlp-qty-item v))
+                                          (t (rlp-encode-bytes v)))))))
+    (coerce (rlp-encode-list (nconc base (list (rlp-encode-bytes ext-data-hash)) opt-items)) 'octets)))
+
 (defun jskip-value (b i) (values nil (jskip b i)))
 
 ;; The block (or ommer header) object at I as a CHAIN-BLOCK.
-(defdecoder decode-block ((hf (make-array (length +header-fields+) :initial-element nil)) hash txs withdrawals uncles)
+(defdecoder decode-block ((hf (make-array (length +header-fields+) :initial-element nil)) hash txs withdrawals uncles
+                          ext-data-hash ext-data-gas-used block-gas-cost block-extra-data
+                          ts-ms min-delay-excess target-exp min-price-exp
+                          settled-height settled-gas-unix settled-gas-num settled-excess)
     ((:header hf) ("hash" hash jint) ("transactions" txs jlist #'decode-tx)
-     ("withdrawals" withdrawals jlist #'decode-withdrawal) ("uncles" uncles jlist #'jskip-value))
-  (flet ((int (k) (let ((v (svref hf k))) (and v (octets-int v)))))
-    (let ((rlp (header-rlp hf)))
+     ("withdrawals" withdrawals jlist #'decode-withdrawal) ("uncles" uncles jlist #'jskip-value)
+     ("extDataHash" ext-data-hash jbytes) ("extDataGasUsed" ext-data-gas-used jbytes)
+     ("blockGasCost" block-gas-cost jbytes) ("blockExtraData" block-extra-data jbytes)
+     ("timestampMilliseconds" ts-ms jbytes) ("minDelayExcess" min-delay-excess jbytes)
+     ("targetExponent" target-exp jbytes) ("minPriceExponent" min-price-exp jbytes)
+     ("settledHeight" settled-height jbytes) ("settledGasUnix" settled-gas-unix jbytes)
+     ("settledGasNumerator" settled-gas-num jbytes) ("settledExcess" settled-excess jbytes))
+  (flet ((int (k) (let ((v (svref hf k))) (and v (octets-int v))))
+         (bint (v) (and v (octets-int v))))
+    (let ((rlp (if (eq *header-rlp-mode* :coreth)
+                   (progn
+                     (unless ext-data-hash (error "Coreth header lacks extDataHash"))
+                     (coreth-header-rlp hf ext-data-hash ext-data-gas-used block-gas-cost
+                                        ts-ms min-delay-excess target-exp min-price-exp
+                                        settled-height settled-gas-unix settled-gas-num settled-excess))
+                   (header-rlp hf))))
       (make-chain-block
        :number (int 8) :hash (or hash 0) :parent-hash (int 0) :timestamp (int 11) :miner (int 2)
        :gas-limit (int 9) :gas-used (int 10) :base-fee (int 15) :mix-hash (or (int 13) 0)
@@ -387,7 +449,12 @@
        :receipts-root (svref hf 5) :transactions-root (svref hf 4) :logs-bloom (svref hf 6)
        :sha3-uncles (svref hf 1) :extra-data (svref hf 12) :nonce (svref hf 14) :requests-hash (svref hf 20) :withdrawals-root (svref hf 16)
        :header-rlp rlp :header-hash (octets-int (keccak256-bytes rlp))
-       :txs (delete nil txs) :withdrawals withdrawals :uncle-count (length uncles)))))
+       :txs (delete nil txs) :withdrawals withdrawals :uncle-count (length uncles)
+       :ext-data-gas-used (bint ext-data-gas-used) :block-extra-data block-extra-data
+       :settled-height (bint settled-height)
+       :timestamp-ms (bint ts-ms) :target-exponent (bint target-exp) :min-price-exponent (bint min-price-exp)
+       :settled-gas-unix (bint settled-gas-unix) :settled-gas-numerator (bint settled-gas-num)
+       :settled-excess (bint settled-excess)))))
 
 
 (defun json-octets (text)

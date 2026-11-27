@@ -73,6 +73,8 @@ relation fdisk : blk → Bool               -- frontier-N/ exists (sealed)
 function fbr : blk → ws                   -- ghost: whose state frontier-N/ holds
 individual fcur : blk                     -- the frontier the worker maps
 relation anch : blk → Bool                -- anchors.sexp has a line for N
+relation deferred : blk → Bool            -- deferred-anchors.sexp: awaiting settling header (@code defer-anchor!)
+relation settled_root : ws → Bool         -- expected root is known (immediate, or delivered by settling header)
 individual atop : blk                     -- the newest anchor
 individual gpc : GPC
 relation fpin : blk → Bool                -- GC's pins
@@ -106,6 +108,8 @@ after_init {
   fbr N := w0
   fcur := h0
   anch N := N = h0
+  deferred N := false
+  settled_root X := X = w0
   atop := h0
   gpc := GIdle
   fpin N := false
@@ -123,7 +127,37 @@ action exec (w : ws) (n : blk) {
   num w := n
   canon w := true
   queued w := true
+  settled_root w := true
   etop := n
+}
+
+/-! ## Replay thread: an asynchronously-settled (SAE) block frozen as a deferred anchor (@code defer-anchor!) -/
+action exec_deferred (w : ws) (n : blk) {
+  require gpc = GIdle
+  require fresh w
+  require le etop n ∧ etop ≠ n
+  fresh w := false
+  num w := n
+  canon w := true
+  queued w := true
+  settled_root w := false
+  deferred n := true
+  etop := n
+}
+
+/-! ## Replay thread: settling header delivers the expected root for a deferred anchor (@code resolve-deferred-anchor!/promote, @code resolve-deferred-anchor!/expire) -/
+action resolve_deferred (w : ws) {
+  require gpc = GIdle
+  require canon w ∧ deferred (num w)
+  settled_root w := true
+  deferred N := decide $ deferred N ∧ ¬ le N (num w)
+}
+
+/-! ## Replay thread: multi-block settlement skips older deferred heights (@code resolve-deferred-anchor!/expire) -/
+action expire_deferred (s : blk) {
+  require gpc = GIdle
+  require le s etop
+  deferred N := decide $ deferred N ∧ le s N
 }
 
 /-! ## The chain: the reorg floor advances (reorg-window below the replay) -/
@@ -152,6 +186,7 @@ action v_start (w : ws) {
 }
 action v_pub {                             -- @planned root-verdict
   require cpc = CRun
+  require settled_root cw                  -- cannot publish verdict before expected root is known
   vpub cw := true
   if (∀ v, cons v → canon v ∧ le (num v) (num cw)) ∧
      (∀ v, (canon v ∧ fresh v = false ∧ le (num v) (num cw)) → cons v) then
@@ -218,9 +253,11 @@ action rollback (f : blk) {
   cons X := decide $ cons X ∧ le (num X) f
   undo X := decide $ undo X ∧ le (num X) f
   wtop := if le wtop f then wtop else f
-  -- the verdicts above F
+  -- the verdicts above F (and persisted deferred anchors above F: @code drop-deferred-above!)
   vpub X := decide $ vpub X ∧ le (num X) f
   krep X := decide $ krep X ∧ le (num X) f
+  deferred N := decide $ deferred N ∧ le N f
+  settled_root X := decide $ settled_root X ∧ le (num X) f
   -- a checkpoint above F is aborted, and a published, unanchored frontier above F deleted
   kpc := if le (num kw) f then kpc else KIdle
   if ¬ le fcur f then bad_map := true
@@ -246,23 +283,25 @@ action g_done {
   gpc := GIdle
 }
 
--- a verdict is computed from exactly its block's chain
-safety [verdict_exact] vpub X → vgood X
+-- a verdict is computed from exactly its block's chain and only after expected root is settled
+safety [verdict_exact] vpub X → vgood X ∧ settled_root X
 -- the worker's state is its chain up to its block (drop-above! restores it)
 safety [worker_exact] cons X → canon X ∧ le (num X) wtop
--- every frontier directory holds a verified block's state; the anchor line names a canonical one
+-- every frontier directory holds a verified block's state; the anchor line names a canonical, non-deferred one
 safety [frontier_verified] fdisk N → num (fbr N) = N ∧ vgood (fbr N)
-safety [anchor_good] anch N → canon (fbr N) ∧ num (fbr N) = N
+safety [anchor_good] anch N → canon (fbr N) ∧ num (fbr N) = N ∧ ¬ deferred N
 safety [no_hazard] bad_undo = false ∧ bad_map = false ∧ ferr = false ∧ fdisk fcur
 
 -- the inductive invariant behind the safety properties
 -- executed blocks: one per number on the chain, all of them consumed or queued in order
 invariant [blocks]
-    (fresh X → X ≠ w0 ∧ ¬ canon X ∧ ¬ queued X ∧ ¬ cons X ∧ ¬ undo X ∧ ¬ vpub X ∧ ¬ krep X) ∧
-    (¬ fresh w0 ∧ canon w0 ∧ cons w0 ∧ num w0 = h0 ∧ vgood w0 ∧ ¬ fresh cw ∧ ¬ fresh kw) ∧
+    (fresh X → X ≠ w0 ∧ ¬ canon X ∧ ¬ queued X ∧ ¬ cons X ∧ ¬ undo X ∧ ¬ vpub X ∧ ¬ krep X ∧ ¬ settled_root X) ∧
+    (¬ fresh w0 ∧ canon w0 ∧ cons w0 ∧ num w0 = h0 ∧ vgood w0 ∧ settled_root w0 ∧ ¬ fresh cw ∧ ¬ fresh kw) ∧
     (canon X → le (num X) etop) ∧
     (canon X ∧ canon Y ∧ num X = num Y → X = Y) ∧
-    (le floor wtop ∧ le wtop etop)
+    (le floor wtop ∧ le wtop etop) ∧
+    (deferred N → le N etop ∧ ¬ anch N) ∧
+    (canon X ∧ deferred (num X) → ¬ settled_root X)
 -- the worker: its state is exactly the chain up to wtop; the rest of the chain is queued above it
 invariant [worker]
     (queued X → canon X ∧ ¬ cons X ∧ ¬ le (num X) wtop) ∧
@@ -270,14 +309,14 @@ invariant [worker]
     (canon X ∧ le (num X) wtop → cons X) ∧
     (cons X ∧ ¬ le (num X) floor → undo X) ∧
     (cpc = CRun → cons cw ∧ num cw = wtop) ∧
-    (vpub X → cons X)
+    (vpub X → cons X ∧ settled_root X)
 -- the checkpoint and the frontier directories
 invariant [frontier]
     (kpc ≠ KIdle → cons kw ∧ ¬ le (num kw) fcur ∧ le (num kw) wtop) ∧
     (kpc = KPub → fdisk (num kw) ∧ fbr (num kw) = kw ∧ krep kw) ∧
     (fdisk N ∧ ¬ le N fcur → kpc = KPub ∧ N = num kw) ∧
     (le fcur floor) ∧
-    (krep X → canon X ∧ vgood X ∧ fbr (num X) = X ∧ (le (num X) fcur ∨ (kpc = KPub ∧ X = kw))) ∧
+    (krep X → canon X ∧ vgood X ∧ settled_root X ∧ fbr (num X) = X ∧ (le (num X) fcur ∨ (kpc = KPub ∧ X = kw))) ∧
     (le atop fcur ∨ (kpc = KPub ∧ atop = num kw)) ∧
     (anch N → le N atop ∧ le N floor ∧ krep (fbr N) ∧ num (fbr N) = N) ∧
     (anch atop) ∧

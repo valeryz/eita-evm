@@ -14,6 +14,7 @@ import Evm.Optimism.Replay.Emit  -- the OP-Stack fork table, L1 fee, operator fe
 import Evm.Optimism.Beryl.Spec.NativePrecompiles  -- Base's native precompiles: table, host-op gas; proved there
 import Evm.Optimism.Denim.Spec.BaseTime  -- Denim's timestamp schedule; proved there
 import Evm.Optimism.Fjord.Spec.FastLz  -- the FastLZ length (the Fjord L1 fee's size)
+import Evm.Avalanche.Emit  -- Avalanche C-Chain (Etna..Helicon): forks, charging, Warp, atomic, SAE GasClock; proved there
 import Evm.CL.EffectSelfdestruct  -- the derived cb-selfdestruct effect; proved in EffectSelfdestructProof
 import Evm.CL.EffectSettle        -- the derived fee settlement; proved in EffectSettleProof
 import Evm.CL.EffectEndTx         -- the derived end-of-tx deletions; proved in EffectEndTxProof
@@ -127,8 +128,9 @@ def main : IO Unit := do
   IO.println s!"  {Evm.CL.GasEmit.modexpGas.toCL})"
   IO.println ""
   IO.println ";; EIP-4844 fake_exponential (EELS cancun/vm/gas.py): the integer Taylor series behind"
-  IO.println ";; the blob base fee. The one loop in the emitted formulas; `.fakeExp` terms call it."
-  IO.println s!"(defun spec-fake-exponential (factor numerator denominator)"
+  IO.println ";; the blob base fee and Avalanche GasClock. Optional CAP short-circuits saturating"
+  IO.println ";; callers (`min (fakeExp ...) cap`) once output >= cap * denominator."
+  IO.println s!"(defun spec-fake-exponential (factor numerator denominator &optional cap)"
   IO.println s!"  {fakeExponentialCL})"
   -- FastLZ compressed length (Evm.Optimism.Fjord.Spec.FastLz; op-geth FlzCompressLen)
   IO.println s!"(defun spec-flz-compress-len (ib)"
@@ -237,7 +239,25 @@ def main : IO Unit := do
     , ("spec-op-native-code-deposit-gas", "(len)",    Evm.Optimism.Beryl.Spec.codeDepositGasExpr)
     , ("spec-op-native-new-code-gas",  "(len)",       Evm.Optimism.Beryl.Spec.newCodeGasExpr)
     , ("spec-op-denim-block-ms",       "(number)",    Evm.Optimism.Denim.Spec.blockMsExpr)
-    , ("spec-op-denim-p",              "(number)",    Evm.Optimism.Denim.Spec.isDenimExpr) ]
+    , ("spec-op-denim-p",              "(number)",    Evm.Optimism.Denim.Spec.isDenimExpr)
+      -- Avalanche C-Chain (Evm.Avalanche.Emit: Etna..Helicon, each proved equal to its spec there)
+    , ("spec-avax-mainnet-fork-ord",   "(ts)",        Evm.Avalanche.Emit.mainnetForkOrdExpr)
+    , ("spec-avax-fuji-fork-ord",      "(ts)",        Evm.Avalanche.Emit.fujiForkOrdExpr)
+    , ("spec-avax-eth-analog-ord",     "(avax-fork)", Evm.Avalanche.Emit.ethAnalogOrdExpr)
+    , ("spec-avax-p256-active",        "(avax-fork)", Evm.Avalanche.Emit.p256ActiveExpr)
+    , ("spec-avax-sae-active",         "(avax-fork)", Evm.Avalanche.Emit.saeActiveExpr)
+    , ("spec-avax-extradata-offset",   "(avax-fork)", Evm.Avalanche.Emit.extraDataOffsetExpr)
+    , ("spec-avax-sae-gas-floor",      "(gas-limit)", Evm.Avalanche.Emit.saeGasFloorExpr)
+    , ("spec-avax-tx-gas-used",        "(avax-fork spent pred-gas gas-limit)", Evm.Avalanche.Emit.txGasUsedExpr)
+    , ("spec-avax-warp-blockchain-id-gas", "()",      Evm.Avalanche.Emit.warpBlockchainIdGasExpr)
+    , ("spec-avax-warp-send-gas",      "(arg-len)",   Evm.Avalanche.Emit.warpSendGasExpr)
+    , ("spec-avax-warp-read-gas",      "(num-keys)",  Evm.Avalanche.Emit.warpReadGasExpr)
+    , ("spec-avax-warp-predicate-gas", "(num-keys num-signers)", Evm.Avalanche.Emit.warpPredicateGasExpr)
+    , ("spec-avax-atomic-tx-gas",      "(unsigned-bytes num-sigs)", Evm.Avalanche.Emit.atomicTxGasExpr)
+    , ("spec-avax-gasclock-target",    "(target-exp)", Evm.Avalanche.Emit.gasClockTargetExpr)
+    , ("spec-avax-gasclock-min-price", "(min-price-exp)", Evm.Avalanche.Emit.gasClockMinPriceExpr)
+    , ("spec-avax-gasclock-price-at",  "(excess target)", Evm.Avalanche.Emit.gasClockPriceAtExpr)
+    , ("spec-avax-gasclock-base-fee",  "(excess target min-price)", Evm.Avalanche.Emit.gasClockBaseFeeExpr) ]
   for (name, args, e) in defs do
     IO.println s!"(defun {name} {args} {e.toCL})"
   -- EIP-2537 MSM gas does not fit the Expr IR: it is a 128-entry table lookup. The

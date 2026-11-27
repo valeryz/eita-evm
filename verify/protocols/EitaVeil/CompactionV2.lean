@@ -71,6 +71,7 @@ individual fin : blk                    -- the reorg floor: no fork below it
 individual slive : Bool                 -- a settled layer is open
 individual sl : comp                    -- ... that one
 relation vfy : blk → Bool               -- a verified anchor's block (its anchor line)
+relation def_anch : blk → Bool          -- deferred-anchors.sexp: frozen anchor awaiting settling header (@code defer-anchor!)
 
 individual wpc : WPC
 individual wl : comp
@@ -121,6 +122,7 @@ after_init {
   slive := false
   sl := c0
   vfy B := B = h0
+  def_anch B := false
   wpc := WIdle
   wl := c0
   wbelow C := false
@@ -262,10 +264,32 @@ action wv_read (c : comp) {              -- a bucket's compose-range over its vi
   if mapped c = false then bad_wread := true
 }
 
+/-! ## Replay thread: deferred (SAE) anchor frozen without expected root yet (@code defer-anchor!) -/
+action defer_anchor (z : comp) {
+  require gpc = GIdle ∧ dpc = DIdle
+  require instack z ∧ isbase z = false ∧ hi z = top ∧ vfy (hi z) = false
+  def_anch (hi z) := true
+}
+
+/-! ## Replay thread: settling header resolves a deferred anchor and expires skipped ones (@code resolve-deferred-anchor!/promote, @code resolve-deferred-anchor!/expire) -/
+action resolve_deferred (b : blk) {
+  require gpc = GIdle ∧ dpc = DIdle
+  require def_anch b
+  def_anch B := decide $ def_anch B ∧ ¬ le B b
+}
+
+/-! ## Replay thread: multi-block settlement skips older deferred anchors (@code resolve-deferred-anchor!/expire) -/
+action expire_deferred (s : blk) {
+  require gpc = GIdle ∧ dpc = DIdle
+  require le s top
+  def_anch B := decide $ def_anch B ∧ le s B
+}
+
 /-! ## The anchor line: a verified, canonical disk layer at N (RootWorker: layer, frontier, verdict) (@planned anchor-line!) -/
 action anchor (z : comp) {
   require gpc = GIdle ∧ dpc = DIdle
   require instack z ∧ ram z = false ∧ isbase z = false ∧ valid z ∧ le (hi z) fin
+  require def_anch (hi z) = false
   vfy (hi z) := true
 }
 
@@ -275,6 +299,7 @@ action start_major (z o : comp) {
   require cpc = CNone
   require fresh o
   require instack z ∧ isbase z = false ∧ ram z = false ∧ vfy (hi z)
+  require ∀ b, def_anch b → le (hi z) b ∧ hi z ≠ b
   require ∀ c, (instack c ∧ le (hi c) (hi z)) → ram c = false
   crd C := decide $ instack C ∧ le (hi C) (hi z)
   fresh o := false
@@ -383,6 +408,7 @@ action rollback (b t : blk) {
   ram C := decide $ ram C ∧ ¬ (instack C ∧ ¬ le (hi C) t)
   instack C := decide $ instack C ∧ le (hi C) t   -- @code rollback-to!/publish
   valid C := decide $ valid C ∧ le (hi C) b
+  def_anch B := decide $ def_anch B ∧ le B t      -- @code drop-deferred-above!
   top := t
 }
 
@@ -394,6 +420,8 @@ safety [stack_composes]
 safety [stack_live]
     (instack C → valid C) ∧
     (instack C ∧ ram C = false → disk C ∧ mapped C)
+safety [deferred_unverified]
+    def_anch B → vfy B = false
 safety [no_hazard]
     bad_unmap = false ∧ bad_delete = false ∧ bad_tables = false ∧ bad_read = false ∧
     bad_swap = false ∧ bad_wread = false ∧ bad_drop = false ∧ werr = false ∧ cerr = false
@@ -429,10 +457,14 @@ invariant [writer]
 -- the compactor: every stack component up to M is an input, all of them snaps at or below the floor
 invariant [compactor]
     (crd C → cpc ≠ CNone ∧ instack C ∧ ¬ ram C ∧ le (hi C) (hi cout)) ∧
-    (cpc ≠ CNone → ¬ instack cout ∧ ¬ retired cout ∧ ¬ ram cout ∧ ¬ settled cout ∧ ¬ queued cout ∧ ¬ written cout ∧ ¬ crd cout ∧ ¬ wvpin cout ∧ ¬ wbelow cout ∧ ¬ rset cout ∧ isbase cout ∧ valid cout ∧ le (hi cout) fin ∧ instack cz ∧ crd cz ∧ ¬ isbase cz ∧ hi cz = hi cout) ∧
+    (cpc ≠ CNone → ¬ instack cout ∧ ¬ retired cout ∧ ¬ ram cout ∧ ¬ settled cout ∧ ¬ queued cout ∧ ¬ written cout ∧ ¬ crd cout ∧ ¬ wvpin cout ∧ ¬ wbelow cout ∧ ¬ rset cout ∧ isbase cout ∧ valid cout ∧ vfy (hi cout) ∧ le (hi cout) fin ∧ instack cz ∧ crd cz ∧ ¬ isbase cz ∧ hi cz = hi cout) ∧
     (cpc ≠ CNone ∧ instack C ∧ le (hi C) (hi cout) → crd C) ∧
     ((cpc = COpen ∨ cpc = CDone) → disk cout) ∧
     (cpc = CDone → mapped cout)
+-- deferred (SAE) anchors stay unverified and strictly above any in-flight compaction
+invariant [deferred]
+    (def_anch B → le B top ∧ vfy B = false) ∧
+    (cpc ≠ CNone ∧ def_anch B → le (hi cout) B ∧ hi cout ≠ B)
 -- GC between its pin and its deletions
 invariant [gc_pins]
     (gpc = GDel → (instack C → pinned C) ∧ ((cpc ≠ CNone ∧ C = cout) → pinned C) ∧ (wvpin C → pinned C))

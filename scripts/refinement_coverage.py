@@ -750,8 +750,8 @@ _CL = "lean/Evm/CL/"
 # ETH_FORKS, `CL/` = lean/Evm/CL/). First match wins; a .lean file no component claims
 # fails the generator, so a new file is assigned deliberately.
 COMPONENTS = [
-    ("chains", "Chain specs (Arc, OP Stack)", "lean/Evm/Optimism",
-     "lean/Evm/Arc/* lean/Evm/Optimism/*"),
+    ("chains", "Chain specs (Arc, OP Stack, Avalanche)", "lean/Evm/Optimism",
+     "lean/Evm/Arc/* lean/Evm/Optimism/* lean/Evm/Avalanche/*"),
     ("refinement", "Opcode refinement relations", "lean/Evm/Frontier/Spec",
      "lean/Evm/<Fork>/Spec/*"),
     ("spec", "EVM spec, Frontier to Osaka (Amsterdam staged)", "lean/Evm",

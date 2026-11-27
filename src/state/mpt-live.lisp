@@ -292,7 +292,9 @@
   ;; addr -> that contract's PERSISTENT storage mtrie. This is the memory we
   ;; trade for not rebuilding: a touch now costs the changed slots plus the
   ;; re-hash of their root-to-leaf paths, instead of the contract's whole trie.
-  (stries (make-hash-table :test 'eql)))
+  (stries (make-hash-table :test 'eql))
+  (normalize-slot-key nil)
+  (five-field-account nil))
 
 (defun mpt-strie (ws addr)
   (or (gethash addr (mpt-wstate-stries ws))
@@ -301,8 +303,9 @@
 (defun mpt-strie-empty-p (trie)
   (null (eita.mpt:mtrie-top trie)))
 
-(defun mpt-slot-key (slot)
-  (eita.mpt:%keccak (eita.mpt:int->be-bytes-fixed slot 32)))
+(defun mpt-slot-key (slot &optional normalize-slot-key)
+  (let ((raw (eita.mpt:int->be-bytes-fixed slot 32)))
+    (eita.mpt:%keccak (if normalize-slot-key (eita.mpt:normalize-slot-bytes raw) raw))))
 
 (defun mpt-slot-value (val)
   "The trie's leaf value for a slot: RLP(minimal-BE(val)). Byte-for-byte the
@@ -328,19 +331,20 @@
         (slots (getf snap :slots)))
     (when (and has-full (getf snap :reset))
       (remhash addr (mpt-wstate-stries ws)))
-    (let ((trie (mpt-strie ws addr)))
+    (let ((trie (mpt-strie ws addr))
+          (norm (mpt-wstate-normalize-slot-key ws)))
       (cond
         (has-full
          ;; Introduce: the trie is empty (fresh, or just dropped by :reset).
          (dolist (kv full)
            (unless (zerop (cdr kv))
-             (eita.mpt:mtrie-insert trie (mpt-slot-key (car kv))
+             (eita.mpt:mtrie-insert trie (mpt-slot-key (car kv) norm)
                                     (mpt-slot-value (cdr kv))))))
         (t
          (dolist (kv slots)
            (if (zerop (cdr kv))
-               (eita.mpt:mtrie-delete trie (mpt-slot-key (car kv)))
-               (eita.mpt:mtrie-insert trie (mpt-slot-key (car kv))
+               (eita.mpt:mtrie-delete trie (mpt-slot-key (car kv) norm))
+               (eita.mpt:mtrie-insert trie (mpt-slot-key (car kv) norm)
                                       (mpt-slot-value (cdr kv)))))))
       (values (if (mpt-strie-empty-p trie)
                   (eita.mpt:empty-root-bytes)
@@ -370,7 +374,9 @@
             (let* ((chash (if (and code (plusp (length code)))
                               (eita.mpt:%keccak code)
                               (eita.mpt:empty-code-hash)))
-                   (leaf  (eita.mpt:account-leaf-value nonce balance sroot chash)))
+                   (leaf  (eita.mpt:account-leaf-value nonce balance sroot chash
+                                                       :five-field (mpt-wstate-five-field-account ws)
+                                                       :multi-coin (getf snap :multi-coin))))
               (eita.mpt:mtrie-insert (mpt-wstate-trie ws) akey leaf)))
           (progn (incf *mpt-deletes*)
                  ;; Gone from the account trie, so its storage trie is dead weight
@@ -388,26 +394,30 @@
         (some (lambda (kv) (plusp (cdr kv))) storage)
         present)))
 
-(defun mpt-apply-snapshot-full (trie snap)
+(defun mpt-apply-snapshot-full (trie snap &key normalize-slot-key five-field-account)
   "Audit-only: from-scratch insert of a :full-storage SNAP into account TRIE."
   (let* ((addr (getf snap :addr))
          (akey (eita.mpt:%keccak (eita.mpt:int->be-bytes-fixed addr 20))))
     (if (mpt-account-present-full-p snap)
-        (let* ((sroot (eita.mpt:storage-root (getf snap :full-storage)))
+        (let* ((sroot (eita.mpt:storage-root (getf snap :full-storage)
+                                             :normalize-slot-key normalize-slot-key))
                (code  (getf snap :code))
                (chash (if (and code (plusp (length code)))
                           (eita.mpt:%keccak code)
                           (eita.mpt:empty-code-hash)))
                (leaf  (eita.mpt:account-leaf-value
-                       (getf snap :nonce) (getf snap :balance) sroot chash)))
+                       (getf snap :nonce) (getf snap :balance) sroot chash
+                       :five-field five-field-account
+                       :multi-coin (getf snap :multi-coin))))
           (eita.mpt:mtrie-insert trie akey leaf))
         (eita.mpt:mtrie-delete trie akey))))
 
-(defun mpt-worker-loop (mailbox)
+(defun mpt-worker-loop (mailbox &key normalize-slot-key five-field-account)
   "Worker entry: maintain one account mtrie, draining block snapshots in order.
    Runs until it receives a :stop sentinel. Prints MATCH/MISMATCH at each
    configured check block."
-  (let ((ws (make-mpt-wstate))
+  (let ((ws (make-mpt-wstate :normalize-slot-key normalize-slot-key
+                             :five-field-account five-field-account))
         (last-block -1))
     (handler-case
         (loop
@@ -485,13 +495,18 @@
         (format t "~&[mpt] WORKER ERROR: ~A~%" e)
         (finish-output)))))
 
-(defun mpt-start-worker ()
+(defun mpt-start-worker (&key (normalize-slot-key (and eita.chain:*chain-spec*
+                                                       (eita.chain:chain-spec-normalize-slot-key eita.chain:*chain-spec*)))
+                              (five-field-account (and eita.chain:*chain-spec*
+                                                       (eita.chain:chain-spec-five-field-account eita.chain:*chain-spec*))))
   "Create the mailbox + worker thread and arm dirty tracking. Idempotent."
   (unless *mpt-worker*
     (setf *mpt-mailbox* (sb-concurrency:make-mailbox :name "mpt-mailbox"))
     (setf *mpt-worker*
           (sb-thread:make-thread
-           (lambda () (mpt-worker-loop *mpt-mailbox*))
+           (lambda () (mpt-worker-loop *mpt-mailbox*
+                                       :normalize-slot-key normalize-slot-key
+                                       :five-field-account five-field-account))
            :name "mpt-worker"))
     (setf *mpt-tracking* t)
     (format t "~&[mpt] incremental state-root worker started~%")

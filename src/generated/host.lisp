@@ -666,11 +666,15 @@
   (if (< fork-ord 10) (floor (* (if (< (max base-sz mod-sz) 65) (* (max base-sz mod-sz) (max base-sz mod-sz)) (if (< (max base-sz mod-sz) 1025) (+ (floor (* (max base-sz mod-sz) (max base-sz mod-sz)) 4) (max 0 (- (* 96 (max base-sz mod-sz)) 3072))) (+ (floor (* (max base-sz mod-sz) (max base-sz mod-sz)) 16) (max 0 (- (* 480 (max base-sz mod-sz)) 199680))))) (max (+ (if (< 32 exp-sz) (* 8 (max 0 (- exp-sz 32))) 0) (max 0 (- (integer-length exp-head) 1))) 1)) 20) (if (< fork-ord 18) (max 200 (floor (* (* (floor (+ (max base-sz mod-sz) 7) 8) (floor (+ (max base-sz mod-sz) 7) 8)) (max (+ (if (< 32 exp-sz) (* 8 (max 0 (- exp-sz 32))) 0) (max 0 (- (integer-length exp-head) 1))) 1)) 3)) (max 500 (* (if (< (max base-sz mod-sz) 33) 16 (* 2 (* (floor (+ (max base-sz mod-sz) 7) 8) (floor (+ (max base-sz mod-sz) 7) 8)))) (max (+ (if (< 32 exp-sz) (* 16 (max 0 (- exp-sz 32))) 0) (max 0 (- (integer-length exp-head) 1))) 1))))))
 
 ;; EIP-4844 fake_exponential (EELS cancun/vm/gas.py): the integer Taylor series behind
-;; the blob base fee. The one loop in the emitted formulas; `.fakeExp` terms call it.
-(defun spec-fake-exponential (factor numerator denominator)
-  (let ((i 1) (output 0) (accum (* factor denominator)))
+;; the blob base fee and Avalanche GasClock. Optional CAP short-circuits saturating
+;; callers (`min (fakeExp ...) cap`) once output >= cap * denominator.
+(defun spec-fake-exponential (factor numerator denominator &optional cap)
+  (let ((i 1) (output 0) (accum (* factor denominator))
+        (limit (and cap (* cap denominator))))
     (loop while (plusp accum)
           do (incf output accum)
+             (when (and limit (>= output limit))
+               (return-from spec-fake-exponential cap))
              (setf accum (floor (* accum numerator) (* denominator i)))
              (incf i))
     (floor output denominator)))
@@ -786,6 +790,23 @@
 (defun spec-op-native-new-code-gas (len) (+ 32000 (+ 30 (* 6 (floor (+ len 31) 32)))))
 (defun spec-op-denim-block-ms (number) (if (< number 53556127) (* (+ 1686789347 (* number 2)) 1000) (+ 1793901601000 (* (max 0 (- number 53556127)) 200))))
 (defun spec-op-denim-p (number) (if (< number 53556127) 0 1))
+(defun spec-avax-mainnet-fork-ord (ts) (if (< ts 1790089200) (if (< ts 1763568000) (if (< ts 1744124400) (if (< ts 1734364800) 0 1) 2) 3) 4))
+(defun spec-avax-fuji-fork-ord (ts) (if (< ts 1788274800) (if (< ts 1761750000) (if (< ts 1741276800) (if (< ts 1732550400) 0 1) 2) 3) 4))
+(defun spec-avax-eth-analog-ord (avax-fork) (if (< avax-fork 1) 15 16))
+(defun spec-avax-p256-active (avax-fork) (if (< avax-fork 3) 0 1))
+(defun spec-avax-sae-active (avax-fork) (if (< avax-fork 4) 0 1))
+(defun spec-avax-extradata-offset (avax-fork) (if (< avax-fork 2) 80 (if (< avax-fork 4) 24 0)))
+(defun spec-avax-sae-gas-floor (gas-limit) (floor (+ gas-limit 1) 2))
+(defun spec-avax-tx-gas-used (avax-fork spent pred-gas gas-limit) (if (< avax-fork 4) (+ spent pred-gas) (max (+ spent pred-gas) (floor (+ gas-limit 1) 2))))
+(defun spec-avax-warp-blockchain-id-gas () 200)
+(defun spec-avax-warp-send-gas (arg-len) (+ 41500 (* 8 arg-len)))
+(defun spec-avax-warp-read-gas (num-keys) (+ 750 (* 512 num-keys)))
+(defun spec-avax-warp-predicate-gas (num-keys num-signers) (+ (+ 125000 (* 512 num-keys)) (* 250 num-signers)))
+(defun spec-avax-atomic-tx-gas (unsigned-bytes num-sigs) (+ (+ 10002 unsigned-bytes) (* 1000 num-sigs)))
+(defun spec-avax-gasclock-target (target-exp) (max 1 (min (spec-fake-exponential 1000000 target-exp 33554432 18446744073709551615) 9223372036854775807)))
+(defun spec-avax-gasclock-min-price (min-price-exp) (spec-fake-exponential 1 min-price-exp 415828534307635077 18446744073709551615))
+(defun spec-avax-gasclock-price-at (excess target) (if (< (min (* target 87) 18446744073709551615) 1) 0 (spec-fake-exponential 1 excess (min (* target 87) 18446744073709551615) 18446744073709551615)))
+(defun spec-avax-gasclock-base-fee (excess target min-price) (max (if (< (min (* target 87) 18446744073709551615) 1) 0 (spec-fake-exponential 1 excess (min (* target 87) 18446744073709551615) 18446744073709551615)) min-price))
 
 (defparameter +bls-g1msm-discounts+ #(1000 949 848 797 764 750 738 728 719 712 705 698 692 687 682 677 673 669 665 661 658 654 651 648 645 642 640 637 635 632 630 627 625 623 621 619 617 615 613 611 609 608 606 604 603 601 599 598 596 595 593 592 591 589 588 586 585 584 582 581 580 579 577 576 575 574 573 572 570 569 568 567 566 565 564 563 562 561 560 559 558 557 556 555 554 553 552 551 550 549 548 547 547 546 545 544 543 542 541 540 540 539 538 537 536 536 535 534 533 532 532 531 530 529 528 528 527 526 525 525 524 523 522 522 521 520 520 519))
 (defun spec-bls-g1msm-gas (len)

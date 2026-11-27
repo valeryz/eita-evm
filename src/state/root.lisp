@@ -723,7 +723,8 @@
                             (eita.state.snapshot:obuf-sap out) (eita.state.snapshot:obuf-count out))))))
     (when (> (eita.state.snapshot:obuf-count out) +large+)
       (eita.state.snapshot:obuf-free out) (setf (worker-obuf w) (eita.state.snapshot:make-obuf)))
-    (destructuring-bind (&optional nonce balance codehash mark) fields
+    (destructuring-bind (&optional nonce balance codehash mark multi-coin) fields
+      (declare (ignore multi-coin))
       (when (and nonce (eita.state.snapshot:s1-included-p nonce balance codehash (plusp count) mark))
         (let ((o (* r +rec+)))
           (replace recs (eita.mpt:%keccak (eita.state.snapshot:int->octets addr 20)) :start1 o)
@@ -816,16 +817,21 @@
 
 ;;; ------------------------------------------------------------ pass 2: buckets -> account trie
 
-(defun account-leaf (recs o)
+(defun account-leaf (recs o &optional five-field-account)
   (declare (type octets recs) (type fixnum o))
   (eita.mpt:account-leaf-value (minimal-vec recs (+ o 32) (+ o 40))
                                 (minimal-vec recs (+ o 40) (+ o 72))
                                 (subseq recs (+ o 104) (+ o 136))
-                                (subseq recs (+ o 72) (+ o 104))))
+                                (subseq recs (+ o 72) (+ o 104))
+                                :five-field five-field-account))
 
-(defun account-pass (buckets nthreads)
+(defun account-pass (buckets nthreads &key five-field-account)
   "The state root over the bucket files: SPLIT-ROOT over the 16 top nibbles."
-  (st-root-bytes (feed-split buckets 16 nthreads #'account-leaf +rec+)))
+  (st-root-bytes (feed-split buckets 16 nthreads
+                             (if five-field-account
+                                 (lambda (recs o) (account-leaf recs o t))
+                                 #'account-leaf)
+                             +rec+)))
 
 ;;; ------------------------------------------------------------ version 2: hashed key order
 ;;;
@@ -837,9 +843,11 @@
 ;;; its leaf in the account trie, and SPLIT-ROOT combines the groups. Memory per thread: the
 ;;; two tries' 64 frames; the base's mapped pages are released behind the scan.
 
-(defun snapshot-root-2 (s ls threads)
+(defun snapshot-root-2 (s ls threads &key five-field-account)
   "(values root-bytes n-accounts n-slots) of the version 2 base S under the version 2
-   layers LS (newest first): the state the stack reads as (Lean `view`, S1 applied)."
+   layers LS (newest first): the state the stack reads as (Lean `view`, S1 applied).
+   FIVE-FIELD-ACCOUNT is a chain-spec parameter (NIL: 4-field Ethereum RLP; T: 5-field
+   Coreth RLP with the per-account +flag-multi-coin+ bit)."
   (let ((na 0) (ns 0) (lock (sb-thread:make-mutex)))
     (flet ((feed (st g w)
              (declare (ignore w))
@@ -855,13 +863,16 @@
                   (lambda (sap off nslots wiped)
                     (declare (ignore wiped))
                     (let ((nonce (minimal-be sap (+ off 56) 8)) (balance (minimal-be sap (+ off 64) 32))
-                          (codehash (copy-sap sap (+ off 96) 32 (make-array 32 :element-type '(unsigned-byte 8)))))
+                          (codehash (copy-sap sap (+ off 96) 32 (make-array 32 :element-type '(unsigned-byte 8))))
+                          (flags (eita.state.snapshot::sap-be sap (+ off 52) 4)))
                       (when (eita.state.snapshot::s1-included-p
                              (eita.state.snapshot::sap-be sap (+ off 56) 8) (eita.state.snapshot::sap-be sap (+ off 64) 32)
                              (eita.state.snapshot::sap-be sap (+ off 96) 32) (plusp nslots)
-                             (logtest 1 (eita.state.snapshot::sap-be sap (+ off 52) 4)))
+                             (logtest 1 flags))
                         (copy-sap sap off 32 key)
-                        (st-push st key 0 (eita.mpt:account-leaf-value nonce balance (st-root-bytes (st-finish sst)) codehash))
+                        (st-push st key 0 (eita.mpt:account-leaf-value nonce balance (st-root-bytes (st-finish sst)) codehash
+                                                                       :five-field five-field-account
+                                                                       :multi-coin (logtest eita.state.snapshot::+flag-multi-coin+ flags)))
                         (incf a))
                       (st-reset sst 0)))
                   :release t))
@@ -889,16 +900,18 @@
   (let ((r (getf (eita.state.snapshot:snap-manifest s) :state-root)))
     (and r (string-downcase (if (and (> (length r) 1) (string-equal "0x" r :end2 2)) (subseq r 2) r)))))
 
-(defun snapshot-root (dir &key (threads (eita.state.snapshot:hardware-threads)) buckets layers)
+(defun snapshot-root (dir &key (threads (eita.state.snapshot:hardware-threads)) buckets layers five-field-account)
   "(values root-hex expected-hex n-accounts n-slots) for the snapshot at DIR, or with
    LAYERS (layer directories, oldest first) for the state of that stack over it (Lean
    `view`): no merged snapshot is written. BUCKETS: the bucket count to use instead of
-   the one the state size picks (tests)."
+   the one the state size picks (tests). FIVE-FIELD-ACCOUNT: chain-spec parameter for
+   Coreth 5-field account leaf RLP."
   (when (eql 2 (getf (eita.state.snapshot:read-manifest dir) :version))
     (let ((s (eita.state.snapshot:snap-open dir))
           (ls (reverse (mapcar #'eita.state.snapshot:snap-open layers))))   ; newest first
       (unwind-protect
-           (multiple-value-bind (root na ns) (snapshot-root-2 s ls (max 1 threads))
+           (multiple-value-bind (root na ns)
+               (snapshot-root-2 s ls (max 1 threads) :five-field-account five-field-account)
              (unless (or ls (= ns (eita.state.snapshot:snap-n-slots s)))
                (error "~A: ~D storage records seen, manifest says ~D" dir ns (eita.state.snapshot:snap-n-slots s)))
              (return-from snapshot-root
@@ -939,7 +952,7 @@
              (sb-ext:gc :full t)
              (let ((root (if (zerop (loop for b across buckets sum (bucket-count b)))
                              (eita.mpt:empty-root-bytes)
-                             (account-pass buckets threads))))
+                             (account-pass buckets threads :five-field-account five-field-account))))
                (format *error-output* "~&[snapshot-root] account trie done at ~,1Fs~%" (elapsed))
                (values (eita.mpt:bytes->hex root)
                        (manifest-root top)
@@ -957,7 +970,7 @@
    (lambda () (loop (unless (= (sb-posix:getppid) pid) (sb-ext:exit :code 3 :abort t)) (sleep 1)))
    :name "parent watch"))
 
-(defun main (args)
+(defun main (args &key five-field-account)
   (let* ((p (position "--parent" args :test #'string=))
          (args (if p
                    (progn (exit-with-parent (parse-integer (nth (1+ p) args)))
@@ -966,11 +979,13 @@
          (dir (first args))
          (threads (find-if (lambda (a) (every #'digit-char-p a)) (rest args)))
          (layers (remove threads (rest args))))
-    (unless dir (format t "usage: eita check-root [--parent PID] <snap-dir> [<layer-dir> ...] [threads]~%") (sb-ext:quit :unix-status 2))
+    (unless dir (format t "usage: eita check-root [--chain C] [--parent PID] <snap-dir> [<layer-dir> ...] [threads]~%") (sb-ext:quit :unix-status 2))
     (multiple-value-bind (root expected na ns)
         (if threads
-            (snapshot-root dir :threads (parse-integer threads) :layers layers)
-            (snapshot-root dir :layers layers))
+            (snapshot-root dir :threads (parse-integer threads) :layers layers
+                               :five-field-account five-field-account)
+            (snapshot-root dir :layers layers
+                               :five-field-account five-field-account))
       (format t "~&parsed ~D accounts, ~D slots (snapshot)~%" na ns)
       (format t "~&CL trie root : ~A~%" root)
       (when expected (format t "snapshot root: ~A~%" expected))

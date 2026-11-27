@@ -416,46 +416,65 @@
   "RLP Item for a non-negative integer as a minimal big-endian string."
   (rlp-bytes (int->be-bytes n)))
 
-(defun storage-root (storage-alist)
+(defun normalize-slot-bytes (bytes)
+  "Apply Coreth NormalizeStateKey (clear bit 0 of byte 0, lean/Evm/Avalanche/Trie.lean) in place."
+  (when (plusp (length bytes))
+    (setf (aref bytes 0) (logand (aref bytes 0) #xfe)))
+  bytes)
+
+(defun storage-root (storage-alist &key normalize-slot-key)
   "Per-account storage trie root (32-byte vector).
-   key = keccak256(32-byte BE slot); value = RLP(minimal-BE bytes of value).
-   Empty storage -> emptyRoot. Slots with value 0 are omitted (they are
-   not present in the trie)."
+   key = keccak256(32-byte BE slot), optionally Coreth-normalized via NORMALIZE-SLOT-KEY;
+   value = RLP(minimal-BE bytes of value). Empty storage -> emptyRoot. Slots with value 0
+   are omitted (they are not present in the trie)."
   (let ((items '()))
     (dolist (kv storage-alist)
       (let ((slot (car kv)) (val (cdr kv)))
         (unless (zerop val)
-          (let ((key (%keccak (int->be-bytes-fixed slot 32)))
-                ;; value is RLP(minimal-BE(val)), then that *encoded* string
-                ;; is the trie value.
-                (rlpval (rlp-encode (rlp-uint val))))
+          (let* ((raw (int->be-bytes-fixed slot 32))
+                 (key (%keccak (if normalize-slot-key (normalize-slot-bytes raw) raw)))
+                 ;; value is RLP(minimal-BE(val)), then that *encoded* string
+                 ;; is the trie value.
+                 (rlpval (rlp-encode (rlp-uint val))))
             (push (cons key rlpval) items)))))
     (trie-root (nreverse items))))
 
-(defun account-leaf-value (nonce balance storage-root-bytes code-hash-bytes)
-  "RLP([nonce, balance, storageRoot, codeHash]) as a u8 vector. NONCE and BALANCE are
-   integers, or already their minimal big-endian bytes (a snapshot record's, unconverted)."
+(defparameter *rlp-bool-true*  (rlp-bytes (b 1)))
+(defparameter *rlp-bool-false* (rlp-bytes (b)))
+
+(defun account-leaf-value (nonce balance storage-root-bytes code-hash-bytes &key five-field multi-coin)
+  "RLP([nonce, balance, storageRoot, codeHash]) on Ethereum, or Coreth's 5-field
+   RLP([nonce, balance, storageRoot, codeHash, multiCoin]) when FIVE-FIELD or MULTI-COIN
+   is true (0x01 for true, 0x80 empty byte string for false;
+   Evm.Avalanche.Trie.corethAccountRlp).
+   NONCE and BALANCE are integers, or already their minimal big-endian bytes."
   (flet ((uint (x) (if (integerp x) (rlp-uint x) (rlp-bytes x))))
     (rlp-encode
-     (rlp-list (uint nonce)
-               (uint balance)
-               (rlp-bytes storage-root-bytes)
-               (rlp-bytes code-hash-bytes)))))
+     (if (or five-field multi-coin)
+         (rlp-list (uint nonce)
+                   (uint balance)
+                   (rlp-bytes storage-root-bytes)
+                   (rlp-bytes code-hash-bytes)
+                   (if multi-coin *rlp-bool-true* *rlp-bool-false*))
+         (rlp-list (uint nonce)
+                   (uint balance)
+                   (rlp-bytes storage-root-bytes)
+                   (rlp-bytes code-hash-bytes))))))
 
-(defun account-state-root (accounts)
+(defun account-state-root (accounts &key normalize-slot-key five-field)
   "World state root (32-byte vector).
    ACCOUNTS: list of (addr nonce balance storage-alist code-bytes).
    storage-alist = ((slot . value) ...) ; code-bytes = u8 sequence or NIL.
-   key = keccak256(20-byte BE addr) -> RLP([nonce,balance,storageRoot,codeHash])."
+   key = keccak256(20-byte BE addr) -> RLP([nonce,balance,storageRoot,codeHash[,multiCoin]])."
   (let ((items '()))
     (dolist (acct accounts)
       (destructuring-bind (addr nonce balance storage-alist code-bytes) acct
         (let* ((key (%keccak (int->be-bytes-fixed addr 20)))
-               (sroot (storage-root storage-alist))
+               (sroot (storage-root storage-alist :normalize-slot-key normalize-slot-key))
                (chash (if (and code-bytes (plusp (length code-bytes)))
                           (%keccak code-bytes)
                           (empty-code-hash)))
-               (val (account-leaf-value nonce balance sroot chash)))
+               (val (account-leaf-value nonce balance sroot chash :five-field five-field)))
           (push (cons key val) items))))
     (trie-root (nreverse items))))
 
