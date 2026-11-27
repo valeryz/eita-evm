@@ -181,6 +181,16 @@ static const uint8_t p_mulw[]    = { 0x7f,
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, \
     0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe
 
+#define W_MIN  0x7f, \
+    0x80,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0
+#define W_MAX  0x7f, \
+    0x7f,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+/* 2^64 and 2^64-1: the limb 0 / limb 1 boundary, where a borrow has to cross */
+#define W_2P64 0x7f, \
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0
+#define W_2P64M1 0x7f, \
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+
 /* SLT pops a (top of stack) then b, and pushes a <ₛ b — so the SECOND push is
    a. Same order the DIV program above relies on (100/3, not 3/100). */
 /* a=-1 b=1   signs differ, a negative → 1 */
@@ -193,11 +203,30 @@ static const uint8_t p_slt_c[] = { 0x60, 0x02, 0x60, 0x01, 0x12, TAIL };
 static const uint8_t p_slt_d[] = { W_NEG1, W_NEG2, 0x12, TAIL };
 /* a=1  b=1   equal: no borrow, and the sign test must not invent one → 0 */
 static const uint8_t p_slt_e[] = { 0x60, 0x01, 0x60, 0x01, 0x12, TAIL };
+/* The signed extremes. INT256_MIN is the value a sign test gets wrong if it
+   reads the wrong bit, and the only one whose negation is itself. */
+/* a=MIN b=0    → 1 */
+static const uint8_t p_slt_f[] = { 0x60, 0x00, W_MIN, 0x12, TAIL };
+/* a=MAX b=MIN  → 0  (the widest signs-differ gap there is) */
+static const uint8_t p_slt_g[] = { W_MIN, W_MAX, 0x12, TAIL };
+/* a=MIN b=MAX  → 1 */
+static const uint8_t p_slt_h[] = { W_MAX, W_MIN, 0x12, TAIL };
+/* a=MIN b=MIN  → 0  (equal AND both negative) */
+static const uint8_t p_slt_i[] = { W_MIN, W_MIN, 0x12, TAIL };
+/* a=-1  b=MIN  → 0  (both negative, and unsigned says 2^256-1 > 2^255) */
+static const uint8_t p_slt_j[] = { W_MIN, W_NEG1, 0x12, TAIL };
+/* a=2^64 b=2^64-1 → 0, and the reverse → 1: a borrow across the limb 0/1 seam
+   with both operands positive, so the sign branch must NOT be taken. */
+static const uint8_t p_slt_k[] = { W_2P64M1, W_2P64, 0x12, TAIL };
+static const uint8_t p_slt_l[] = { W_2P64, W_2P64M1, 0x12, TAIL };
 
 /* a=1 b=-1 → 1 */
 static const uint8_t p_sgt_a[] = { W_NEG1, 0x60, 0x01, 0x13, TAIL };
 /* a=-1 b=1 → 0 */
 static const uint8_t p_sgt_b[] = { 0x60, 0x01, W_NEG1, 0x13, TAIL };
+/* a=MAX b=MIN → 1, and the reverse → 0 */
+static const uint8_t p_sgt_c[] = { W_MIN, W_MAX, 0x13, TAIL };
+static const uint8_t p_sgt_d[] = { W_MAX, W_MIN, 0x13, TAIL };
 
 /* EXP pops a=base then b=exponent: PUSH 5, PUSH 3 → 3^5 = 243 */
 static const uint8_t p_exp[]   = { 0x60, 0x05, 0x60, 0x03, 0x0a, TAIL };
@@ -215,6 +244,14 @@ static const uint8_t p_clzt[]  = { 0x7f,
 static const uint8_t p_clzm[]  = { 0x7f,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
     0x1e, TAIL };
+/* 2^63 and 2^64: the limb 0 / limb 1 seam, where a limb-selection chain that
+   is off by one still gets every other probe right. → 192 and 191 */
+static const uint8_t p_clz63[] = { 0x7f,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0x80,0,0,0,0,0,0,0,
+    0x1e, TAIL };
+static const uint8_t p_clz64[] = { 0x7f,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0,
+    0x1e, TAIL };
 /* 2^200: limb 3, mid-ladder (clz64(0x100) = 55) → 55 */
 static const uint8_t p_clz200[] = { 0x7f,
     0,0,0,0,0,0,0x01,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
@@ -226,7 +263,10 @@ static int check_signed_cmp(void) {
     struct { const uint8_t *p; uint32_t n; uint64_t want; } cases[] = {
         { p_slt_a, sizeof p_slt_a, 1 }, { p_slt_b, sizeof p_slt_b, 0 },
         { p_slt_c, sizeof p_slt_c, 1 }, { p_slt_d, sizeof p_slt_d, 1 },
-        { p_slt_e, sizeof p_slt_e, 0 },
+        { p_slt_e, sizeof p_slt_e, 0 }, { p_slt_f, sizeof p_slt_f, 1 },
+        { p_slt_g, sizeof p_slt_g, 0 }, { p_slt_h, sizeof p_slt_h, 1 },
+        { p_slt_i, sizeof p_slt_i, 0 }, { p_slt_j, sizeof p_slt_j, 0 },
+        { p_slt_k, sizeof p_slt_k, 0 }, { p_slt_l, sizeof p_slt_l, 1 },
     };
     for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
         if (run_prog(cases[i].p, cases[i].n, out, &gas) != 0 ||
@@ -238,6 +278,8 @@ static int check_sgt(void) {
     uint8_t out[32]; uint64_t gas;
     if (run_prog(p_sgt_a, sizeof p_sgt_a, out, &gas) != 0 || !is_word(out, 1)) return 1;
     if (run_prog(p_sgt_b, sizeof p_sgt_b, out, &gas) != 0 || !is_word(out, 0)) return 1;
+    if (run_prog(p_sgt_c, sizeof p_sgt_c, out, &gas) != 0 || !is_word(out, 1)) return 1;
+    if (run_prog(p_sgt_d, sizeof p_sgt_d, out, &gas) != 0 || !is_word(out, 0)) return 1;
     return 0;
 }
 
@@ -248,6 +290,7 @@ static int check_clz(void) {
         { p_clz1,   sizeof p_clz1,   255 }, { p_clz0,   sizeof p_clz0,   256 },
         { p_clzt,   sizeof p_clzt,     0 }, { p_clzm,   sizeof p_clzm,  127 },
         { p_clz200, sizeof p_clz200,  55 },
+        { p_clz63,  sizeof p_clz63,   192 }, { p_clz64, sizeof p_clz64, 191 },
     };
     eita_set_fork(18);
     for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
