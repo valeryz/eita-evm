@@ -322,3 +322,136 @@ touch in a tx with its value then, written by the native effects and by `observe
 stream is on. **Checked by** the differential, the fixtures, the mainnet replay and
 `tests/native-storage-hooks.lisp` (observed fixtures: rows equal with and without the watch; rows and watched
 accesses equal a recorded digest).
+
+## The gas formulas in C, for hosts with no Lisp — derived + tested
+
+`src/generated/host.lisp` prints the consensus gas formulas as Common Lisp, where every
+intermediate is a bignum for free. A host on a 32-bit microcontroller has no Lisp and no
+bignum, and hand-writing a gas schedule there would be exactly the parallel copy
+CONTRIBUTING rule 4 forbids (and `scripts/check-derived-gas.py` refuses in the Lisp). So
+`Evm.CL.GasEmitC` adds a **second printer over the same `Evm.CL.GasEmit.Expr` terms**:
+`lake exe emitHostC` writes `c/generated/host.{c,h}`, freestanding C over `uint64_t` with
+no runtime, which compiles for `rv32imac` as it does for the host (4.7 KiB of rv32 text for
+the whole set). The terms, their `eval` and the EIP-number kernel checks are untouched.
+
+**Trusted.**
+- The printer `Expr.toC` — the same class as `toCL`: it fails on any construct outside its
+  subset rather than emitting something approximate.
+- The checked-arithmetic prelude (`GasEmitC.preludeC`, 11 helpers of one line each): `add`,
+  `mul`, `sub` (truncated, = `toCL`'s `(max 0 (- a b))`), `fdiv`, `max`, `min`, `blen`
+  (= CL `integer-length`), `pow2`, a 4-limb `u256_blen`, and `fake_exponential` — the one
+  loop the IR has, mirroring the already-hand-written `GasEmit.fakeExponentialCL` line for
+  line (the Lean meaning is `Evm.Cancun.Spec.fakeExponential`).
+- That `Nat` fits in 64 bits for the formulas emitted. This is *not* taken on faith:
+  `add`, `mul`, `pow2` and division call `eita_spec_overflow` (declared `noreturn`) rather
+  than wrapping, so the gap is a loud stop and never a wrong number. A replay host may
+  abort there; a signing device must refuse to sign.
+
+**Restricted on purpose.** `GasEmitC.Dom` splits the table into `gas` (bounded by the block
+gas limit, so 64 bits hold every value *and* every intermediate) and `wei` (bounded by
+nothing the chain enforces). Only `gas` formulas are emitted; the `wei` ones —
+`spec-block-base-reward`, `spec-uncle-inclusion-bonus`, `spec-uncle-reward`,
+`spec-blob-base-fee`, `spec-effective-gas-price` — wait for a 256-bit printer, and
+`c/generated/host.h` lists them. The reason is concrete rather than cautious: an ether
+reward is ~5·10^18 before it is multiplied by anything, and `uncle-reward` trapped on its
+own first vector. The Lisp host emits all of them.
+
+**Checked by** `c/test_host_gas.c` (emitted by `lake exe emitHostC --vectors`): 670 vectors
+over every emitted function, each expected value computed by `Expr.eval` *in Lean* — the
+meaning the printer is a second view of. `fork-ord` is swept over every fork, sizes over the
+thresholds the formulas branch on (32/33, 64/65, 1024/1025), and the one 256-bit input
+(MODEXP's `exp-head`) past 2^64, which is what would catch a truncated limb.
+`scripts/verify-host-emit.sh` regenerates all three artifacts, fails on drift, and runs the
+vectors (`make -C c test_host_gas`); `make -C c host_gas_rv32` compiles the same C
+freestanding for the target.
+
+## The message-call gas — derived + **proved**
+
+`Evm.CL.GasEmit.callExtraGas` and `callStipendGas` (emitted as
+`spec-call-extra-gas` / `spec-call-stipend-gas`) are what a host charges and
+forwards for the CALL family. A host has to own that arithmetic — the
+interpreter's call gadget fills `CallParams` and charges whatever
+`CallResult.gas_used` says — so written by hand they would have been a parallel
+copy of EELS `calculate_message_call_gas`, which CONTRIBUTING rule 4 forbids
+and `scripts/check-derived-gas.py` refuses on the Lisp side.
+
+`Evm.CL.GasEmitCall` proves them instead: equal to
+`Evm.Berlin.Vm.Effect.callGasPlan`'s `charge` and `stipend`, for every fork from
+Berlin on, over every combination of cold / value-bearing / new-account.
+
+**Axiom closure: `propext`, `Quot.sound`.** No `native_decide`, no
+`bv_decide`, no `sorry` — the smallest trust class in the tree, and an
+exception to this page's premise, which is why it is listed rather than
+omitted.
+
+**Not covered** (so: trusted if ever reached):
+- the pre-Berlin eras `callExtraGas` also encodes — EIP-150's flat 700
+  (Tangerine Whistle) and Frontier's 40 — against those forks' own
+  `callGasPlan`. The rv32 wallet host refuses any fork below Berlin.
+- EIP-7702 delegation: `delegatedCost` is taken as 0. A host supporting
+  delegated EOAs must add `spec-delegate-access-gas`, and that addition is a
+  new trusted step.
+- `callGasPlan.forward` is not proved equal to `retain63of64` applied to
+  `avail - charge`, though the two are written to be the same quantity.
+
+A consumer's own trusted surface still includes deciding `cold`,
+`value-nonzero` and `new-acct` correctly, and adding the sub-frame's
+consumption. Those three predicates are the consumer's obligation, not this
+repo's: nothing here can check that a host classified a slot as warm honestly.
+
+## The SSTORE gas schedules in C — derived + **proved**
+
+`_eita_sstore_gas_{legacy,eip1283,eip2200,berlin,london}` exist twice as
+emitted ASSEMBLY — `Evm.CL.ARM64.SstoreGas` (proved in `SstoreGasSem`) and
+`Evm.CL.X86SstoreGas` (proved in `X86SstoreGasSem`). A 32-bit target can use
+neither: the bodies could be lowered, but not ENTERED, because on ILP32 a
+`uint64_t` parameter takes an ALIGNED register pair, so `refund` lands in a2:a3
+and `cold` past a7 and onto the stack. x86-64's constraint looked similar but
+was register PRESSURE inside an unchanged ABI; this is the ABI.
+
+`Evm.CL.SstoreGasC` prints them as C instead, and `c/Makefile` links that for
+rv32 **in place of** the assembly — never alongside it, since both define the
+same five symbols. This is a third derivation, not a second owner:
+`ARM64.SstoreGasDenote.plan*` remains the single definition.
+
+**Why it is small.** Every plan is a function of SEVEN BOOLEANS — origZero,
+curZero, newZero, origEqCur, curEqNew, origEqNew, cold — and a refund counter
+that only ever enters as
+
+    refund' = ((refund + add1) - sub) + add2        (saturating subtraction)
+
+Four of the five are that with `add2 = 0`; `eip2200`'s chain needs the trailing
+add because its subtraction saturates BETWEEN the two additions and cannot be
+folded. So each schedule is a table of `(cost, add1, sub, add2)` over those
+bits, and the bits collapse hard — eip1283's 64 patterns give 11 distinct rows.
+The whole file is 212 lines.
+
+**Proved** (`propext`, `Quot.sound` only — no `native_decide`, no `sorry`):
+`applyRow_is_legacy`, `applyRow_is_eip1283`, `applyRow_is_eip2200`,
+`applyRow_is_2929`. Each says `plan* refund preds = (row.cost, applyRow refund
+row)`, universally quantified over the refund counter AND over all seven
+predicates — not a sample of patterns, because the rows are stated over the
+booleans rather than over a packed index.
+
+**Trusted — one line.** That the emitted C expression implements `applyRow`.
+The C is text, not a Lean term, so no theorem reaches it. Pinned instead by
+`c/test_sstore_gas.c` (emitted): every reachable predicate pattern at nine
+refund counters chosen around the saturation edges, with expected values from
+Lean's own `plan*` — 1350 checks. The unreachable patterns (contradictory
+predicate combinations, e.g. `origEqCur` with `orig` zero and `cur` not) are
+skipped, and the reachable COUNT is asserted, because a build that silently
+skipped everything would otherwise read as a pass. `applyRow_is_*` covers all
+128 patterns regardless.
+
+**Also checked on the target**: the rv32 self-test calls the London schedule
+for a warm set, a cold set and a reset-to-zero, so the same emitted C compiled
+for rv32imac runs under `qemu-system-riscv32`. 20000 / 22100 / 2900 with 4800
+added to the refund counter are independently recognisable London numbers.
+
+Under QEMU, *not* on silicon: the bao1x board has run the self-test's first
+seven checks (the arithmetic, the helper-call path and `gas(ADD)`), which is
+the build that was flashed when the five bring-up bugs were fixed. The
+SSTORE-schedule check and the jump, signed-compare, EXP and CLZ checks that
+came later are QEMU-verified only. The distinction matters here more than
+usual, because QEMU *emulates* misaligned loads and stores and this core traps
+them — the one failure class an emulator structurally cannot reproduce.

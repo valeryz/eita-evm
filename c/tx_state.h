@@ -62,7 +62,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "evm_state.h"
+#include "evm_state.h"   /* EITA_PTR: pointer-field layout on ILP32 */
 #include "tx_arena.h"
 
 #ifdef __cplusplus
@@ -116,11 +116,11 @@ typedef struct TxState {
     uint64_t     tstore_mask;     /* offset  32 */
     uint64_t     created_mask;    /* offset  40 */
     uint64_t     orig_mask;       /* offset  48 */
-    TsAddrEntry *accessed_addrs;  /* offset  56 */
-    TsSlotEntry *accessed_slots;  /* offset  64 */
-    TsKvEntry   *tstorage;        /* offset  72 */
-    TsAddrEntry *created;         /* offset  80 */
-    TsKvEntry   *originals;       /* offset  88 */
+    EITA_PTR(TsAddrEntry *accessed_addrs, accessed_addrs);  /* offset  56 */
+    EITA_PTR(TsSlotEntry *accessed_slots, accessed_slots);  /* offset  64 */
+    EITA_PTR(TsKvEntry   *tstorage, tstorage);        /* offset  72 */
+    EITA_PTR(TsAddrEntry *created, created);         /* offset  80 */
+    EITA_PTR(TsKvEntry   *originals, originals);       /* offset  88 */
     uint64_t     addr_count;      /* offset  96 */
     uint64_t     slot_count;      /* offset 104 */
     uint64_t     tstore_count;    /* offset 112 */

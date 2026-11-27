@@ -31,6 +31,8 @@ import Evm.CL.EffectTxProof
 import Evm.CL.MemExpandSpec
 import Evm.CL.GasEmitLondon
 import Evm.CL.GasEmitCancun
+import Evm.CL.GasEmitCall
+import Evm.CL.SstoreGasC
 import Evm.CL.GasEmitPrague
 import Evm.CL.RepriceEmit
 import Evm.CL.Flags
@@ -80,6 +82,17 @@ import Evm.Crypto.Bn254
 import Evm.Crypto.P256Verify
 import Evm.Crypto.Bls12381
 import Evm.Cancun.Vm.PrecompiledContracts
+-- The RISC-V backend's modules: they use `native_decide` (coverage over the
+-- emitted programs, the register budget), so the extern rule above requires
+-- them here — it checks that no such proof runs one of the spec's @[extern]s.
+import Evm.CL.RV32.Regs
+import Evm.CL.RV32.Lower
+import Evm.CL.RV32.Asm
+import Evm.CL.RV32.Sem
+import Evm.CL.RV32.Items
+import Evm.CL.RV32.Carry
+import Evm.CL.RV32.Sim
+import Evm.CL.RV32.Run
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect
@@ -115,6 +128,12 @@ import Evm.Cancun.Vm.PrecompiledContracts
 #print axioms Evm.CL.GasEmitLondon.initialBaseFee_eq_spec
 #print axioms Evm.CL.GasEmitLondon.nextBaseFee_eq_spec
 #print axioms Evm.CL.GasEmitCancun.blobBaseFee_eq_spec
+#print axioms Evm.CL.GasEmitCall.callExtraGas_is_berlin_charge
+#print axioms Evm.CL.GasEmitCall.callStipendGas_is_spec_stipend
+#print axioms Evm.CL.SstoreGasC.applyRow_is_legacy
+#print axioms Evm.CL.SstoreGasC.applyRow_is_eip1283
+#print axioms Evm.CL.SstoreGasC.applyRow_is_eip2200
+#print axioms Evm.CL.SstoreGasC.applyRow_is_2929
 #print axioms Evm.CL.GasEmitCancun.maxBlobGasPerBlock_eq_spec
 #print axioms Evm.CL.GasEmitCancun.nextExcessBlobGas_eq_spec
 #print axioms Evm.CL.GasEmitCancun.txMaxGasLimit_eq_spec

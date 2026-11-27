@@ -55,6 +55,16 @@
                          (format t "MISMATCH plan=~A flags=~D d=~D g=~D a=~D: native {~D ~D ~D} lean {~D ~D ~D}~%"
                                  plan flags d g a nc nf ns charge forward stipend))))))))
     (format t "call-gas audit: ~D vectors, ~D mismatches~%" total bad)
+    ;; An empty vector file is not a pass. Without `lake build callGasVectors` the
+    ;; generator prints nothing, the audit reads zero lines, finds zero
+    ;; mismatches and reports PASS — which is how this audit silently covered
+    ;; nothing while the rv32 backend's call-gas work was being reviewed
+    ;; against it. The floor is well under the real count (18,144 as of this
+    ;; commit), so it fails on "nothing ran" rather than on a vector set that
+    ;; changed size.
+    (when (< total 10000)
+      (format t "~&audit: only ~D vectors — expected at least 10000.~%  Run `lake build callGasVectors` first (docs/testing.md).~%" total)
+      (eita.test:finish :code 1))
     (eita.test:finish :code (if (zerop bad) 0 1))))
 
 (main)

@@ -68,8 +68,8 @@ else
   echo "FAIL: an effect proof does not check or has a sorry"; grep -m5 -e error -e sorry /tmp/_effect_proof.log Evm/CL/Effect*.lean; exit 1
 fi
 # ...the committed interpreter assembly for both backends...
-build /tmp/_emit_exe_build.log emitARM64 emitX86Interp
-for pair in "emitARM64:handlers.S" "emitX86Interp elf:handlers-x86-elf.S"; do
+build /tmp/_emit_exe_build.log emitARM64 emitX86Interp emitRV32
+for pair in "emitARM64:handlers.S" "emitX86Interp elf:handlers-x86-elf.S" "emitRV32 --interp:handlers-rv32.S"; do
   exe=${pair%%:*}; out=${pair##*:}
   # $exe is unquoted on purpose: "emitX86Interp elf" passes `elf` as argv[1].
   emit /tmp/_emit_run.err /tmp/_emit_check.S lake env ./.lake/build/bin/$exe
@@ -85,6 +85,21 @@ for pair in "emitLimbC:generated/limb_ops.h" "emitStorageC:generated/storage_eff
   if cmp -s ../c/$out /tmp/_emit_check.c; then echo "c/$out up to date with the Lean emitter OK"
   else echo "DRIFT: c/$out != lake exe $exe"; echo "  fix: (cd lean && lake exe $exe > ../c/$out)"; exit 1; fi
 done
+# ...the same gas formulas printed as C for the Lisp-free hosts (Evm.CL.GasEmitC), and
+# the emitted vectors that hold the C to Lean's own Expr.eval...
+build /tmp/_emit_hostc_build.log emitHostC
+# `--sstore` is the five SSTORE gas schedules as C, which a 32-bit host links
+# INSTEAD of the emitted assembly (Evm.CL.SstoreGasC).
+for pair in "--header:generated/host.h" ":generated/host.c" "--vectors:test_host_gas.c" \
+            "--sstore:generated/sstore_gas.c" "--sstore-vectors:test_sstore_gas.c"; do
+  arg=${pair%%:*}; out=${pair##*:}
+  # $arg is unquoted on purpose: empty means "no flag" (the .c itself).
+  emit /tmp/_emit_run.err /tmp/_emit_check_hostc.c lake env ./.lake/build/bin/emitHostC $arg
+  if cmp -s ../c/$out /tmp/_emit_check_hostc.c; then echo "c/$out up to date with the Lean emitter OK"
+  else echo "DRIFT: c/$out != lake exe emitHostC $arg"; echo "  fix: ./build.sh (regenerates it)"; exit 1; fi
+done
+make -C ../c test_host_gas >/dev/null && echo "c/test_host_gas (emitted C == Lean Expr.eval) OK"
+make -C ../c test_sstore_gas >/dev/null && echo "c/test_sstore_gas (emitted C == Lean's own plan*) OK"
 # ...and no gas schedule copied by hand into the replay code around it
 python3 ../scripts/check-derived-gas.py   # cwd is lean/ here
 # ...and the committed interpreter runs against CHECKING callbacks (c/test_interp.c, whose

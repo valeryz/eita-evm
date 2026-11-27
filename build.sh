@@ -51,14 +51,27 @@ if [ "$LEANLESS" = 0 ]; then
   echo "[1/6] mathlib olean cache (no-op when up to date)"
   ( cd lean && lake exe cache get )
   echo "[2/6] lake build: the emitters"
-  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL )
-  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp from the Lean spec"
+  ( cd lean && lake build emitARM64 emitX86Interp emitHostCL emitHostC emitRV32 )
+  echo "[3/6] generate c/handlers.S, c/handlers-x86-elf.S, c/handlers-rv32.S, src/generated/host.lisp, c/generated/host.{c,h} from the Lean spec"
   ## `lake env` puts the toolchain's lib dir on the library path (Linux needs it).
   ( cd lean && lake env ./.lake/build/bin/emitARM64 )  > c/handlers.S
   ( cd lean && lake env ./.lake/build/bin/emitX86Interp elf ) > c/handlers-x86-elf.S
+  ## ...and the rv32imac threaded interpreter (frame, dispatch, fork tables and
+  ## every handler body that lowers), for the freestanding targets.
+  ( cd lean && lake env ./.lake/build/bin/emitRV32 --interp ) > c/handlers-rv32.S
   ( cd lean && lake env ./.lake/build/bin/emitHostCL ) > src/generated/host.lisp
+  ## ...and the same gas formulas as freestanding C, for the hosts with no Lisp
+  ## (Evm.CL.GasEmitC; c/test_host_gas.c holds them to Lean's own eval).
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --header )  > c/generated/host.h
+  ( cd lean && lake env ./.lake/build/bin/emitHostC )           > c/generated/host.c
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --vectors ) > c/test_host_gas.c
+  ## ...and the five SSTORE gas schedules as C, for a host with neither Lisp
+  ## nor the emitted assembly (Evm.CL.SstoreGasC; proved against the same
+  ## SstoreGasDenote plans the two assembly backends are).
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore )         > c/generated/sstore_gas.c
+  ( cd lean && lake env ./.lake/build/bin/emitHostC --sstore-vectors ) > c/test_sstore_gas.c
 else
-  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, src/generated/host.lisp"
+  echo "[1-3/6] Leanless: using the committed c/handlers.S, c/handlers-x86-elf.S, c/handlers-rv32.S, src/generated/host.lisp, c/generated/host.{c,h}"
 fi
 
 echo "[4/6] build libeita, libkeccak_batch, libeita_pq, the Engine API edge ($(uname -s)/$(uname -m))"

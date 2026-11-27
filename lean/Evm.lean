@@ -66,6 +66,8 @@ import Evm.CL.DispatchTable
 import Evm.CL.JumpDest
 import Evm.CL.BlobEnv
 import Evm.CL.GasEmitCancun
+import Evm.CL.GasEmitCall
+import Evm.CL.SstoreGasC
 import Evm.CL.GasEmitLondon
 import Evm.CL.StackOps
 import Evm.CL.PushWide

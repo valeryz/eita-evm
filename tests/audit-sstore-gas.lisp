@@ -85,6 +85,16 @@
                                (format t "MISMATCH plan=~A refund=~D o=~X c=~X n=~X cold=~D: native {~D ~D} lean {~D ~D}~%"
                                        plan refund o c n cold nc nr cost new-refund))))))))))
     (format t "sstore-gas audit: ~D vectors, ~D mismatches~%" total bad)
+    ;; An empty vector file is not a pass. Without `lake build sstoreGasVectors` the
+    ;; generator prints nothing, the audit reads zero lines, finds zero
+    ;; mismatches and reports PASS — which is how this audit silently covered
+    ;; nothing while the rv32 backend's call-gas work was being reviewed
+    ;; against it. The floor is well under the real count (14,582 as of this
+    ;; commit), so it fails on "nothing ran" rather than on a vector set that
+    ;; changed size.
+    (when (< total 10000)
+      (format t "~&audit: only ~D vectors — expected at least 10000.~%  Run `lake build sstoreGasVectors` first (docs/testing.md).~%" total)
+      (eita.test:finish :code 1))
     (eita.test:finish :code (if (zerop bad) 0 1))))
 
 (main)

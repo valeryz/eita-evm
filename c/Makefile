@@ -166,11 +166,23 @@ $(BUILD)/eita_compute.o: eita_compute.c | $(BUILD)
 $(BUILD)/tx_state.o: tx_state.c tx_state.h tx_arena.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host
+test: $(BUILD)/test_tx_state $(BUILD)/test_compute $(BUILD)/test_world_slots $(BUILD)/test_storage_host \
+      $(BUILD)/test_sstore_gas
 	$(BUILD)/test_tx_state
 	$(BUILD)/test_compute
 	$(BUILD)/test_world_slots
 	$(BUILD)/test_storage_host
+	$(BUILD)/test_sstore_gas
+
+# The five SSTORE schedules as emitted C (Evm.CL.SstoreGasC), for hosts with
+# neither Lisp nor the emitted assembly. Every pattern at nine refund counters,
+# expected values from Lean's own plans. Links the C schedules, NOT handlers.S:
+# both define the same five symbols and only one may be present.
+test_sstore_gas: $(BUILD)/test_sstore_gas
+	$(BUILD)/test_sstore_gas
+$(BUILD)/test_sstore_gas: test_sstore_gas.c generated/sstore_gas.c generated/limb_ops.h | $(BUILD)
+	$(CC) $(ARCHFLAG) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+	  -Wall -Wextra -I. -o $@ test_sstore_gas.c generated/sstore_gas.c
 
 $(BUILD)/world_slots.o: world_slots.c world_slots_emit.c world_slots.h | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -230,9 +242,121 @@ $(BUILD)/test_modexp: test_modexp.c $(LEAN_C)/modexp.c | $(BUILD)
 	$(CC) -O1 -g -fsanitize=address,undefined -DEITA_NO_LEAN_WRAPPER $(INCDIRS) -o $@ test_modexp.c $(LEAN_C)/modexp.c $(LIBDIRS) $(RPATHS) -lcrypto -lgmp
 test_compute: $(BUILD)/test_compute
 	$(BUILD)/test_compute
+
+# The same differential, with the PORTABLE 128-bit primitives (c/u128.h) forced
+# on: that is the path a 32-bit target compiles, and GMP is the only thing that
+# can say whether its 64x64 products and its one 128/64 division are right.
+test_compute_portable: $(BUILD)/test_compute_portable
+	$(BUILD)/test_compute_portable
+$(BUILD)/test_compute_portable: test_compute.c eita_compute.c evm_state.h u128.h | $(BUILD)
+	$(CC) $(ARCHFLAG) $(MARCH) -O2 -g -DEITA_NO_INT128 \
+	  -fsanitize=address,undefined -fno-sanitize-recover=all \
+	  $(INCDIRS) -o $@ test_compute.c eita_compute.c $(LIBDIRS) $(RPATHS) -lgmp
 $(BUILD)/test_compute: test_compute.c eita_compute.c evm_state.h | $(BUILD)
 	$(CC) $(ARCHFLAG) $(MARCH) -O2 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
 	  $(INCDIRS) -o $@ test_compute.c eita_compute.c $(LIBDIRS) $(RPATHS) -lgmp
+
+# The gas formulas as C (generated/host.c, emitted from Evm.CL.GasEmitC) against the
+# emitted vectors, whose expected values Lean's own Expr.eval computed: the printer and
+# the meaning it prints are checked against each other, 670 cases.
+test_host_gas: $(BUILD)/test_host_gas
+	$(BUILD)/test_host_gas
+$(BUILD)/test_host_gas: test_host_gas.c generated/host.c generated/host.h | $(BUILD)
+	$(CC) -O2 -Wall -Wextra -Wno-unused-function -I. -o $@ test_host_gas.c generated/host.c
+
+# The same source for the chip: freestanding rv32imac, no libc, no Lisp, no Lean.
+# Compile-only — running it on the target is the firmware's business.
+RV32_CC    ?= riscv64-elf-gcc
+RV32_FLAGS ?= -march=rv32imac -mabi=ilp32 -O2 -ffreestanding -Wall -Wextra -Wno-unused-function
+host_gas_rv32: $(BUILD)/host-rv32.o
+$(BUILD)/host-rv32.o: generated/host.c generated/host.h | $(BUILD)
+	$(RV32_CC) $(RV32_FLAGS) -I. -c -o $@ generated/host.c
+
+# ---------------------------------------------------------------------------
+# The whole engine for the chip: freestanding rv32imac, no libc, no Lisp, no
+# Lean. Assembles the emitted interpreter (lake exe emitRV32 --interp) and the
+# C substrate, partial-links them, and prints what is left undefined — which
+# must be ONLY the host hooks the firmware supplies (c/rv32/README.md).
+RV32_SRCS := rv32/shim.c rv32/unlowered.c rv32/selftest.c eita_compute.c tx_state.c world_slots.c \
+             storage_host.c generated/storage_effect.c generated/host.c \
+             generated/sstore_gas.c \
+             $(LEAN_C)/keccak.c $(LEAN_C)/sha256.c $(LEAN_C)/ripemd160.c \
+             $(LEAN_C)/blake2f.c
+RV32_DIR  := $(BUILD)/rv32
+RV32_NM   := $(subst -gcc,-nm,$(RV32_CC))
+RV32_SIZE := $(subst -gcc,-size,$(RV32_CC))
+RV32_HOOKS := eita_rv32_malloc|eita_rv32_realloc|eita_rv32_free|eita_rv32_abort|eita_rv32_log|eita_spec_overflow
+
+# Uses the COMMITTED handlers-rv32.S, like the ARM64 and x86-64 files: no Lean
+# in this path, so firmware can build the engine from a checkout alone
+# (build.sh regenerates it; verify-host-emit.sh fails on drift).
+rv32_engine: | $(RV32_DIR)
+	rm -f $(RV32_DIR)/*.o $(BUILD)/eita-engine-rv32.o
+	$(RV32_CC) $(RV32_FLAGS) -c handlers-rv32.S -o $(RV32_DIR)/interp.o
+	for f in $(RV32_SRCS); do \
+	  $(RV32_CC) $(RV32_FLAGS) -DEITA_RV32 -DEITA_NO_LEAN_WRAPPER \
+	    -I. -Irv32/include -I$(LEAN_C) -c $$f \
+	    -o $(RV32_DIR)/`basename $$f .c`.o || exit 1; \
+	done
+	$(RV32_CC) -march=rv32imac -mabi=ilp32 -nostdlib -Wl,-r \
+	  -o $(BUILD)/eita-engine-rv32.o $(RV32_DIR)/*.o -lgcc
+	@$(RV32_SIZE) $(BUILD)/eita-engine-rv32.o | tail -1
+	@$(RV32_NM) -u $(BUILD)/eita-engine-rv32.o | awk '{print $$2}' | sort > $(RV32_DIR)/undef.txt
+	@cat $(RV32_DIR)/undef.txt
+	@if grep -vE "^($(RV32_HOOKS))$$" $(RV32_DIR)/undef.txt > $(RV32_DIR)/bad.txt; then \
+	  echo "FAIL: the engine references symbols that are not host hooks:" >&2; \
+	  cat $(RV32_DIR)/bad.txt >&2; exit 1; \
+	else echo "rv32 engine links; only the host hooks are undefined OK"; fi
+
+$(RV32_DIR):
+	mkdir -p $@
+
+# ---------------------------------------------------------------------------
+# The engine RUNNING, on this machine: qemu-system-riscv32 `virt`, bare metal.
+#
+# Until this target existed the rv32 assembly had never executed anywhere --
+# `rv32_engine` only links it, and c/test_interp.c links the ARM64 engine. That
+# gap is how a misaligned 64-bit load in the PUSH handlers reached silicon. The
+# harness is deliberately the same self-test the board runs (rv32/selftest.c),
+# with rv32/qemu/runtime.c supplying the six host hooks the firmware supplies
+# there, so the two runs are comparable line for line.
+#
+# Note what this does and does not catch. QEMU emulates misaligned accesses
+# instead of trapping on them, so a PASS here does NOT mean the chip is happy;
+# `scripts/check-rv32-alignment.py` is what answers that question. What this
+# catches is everything else: wrong results, wrong gas, faults, hangs.
+# A hang is a real outcome here (a handler that clobbers `ra` returns into its
+# own tail and never stops), so the run is always bounded.
+RV32_QEMU_TIMEOUT ?= $(shell command -v timeout || command -v gtimeout)
+RV32_QEMU      := $(RV32_DIR)/qemu
+RV32_QEMU_SRCS := rv32/qemu/runtime.c $(RV32_SRCS)
+RV32_QEMU_FLAGS := -march=rv32imac_zicsr -mabi=ilp32 -O2 -ffreestanding -fno-pic \
+                   -mcmodel=medany -Wall -Wextra -Wno-unused-function
+
+rv32_qemu: $(RV32_QEMU)/selftest.elf
+	@echo "--- qemu-system-riscv32 virt ---"
+	@$(RV32_QEMU_TIMEOUT) 30 qemu-system-riscv32 -machine virt -bios none -nographic \
+	  -kernel $(RV32_QEMU)/selftest.elf \
+	  | tee $(RV32_QEMU)/run.log || true
+	@grep -q "SELFTEST PASS" $(RV32_QEMU)/run.log \
+	  && echo "rv32 engine runs under QEMU OK" \
+	  || { echo "FAIL: see $(RV32_QEMU)/run.log" >&2; exit 1; }
+
+$(RV32_QEMU)/selftest.elf: handlers-rv32.S rv32/qemu/start.S rv32/qemu/virt.ld \
+                           $(RV32_QEMU_SRCS) | $(RV32_DIR)
+	mkdir -p $(RV32_QEMU)
+	rm -f $(RV32_QEMU)/*.o
+	$(RV32_CC) $(RV32_QEMU_FLAGS) -c handlers-rv32.S -o $(RV32_QEMU)/interp.o
+	$(RV32_CC) $(RV32_QEMU_FLAGS) -c rv32/qemu/start.S -o $(RV32_QEMU)/start.o
+	for f in $(RV32_QEMU_SRCS); do \
+	  $(RV32_CC) $(RV32_QEMU_FLAGS) -DEITA_RV32 -DEITA_NO_LEAN_WRAPPER \
+	    -I. -Irv32/include -I$(LEAN_C) -c $$f \
+	    -o $(RV32_QEMU)/`basename $$f .c`.o || exit 1; \
+	done
+	$(RV32_CC) -march=rv32imac_zicsr -mabi=ilp32 -nostdlib -nostartfiles \
+	  -T rv32/qemu/virt.ld -o $@ $(RV32_QEMU)/*.o -lgcc
+	@$(RV32_SIZE) $@ | tail -1
+
 
 $(BUILD)/%.o: $(LEAN_C)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -246,4 +370,6 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD) libeita.dylib libeita.so
 
-.PHONY: all clean test test_compute test_storage_host test_modexp test_bls12381 test_point_evaluation
+.PHONY: all clean test test_compute test_storage_host test_sstore_gas test_modexp test_bls12381 \
+	test_point_evaluation test_host_gas host_gas_rv32 test_compute_portable \
+	rv32_engine rv32_qemu
