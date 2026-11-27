@@ -760,8 +760,10 @@ COMPONENTS = [
      "CL/Effect* CL/Journal* CL/StorageCache.lean CL/WordOps.lean CL/LimbC.lean"),
     ("ir", "IR compiler (chunks, symbolic execution)", "lean/Evm/IR", "lean/Evm/IR/*"),
     ("x86", "x86-64 backend", "lean/Evm/CL/X86", "CL/X86* CL/X86/* CL/OpInstrs.lean"),
+    ("rv32", "RISC-V 32-bit backend (rv32imac)", "lean/Evm/CL/RV32", "CL/RV32/*"),
     ("emit", "Gas, header and host emitters", "lean/Evm/CL",
-     "CL/GasEmit* CL/HostEmit.lean CL/HeaderEmit.lean CL/ForkEmit.lean CL/RepriceEmit.lean "
+     "CL/GasEmit* CL/SstoreGasC.lean CL/HostEmit.lean CL/HeaderEmit.lean CL/ForkEmit.lean "
+     "CL/RepriceEmit.lean "
      "CL/Extract.lean CL/MacroSpec.lean"),
     ("slots", "Native slot table (Velvet)", "verify/velvet-slots",
      "verify/velvet-slots/* CL/WorldSlotsModel.lean"),
@@ -796,8 +798,17 @@ def _claims(rel, pats):
     return False
 
 
-PAGE_ORDER = ("spec refinement effect ir arm64 x86 emit parallel persist witness crypto chains trie "
-              "slots protocols tooling").split()
+PAGE_ORDER = ("spec refinement effect ir arm64 x86 rv32 emit parallel persist witness crypto "
+              "chains trie slots protocols tooling").split()
+
+# A component listed in COMPONENTS but missing here would claim its files — so the
+# unassigned-file check passes — and then vanish from both the table and the totals,
+# which is how the rv32 backend's ~2,800 Lean lines went uncounted when it was added.
+# Rule 3: a gap is stated, not silent.
+_unordered = [c[0] for c in COMPONENTS if c[0] not in PAGE_ORDER]
+if _unordered:
+    sys.exit("PAGE_ORDER is missing " + ", ".join(_unordered)
+             + " (scripts/refinement_coverage.py)")
 
 STATS_RULES = {   # printed under "Counting rules" (markdown)
     "Files": "every `.lean` file under `lean/Evm`, `lean/*.lean`, `verify/velvet-slots` and "
