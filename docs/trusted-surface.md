@@ -445,5 +445,13 @@ skipped everything would otherwise read as a pass. `applyRow_is_*` covers all
 
 **Also checked on the target**: the rv32 self-test calls the London schedule
 for a warm set, a cold set and a reset-to-zero, so the same emitted C compiled
-for rv32imac runs under QEMU and on the board. 20000 / 22100 / 2900 with 4800
+for rv32imac runs under `qemu-system-riscv32`. 20000 / 22100 / 2900 with 4800
 added to the refund counter are independently recognisable London numbers.
+
+Under QEMU, *not* on silicon: the bao1x board has run the self-test's first
+seven checks (the arithmetic, the helper-call path and `gas(ADD)`), which is
+the build that was flashed when the five bring-up bugs were fixed. The
+SSTORE-schedule check and the jump, signed-compare, EXP and CLZ checks that
+came later are QEMU-verified only. The distinction matters here more than
+usual, because QEMU *emulates* misaligned loads and stores and this core traps
+them — the one failure class an emulator structurally cannot reproduce.
