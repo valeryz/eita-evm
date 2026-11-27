@@ -396,8 +396,8 @@ omitted.
 
 A consumer's own trusted surface still includes deciding `cold`,
 `value-nonzero` and `new-acct` correctly, and adding the sub-frame's
-consumption. For the wallet host that is
-`~/shift/eita-dabao/docs/trusted-surface.md`.
+consumption. Those three predicates are the consumer's obligation, not this
+repo's: nothing here can check that a host classified a slot as warm honestly.
 
 ## The SSTORE gas schedules in C — derived + **proved**
 
