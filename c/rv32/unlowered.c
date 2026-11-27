@@ -12,10 +12,13 @@
  * schedule is a small table and the compiler places the arguments. See
  * `c/generated/sstore_gas.c`, linked for rv32 in place of the assembly.
  *
- * The file is kept rather than deleted: it is where the NEXT refusal goes, and
- * the four remaining uncovered handlers (`clz`, `slt`, `sgt`, `exp`) will need
- * one if any of them turns out to need a C fallback. An empty translation unit
- * is not legal C, hence the one symbol.
+ * Those four remaining uncovered handlers (`clz`, `slt`, `sgt`, `exp`) did NOT
+ * end up needing a C fallback either: `Lower` grew the three sequences
+ * rv32imac has no instruction for — `clz64`, `sltSigned256`, and the aliased
+ * `mulReg` — and `Lower.no_uncovered_handlers` now holds with the set empty.
+ *
+ * The file is kept rather than deleted: it is where the NEXT refusal goes. An
+ * empty translation unit is not legal C, hence the one symbol.
  */
 #include <stdint.h>
 

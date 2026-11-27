@@ -92,6 +92,7 @@ import Evm.CL.RV32.Sem
 import Evm.CL.RV32.Items
 import Evm.CL.RV32.Carry
 import Evm.CL.RV32.Sim
+import Evm.CL.RV32.Run
 
 -- IR pipeline: compiled chunks ⇔ executable and ⇔ spec relations.
 #print axioms Evm.IR.Soundness.compile_sound_vs_effect

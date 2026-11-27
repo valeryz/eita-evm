@@ -574,13 +574,55 @@ def loadWords (b : String) (slots : List (String × Nat)) : String :=
     `d` must be distinct from both operands: its own halves are the scratch
     (x86-64's `movThenOp` class had the same constraint). `carry` is the
     one temporary. Shared by `mulReg` and `madd` rather than written twice. -/
-def mul64 (d a b : Reg) : String :=
-  ln s!"mulhu {hi d}, {lo a}, {lo b}" ++
-  ln s!"mul  {lo d}, {lo a}, {lo b}" ++
-  ln s!"mul  {carry}, {lo a}, {hi b}" ++
-  ln s!"add  {hi d}, {hi d}, {carry}" ++
-  ln s!"mul  {carry}, {hi a}, {lo b}" ++
-  ln s!"add  {hi d}, {hi d}, {carry}"
+def mul64N (dlo dhi alo ahi blo bhi : String) : String :=
+  ln s!"mulhu {dhi}, {alo}, {blo}" ++
+  ln s!"mul  {dlo}, {alo}, {blo}" ++
+  ln s!"mul  {carry}, {alo}, {bhi}" ++
+  ln s!"add  {dhi}, {dhi}, {carry}" ++
+  ln s!"mul  {carry}, {ahi}, {blo}" ++
+  ln s!"add  {dhi}, {dhi}, {carry}"
+
+def mul64 (d a b : Reg) : String := mul64N (lo d) (hi d) (lo a) (hi a) (lo b) (hi b)
+
+/-- 64-bit count-leading-zeros, open-coded.
+
+    rv32imac has no `clz` — that is Zbb, which this part does not implement —
+    so it is five conditional shifts, the standard branchless ladder. Each step
+    asks "are the top `k` bits all zero?" with one `sltu` against a power of
+    two, turns that 0/1 into a shift amount with `slli`, and applies it to both
+    the count and the working word. No branches inside the ladder, so no flag
+    register is involved.
+
+    Only ONE 32-bit ladder runs: the high word decides which word to count in,
+    because `clz64 = if hi ≠ 0 then clz32 hi else 32 + clz32 lo`.
+
+    The all-zero input is the case a ladder gets wrong. Every step fires, so
+    the count reaches 31 rather than 32 — and the working word is still zero,
+    which is exactly the flag needed to add the last one.
+
+    `hi d` doubles as the working word: a count of at most 64 lives entirely in
+    the low half, so the high half is scratch until it is zeroed at the end. -/
+def clz64 (n : Nat) (d a : Reg) : String :=
+  let N := lo d
+  let V := hi d
+  let m := pickFree [lo d, hi d, lo a, hi a, carry]
+  let step (sh luiHi : Nat) : String :=
+    ln s!"lui  {m}, {luiHi}" ++
+    ln s!"sltu {carry}, {V}, {m}" ++
+    ln s!"slli {m}, {carry}, {sh}" ++
+    ln s!"add  {N}, {N}, {m}" ++
+    ln s!"sll  {V}, {V}, {m}"
+  ln s!"sw   {m}, {spill0}" ++
+  ln s!"bnez {hi a}, .Lch{n}" ++
+  ln s!"mv   {V}, {lo a}" ++ ln s!"li   {N}, 32" ++ ln s!"j    .Lcz{n}" ++
+  s!".Lch{n}:\n" ++
+  ln s!"mv   {V}, {hi a}" ++ ln s!"li   {N}, 0" ++
+  s!".Lcz{n}:\n" ++
+  step 4 0x10 ++ step 3 0x1000 ++ step 2 0x10000 ++ step 1 0x40000 ++ step 0 0x80000 ++
+  ln s!"sltiu {carry}, {V}, 1" ++
+  ln s!"add  {N}, {N}, {carry}" ++
+  ln s!"lw   {m}, {spill0}" ++
+  ln s!"li   {V}, 0"
 
 /-- A 64-bit add into `d` in place: `d += c`. No carry-OUT, because `madd`
     does not set flags; the carry out of the low half still has to reach the
@@ -717,9 +759,19 @@ def emitBody (n : Nat) : AInstr → String
   | .addLsr d a b sh => shiftedAdd d a b sh true
   | .orr3 d a b => ln s!"or   {lo d}, {lo a}, {lo b}" ++ ln s!"or   {hi d}, {hi a}, {hi b}"
   | .mulReg d a b =>
-      if lo d == lo a || lo d == lo b then
-        s!"    /* «unlowered: 64-bit multiply into its own operand» */\n"
-      else mul64 d a b
+      if lo d != lo a && lo d != lo b then mul64 d a b
+      else
+        -- The destination aliases an operand, so its halves cannot be the
+        -- scratch `mul64` needs. EXP does this (`mulReg x14 x14 x15`, the
+        -- square-and-multiply accumulator), so it is a real case and not a
+        -- theoretical one. Compute into a borrowed pair and move.
+        let p := pickFree [lo d, hi d, lo a, hi a, lo b, hi b, carry]
+        let q := pickFree [lo d, hi d, lo a, hi a, lo b, hi b, carry, p]
+        ln s!"sw   {p}, {spill0}" ++ ln s!"sw   {q}, {spill1}" ++
+        mul64N p q (lo a) (hi a) (lo b) (hi b) ++
+        ln s!"mv   {lo d}, {p}" ++ ln s!"mv   {hi d}, {q}" ++
+        ln s!"lw   {q}, {spill1}" ++ ln s!"lw   {p}, {spill0}"
+  | .clzReg d a => clz64 n d a
   | .madd d a b c =>
       -- `d = a·b + c`. The multiply needs `d` distinct from both its operands
       -- (`mul64`), and the add then needs it distinct from `c` too: adding `c`
@@ -825,6 +877,44 @@ def emitOne (n : Nat) (it : AInstr) : String :=
       | .eor3 d _ _ => bitFold "xor" d la lb
       | _ => s!"    /* «unlowered: two NOS operands outside a bitwise fold» */\n"
 
+
+/-! ## The one comparison a single flag register cannot hold -/
+
+/-- A 256-bit SIGNED less-than, fused from the compare chain and the `cset`
+    that reads it.
+
+    This is the form that kept `SLT` and `SGT` refused. ARM64 does a four-limb
+    `subs`/`sbcs` chain with the result discarded and then `cset w, lt`, which
+    reads **N ≠ V** — two flags, where rv32 has one register. Emulating both
+    was never the way: the chain's borrow is already the UNSIGNED answer, and
+    signed differs from unsigned only when the operands' signs differ, in which
+    case the answer is simply "is the left one negative".
+
+        a <ₛ b  =  if sign a ≠ sign b then sign a else a <ᵤ b
+
+    So the existing chain runs untouched — through `emitOne`, so each limb keeps
+    its own NOS load — and three instructions correct it. The sign bits come
+    from the TOP limb's high words, which are still live: the chain discards its
+    result, and the last limb's NOS load left `nos` holding exactly that limb.
+
+    All four compares are emitted at the same label index on purpose: `subb32`,
+    which is what `cmpDiscard` is built from, emits no labels, so there is
+    nothing to collide. Only `.Lsg{n}` below is a label, and `n` is unique. -/
+def sltSigned256 (n : Nat) (a0 b0 a1 b1 a2 b2 a3 b3 d : Reg) : String :=
+  let s1 := pickFree [lo d, hi d, hi a3, hi b3, carry]
+  let s2 := pickFree [lo d, hi d, hi a3, hi b3, carry, s1]
+  emitOne n (.subsZr a0 b0) ++
+  emitOne n (.sbcsZr a1 b1) ++
+  emitOne n (.sbcsZr a2 b2) ++
+  emitOne n (.sbcsZr a3 b3) ++
+  ln s!"sw   {s1}, {spill0}" ++ ln s!"sw   {s2}, {spill1}" ++
+  ln s!"srli {s1}, {hi a3}, 31" ++
+  ln s!"srli {s2}, {hi b3}, 31" ++
+  ln s!"beq  {s1}, {s2}, .Lsg{n}" ++
+  ln s!"mv   {carry}, {s1}" ++
+  s!".Lsg{n}:\n" ++
+  ln s!"lw   {s2}, {spill1}" ++ ln s!"lw   {s1}, {spill0}" ++
+  ln s!"mv   {lo d}, {carry}" ++ ln s!"li   {hi d}, 0"
 
 /-! ## The call layer
 
@@ -990,6 +1080,12 @@ def emitFused : List Reg → Bool → Nat → List AInstr → String
   | A, _, n, .blr r :: rest =>
       emitOne n (.blr r) ++ emitFused (stepAligned A (.blr r)) false n.succ rest
   -- compare-and-branch / compare-and-select fusion (see `cmpBranch`)
+  -- the 256-bit signed compare: four discarded subtracts and the `cset` that
+  -- reads N ≠ V. Fused, because one flag register cannot hold two flags.
+  | A, m, n, .subsZr a0 b0 :: .sbcsZr a1 b1 :: .sbcsZr a2 b2 :: .sbcsZr a3 b3
+             :: .cset d .lt :: rest =>
+      sltSigned256 n a0 b0 a1 b1 a2 b2 a3 b3 d ++
+      emitFused (dropAligned A d) m n.succ rest
   | A, m, n, .cmpReg a b :: .bhiOog :: rest =>
       cmpBranch n b a "_eita_oog" false ++ emitFused A m n.succ rest
   | A, m, n, .cmpReg a b :: .bloOog :: rest =>
@@ -1107,8 +1203,10 @@ theorem every_mentioned_register_has_a_home :
 theorem marker_fires_on_unfused_compare :
     ((emitOne 0 (.cmpReg .x0 .x14)).splitOn "«").length = 2 := by native_decide
 
-theorem marker_fires_on_aliased_multiply :
-    ((emitOne 0 (.mulReg .x14 .x14 .x15)).splitOn "«").length = 2 := by native_decide
+/-- …and the aliased multiply no longer does: EXP's accumulator is
+    `mulReg x14 x14 x15`, which now computes into a borrowed pair and moves. -/
+theorem aliased_multiply_lowers :
+    ((emitOne 0 (.mulReg .x14 .x14 .x15)).splitOn "«").length = 1 := by native_decide
 
 /-! ## Which instruction selection rv32 consumes
 
@@ -1262,27 +1360,19 @@ theorem no_carry_clobber_hazards_in_gadgets :
 /-! ## Handler coverage, as a ratchet
 
 The gadget set is covered completely. Of the 150 handler programs the threaded
-interpreter emits, **146 lower completely and assemble**. The 4 that do not:
+interpreter emits, **all 150 lower completely and assemble**. The ones that
+did not, and what each needed:
 
-* **`slt`, `sgt`** — u256 comparison chains whose subtract reads two NOS limbs
-  at once. One load pair serves one limb, so these need the folding treatment
-  the bitwise ops got.
-* **`clz`, `exp`** — `clzReg`: rv32imac has no `clz`, so it needs the same
-  open-coded treatment `rev` got. `exp` additionally needs a 64-bit multiply
-  into its own operand.
-`sstore` used to be here, for `madd` — its handler computes the address of the
-next journal entry as `journal_data + journal_count · 104`. Its five FORK GAS
-SCHEDULES are a separate matter and still refuse (`c/rv32/unlowered.c`).
-
-`jump` and `jumpi` used to be here, for one missing fusion: `cmpImmWHex`
-followed by `bSym`, which is how both read `jumpdests[pc]` and branch on
-`!= 1`. No bytecode containing a loop could run without them, which is a good
-illustration of why the uncovered set is pinned by name — "137 of 150" sounded
-like a tail, and two of the thirteen were control flow.
-
-The six on the host-callback path (`sload`, `balance`, `selfbalance`,
-`extcodesize`, `extcodehash`, `blockhash`) used to be here. See
-`no_block_hazards`.
+* **`slt`, `sgt`** — a 256-bit SIGNED compare, whose `cset lt` reads N ≠ V:
+  two flags where rv32 has one register. Not emulated — the chain's borrow is
+  already the unsigned answer, and signed differs only when the signs do
+  (`sltSigned256`).
+* **`clz`** (EIP-7939) and **`exp`** — `clzReg`, open-coded as the five-step
+  branchless ladder rv32imac needs without Zbb (`clz64`); `exp` also needed a
+  multiply into its own operand, which its square-and-multiply accumulator
+  does, now computing into a borrowed pair.
+* **`sstore`** — `madd`, for the address of the next journal entry; and its
+  five fork gas schedules, which became emitted C (`Evm.CL.SstoreGasC`).
 
 The set is pinned by NAME, not just by count: a count ratchet lets one handler
 regress while another lands and reports no change. -/
@@ -1292,21 +1382,30 @@ def handlersCovered : Nat :=
 
 def handlerTotal : Nat := rv32Streams.length
 
-/-- Where the port stands. Raise this as the remaining forms land; it may not
-    fall. -/
+/-- Where the port stands: **every** handler lowers.
 
-example : 146 ≤ handlersCovered := by native_decide
+    Stated as an equality against `handlerTotal` rather than as `150 ≤
+    handlersCovered`, which is what this was while the set was still closing.
+    A lower bound cannot distinguish "all of them" from "all of the ones that
+    existed when I last raised the number" — so a handler added upstream could
+    arrive unlowered and the ratchet would still pass. The count is pinned
+    separately, so a handler disappearing is also visible. -/
+theorem every_handler_lowers : handlersCovered = handlerTotal := by native_decide
 example : handlerTotal = 150 := by native_decide
 
 /-- And exactly which handlers do not lower, by name, so neither the set nor
-    its membership can change unnoticed. -/
+    its membership can change unnoticed. `every_handler_lowers` already says
+    this set is empty; keeping it by name means a regression reports WHICH
+    handler broke, not just that the count slipped. -/
 def uncovered : List String :=
   rv32Streams.filterMap (fun (nm, is) =>
     if ((emitProgRV32 is).splitOn "«").length == 1 then none else some nm)
 
 
-theorem uncovered_handlers :
-    uncovered = ["clz", "slt", "sgt", "exp"] := by native_decide
+/-- **Empty.** Every handler the threaded interpreter emits lowers to rv32imac.
+    Keep it empty: a name here is a handler the backend refuses, and an opcode
+    the device cannot evaluate is a wall it hits on some transaction later. -/
+theorem no_uncovered_handlers : uncovered = [] := by native_decide
 
 /-! ## Size, measured -/
 

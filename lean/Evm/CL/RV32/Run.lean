@@ -180,6 +180,67 @@ def tableFor (resolve : String → String) (symbol : String) : List RvItem :=
                | none => "_eita_handler_invalid"
     RvItem.dir s!"    .word   {if loweredSymbols.contains sym then sym else "_eita_unimplemented"}")
 
+/-! ### What a table still refuses
+
+`Lower.no_uncovered_handlers` says every handler in `rv32Streams` lowers. That
+is not the same question as "can this fork execute every opcode it defines":
+an opcode whose fork-specific handler variant is not in `coveredHandlers` at
+all never appears in `uncovered`, and silently resolves to
+`_eita_unimplemented` here. Closing `uncovered` to `[]` took the count of such
+slots from 66 to 15, and the 15 are the question this ratchet answers. -/
+
+/-- The opcodes whose slot in a table points at `_eita_unimplemented`.
+    Mirrors `tableFor`'s resolution exactly, including the unmapped-byte case
+    (which goes to `_eita_handler_invalid`, itself a lowered handler). -/
+def refusedOpcodes (resolve : String → String) : List Nat :=
+  (List.range 256).filterMap (fun b =>
+    let sym := match Evm.CL.ARM64.opcodeNameMap.find? (fun (op, _) => op == b) with
+               | some (_, nm) => resolve nm
+               | none => "_eita_handler_invalid"
+    if loweredSymbols.contains sym then none else some b)
+
+/-- The tables the device can actually be pointed at: Istanbul and later, plus
+    the default (Cancun) and Osaka tables. `wit_host.c` refuses any fork below
+    Berlin, so Istanbul and Muir Glacier are here with margin to spare.
+
+    Written `f.atLeast .istanbul`, not `8 ≤ f.ord`: this file's first draft
+    said `9 ≤`, which quietly moved the boundary to Muir Glacier. Fork
+    ordinals are exactly the kind of constant worth never typing. -/
+def reachableTables : List (String × (String → String)) :=
+  (Evm.CL.ARM64.Interp.tableForks.filterMap (fun (f, nm) =>
+    if f.atLeast .istanbul then some (nm, Evm.CL.ARM64.Interp.handlerSymbol f)
+    else none)) ++
+  [ ("default", Evm.CL.ARM64.Interp.handlerSymbol Evm.CL.ARM64.Interp.interpFork),
+    ("osaka", Evm.CL.ARM64.Interp.handlerSymbol .osaka) ]
+
+/-- **No reachable table refuses any opcode.**
+
+    This is the claim that matters on the device, and it is stronger than
+    coverage: it ranges over the table the dispatch pointer actually holds, so
+    a handler variant that exists for one fork and not another cannot hide. -/
+theorem reachable_tables_refuse_nothing :
+    reachableTables.filterMap
+      (fun (nm, r) => if (refusedOpcodes r).isEmpty then none else some nm) = [] := by
+  native_decide
+
+/-- What the pre-Istanbul tables still refuse, by fork and opcode, so the
+    remaining 15 slots are a recorded fact rather than something a reader has
+    to go count in the emitted `.S`.
+
+    `0x0a` EXP (the 10-per-byte exponent schedule before EIP-160), `0x55`
+    SSTORE (the schedules before EIP-2200) and `0xff` SELFDESTRUCT. Reachable
+    only by a fork the wallet refuses outright; if that policy ever loosens,
+    this list is the work item. -/
+theorem pre_istanbul_refusals :
+    (Evm.CL.ARM64.Interp.tableForks.filterMap (fun (f, nm) =>
+      if f.atLeast .istanbul then none
+      else some (nm, refusedOpcodes (Evm.CL.ARM64.Interp.handlerSymbol f))))
+    = [("frontier", [0x0a, 0x55, 0xff]), ("homestead", [0x0a, 0x55, 0xff]),
+       ("dao_fork", [0x0a, 0x55, 0xff]), ("tangerine_whistle", [0x0a, 0x55]),
+       ("spurious_dragon", [0x55]), ("byzantium", [0x55]),
+       ("constantinople", [0x55]), ("petersburg", [0x55])] := by
+  native_decide
+
 /-- The fork-indexed table of tables and `eita_set_fork`, as on ARM64 (ords
     past 21 clamp). -/
 def forkTables : List RvItem :=

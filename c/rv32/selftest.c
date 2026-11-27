@@ -154,6 +154,109 @@ static const uint8_t p_mulw[]    = { 0x7f,
     0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0,
     0x02, TAIL };
 
+/* ---- the four handlers that did not lower until 2026-11-27 ----------------
+ *
+ * SLT/SGT, EXP and CLZ were the last entries in `Lower.uncovered`, each
+ * blocked on a sequence rv32 has no instruction for. Closing them added three
+ * hand-written lowerings, so these programs are here to EXECUTE them: the
+ * emit gate only proves the assembler accepts the text.
+ *
+ *   slt/sgt   `sltSigned256` — the chain's borrow is already the unsigned
+ *             answer, and signed differs only when the operands' signs do, so
+ *             the lowering branches on sign(a) == sign(b). Both sides of that
+ *             branch need a test, which is why there are five SLT programs and
+ *             not one: a lowering that ignored the sign test entirely would
+ *             still pass `1 <ₛ 2`.
+ *   exp       square-and-multiply, whose accumulator multiplies into its own
+ *             operand (`mulReg x14 x14 x15`) — the aliased case that used to
+ *             emit the «unlowered» marker.
+ *   clz       `clz64`, the five-step branchless ladder rv32imac needs with no
+ *             Zbb. Probed at all four limbs and at zero, because the ladder
+ *             has a separate correction for the all-zero word.
+ */
+#define W_NEG1 0x7f, \
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, \
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff
+#define W_NEG2 0x7f, \
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, \
+    0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xfe
+
+/* SLT pops a (top of stack) then b, and pushes a <ₛ b — so the SECOND push is
+   a. Same order the DIV program above relies on (100/3, not 3/100). */
+/* a=-1 b=1   signs differ, a negative → 1 */
+static const uint8_t p_slt_a[] = { 0x60, 0x01, W_NEG1, 0x12, TAIL };
+/* a=1  b=-1  signs differ, a positive → 0 */
+static const uint8_t p_slt_b[] = { W_NEG1, 0x60, 0x01, 0x12, TAIL };
+/* a=1  b=2   same sign → the unsigned borrow decides → 1 */
+static const uint8_t p_slt_c[] = { 0x60, 0x02, 0x60, 0x01, 0x12, TAIL };
+/* a=-2 b=-1  both negative: 2^256-2 <ᵤ 2^256-1 → 1 */
+static const uint8_t p_slt_d[] = { W_NEG1, W_NEG2, 0x12, TAIL };
+/* a=1  b=1   equal: no borrow, and the sign test must not invent one → 0 */
+static const uint8_t p_slt_e[] = { 0x60, 0x01, 0x60, 0x01, 0x12, TAIL };
+
+/* a=1 b=-1 → 1 */
+static const uint8_t p_sgt_a[] = { W_NEG1, 0x60, 0x01, 0x13, TAIL };
+/* a=-1 b=1 → 0 */
+static const uint8_t p_sgt_b[] = { 0x60, 0x01, W_NEG1, 0x13, TAIL };
+
+/* EXP pops a=base then b=exponent: PUSH 5, PUSH 3 → 3^5 = 243 */
+static const uint8_t p_exp[]   = { 0x60, 0x05, 0x60, 0x03, 0x0a, TAIL };
+/* 2^255 — 7 squarings and a multiply, the aliased accumulator all the way up */
+static const uint8_t p_exp2[]  = { 0x60, 0xff, 0x60, 0x02, 0x0a, TAIL };
+
+/* CLZ (EIP-7939, 0x1e) is in the OSAKA table only — these run at fork 18. */
+static const uint8_t p_clz1[]  = { 0x60, 0x01, 0x1e, TAIL };          /* → 255 */
+static const uint8_t p_clz0[]  = { 0x60, 0x00, 0x1e, TAIL };          /* → 256 */
+/* 2^255: the top limb's MSB → 0 */
+static const uint8_t p_clzt[]  = { 0x7f,
+    0x80,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0x1e, TAIL };
+/* 2^128: limb 2 → 127 */
+static const uint8_t p_clzm[]  = { 0x7f,
+    0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0x01, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0x1e, TAIL };
+/* 2^200: limb 3, mid-ladder (clz64(0x100) = 55) → 55 */
+static const uint8_t p_clz200[] = { 0x7f,
+    0,0,0,0,0,0,0x01,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+    0x1e, TAIL };
+
+/* The 256-bit signed compare, both sides of its sign branch. */
+static int check_signed_cmp(void) {
+    uint8_t out[32]; uint64_t gas;
+    struct { const uint8_t *p; uint32_t n; uint64_t want; } cases[] = {
+        { p_slt_a, sizeof p_slt_a, 1 }, { p_slt_b, sizeof p_slt_b, 0 },
+        { p_slt_c, sizeof p_slt_c, 1 }, { p_slt_d, sizeof p_slt_d, 1 },
+        { p_slt_e, sizeof p_slt_e, 0 },
+    };
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+        if (run_prog(cases[i].p, cases[i].n, out, &gas) != 0 ||
+            !is_word(out, cases[i].want)) return 1;
+    return 0;
+}
+
+static int check_sgt(void) {
+    uint8_t out[32]; uint64_t gas;
+    if (run_prog(p_sgt_a, sizeof p_sgt_a, out, &gas) != 0 || !is_word(out, 1)) return 1;
+    if (run_prog(p_sgt_b, sizeof p_sgt_b, out, &gas) != 0 || !is_word(out, 0)) return 1;
+    return 0;
+}
+
+/* CLZ at every limb and at zero. Runs under OSAKA and puts the fork back. */
+static int check_clz(void) {
+    uint8_t out[32]; uint64_t gas; int bad = 0;
+    struct { const uint8_t *p; uint32_t n; uint64_t want; } cases[] = {
+        { p_clz1,   sizeof p_clz1,   255 }, { p_clz0,   sizeof p_clz0,   256 },
+        { p_clzt,   sizeof p_clzt,     0 }, { p_clzm,   sizeof p_clzm,  127 },
+        { p_clz200, sizeof p_clz200,  55 },
+    };
+    eita_set_fork(18);
+    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++)
+        if (run_prog(cases[i].p, cases[i].n, out, &gas) != 0 ||
+            !is_word(out, cases[i].want)) { bad = 1; break; }
+    eita_set_fork(16);
+    return bad;
+}
+
 /* The emitted SSTORE gas schedule, ON THE TARGET.
  *
  * c/test_sstore_gas.c sweeps all five schedules at every reachable predicate
@@ -184,6 +287,26 @@ static int check_sstore_gas(void) {
     return 0;
 }
 
+/* The check names, owned HERE.
+ *
+ * Three places print them — the host main below, the QEMU runtime, and the
+ * dabao firmware — and each used to keep its own array and its own loop bound.
+ * Adding checks 10-14 left two of the three printing ten lines, so a failure
+ * in the newly closed handlers would have been invisible in the per-check
+ * list, visible only in the mask. The name list is the bitmask's
+ * documentation; one owner, like every other table in this tree.
+ *
+ * Returns NULL past the last check, so callers loop to exhaustion and never
+ * restate the count. */
+const char *eita_selftest_check(unsigned i) {
+    static const char *const names[] = {
+        "ADD", "ADD-carry", "SUB-borrow", "MUL", "DIV", "MUL-wide",
+        "gas(ADD)==24", "JUMPI-loop", "JUMP", "sstore-gas",
+        "SLT-signed", "SGT-signed", "EXP", "gas(EXP)==81", "CLZ",
+    };
+    return i < sizeof names / sizeof names[0] ? names[i] : (const char *)0;
+}
+
 /** Run every check. Returns 0 on success, else a bitmask of the ones that
     failed (bit k = check k). `gas_add_out`, when non-null, receives the gas the
     ADD program used — the number a host run pins and a board run must match. */
@@ -212,6 +335,23 @@ uint32_t eita_selftest(uint64_t *gas_add_out) {
     if (run_prog(p_loop, sizeof p_loop, out, &gas) != 0 || !is_word(out, 42)) bad |= 1u << 7;
     if (run_prog(p_jump, sizeof p_jump, out, &gas) != 0 || !is_word(out, 7))  bad |= 1u << 8;
 
+    if (check_signed_cmp() != 0) bad |= 1u << 10;
+    if (check_sgt() != 0)        bad |= 1u << 11;
+
+    /* 3^5 = 243, and the gas EXP's clz-derived ebytes charges for it:
+       PUSH1 x2 = 6, EXP = 10 + 50x1 byte of exponent = 60, TAIL = 15. */
+    if (run_prog(p_exp, sizeof p_exp, out, &gas) != 0 || !is_word(out, 243)) bad |= 1u << 12;
+    else if (gas != 81) bad |= 1u << 13;
+    /* 2^255: bit 255, i.e. byte 0 == 0x80 and nothing else. */
+    if (run_prog(p_exp2, sizeof p_exp2, out, &gas) != 0) bad |= 1u << 12;
+    else {
+        int ok = out[0] == 0x80;
+        for (int i = 1; i < 32 && ok; i++) if (out[i] != 0) ok = 0;
+        if (!ok) bad |= 1u << 12;
+    }
+
+    if (check_clz() != 0) bad |= 1u << 14;
+
     /* 2^64 * 2^64 = 2^128: byte 15 of the big-endian word, nothing else. */
     if (run_prog(p_mulw, sizeof p_mulw, out, &gas) != 0) bad |= 1u << 5;
     else {
@@ -227,11 +367,9 @@ uint32_t eita_selftest(uint64_t *gas_add_out) {
 int main(void) {
     uint64_t gas = 0;
     uint32_t bad = eita_selftest(&gas);
-    static const char *names[] = { "ADD", "ADD-carry", "SUB-borrow", "MUL",
-                                   "DIV", "MUL-wide", "gas(ADD)=24",
-                                   "JUMPI-loop", "JUMP", "sstore-gas" };
-    for (int i = 0; i < 10; i++)
-        printf("  %-11s %s\n", names[i], (bad & (1u << i)) ? "FAIL" : "ok");
+    for (unsigned i = 0; eita_selftest_check(i); i++)
+        printf("  %-13s %s\n", eita_selftest_check(i),
+               (bad & (1u << i)) ? "FAIL" : "ok");
     printf("---\nselftest: %s (mask 0x%02x), ADD program gas_used = %llu\n",
            bad ? "FAIL" : "PASS", bad, (unsigned long long)gas);
     return bad != 0;
