@@ -25,9 +25,16 @@ scripts/verify-host-emit.sh          # generated files == emitters; effect proof
 scripts/verify-axioms.sh             # no new axioms
 scripts/verify-coverage.sh           # proof debt does not grow
 bin/eita fixtures <a relevant BlockchainTests directory>
+( cd lean && lake build recoveryVectors callGasVectors sstoreGasVectors )   # see below
 sbcl --load ~/.local/share/ocicl/ocicl-runtime.lisp --eval '(push (truename ".") asdf:*central-registry*)' \
      --eval '(asdf:test-system "eita")' --quit            # the Lisp test suites (docs/testing.md)
 ```
+
+Build the vector generators before the Lisp suites, or the three differential
+audits that use them (`recovery-vectors`, `audit-call-gas`, `audit-sstore-gas`)
+read an empty file and report PASS over nothing. `docs/testing.md` lists them
+as a prerequisite; the audits now also fail below a vector-count floor, so a
+skipped build is visible rather than silent.
 
 For a change to execution, run the Cancun battery (`docs/testing.md`) and
 say so in the pull request. Commit messages say what changed and why; a proof or test that
