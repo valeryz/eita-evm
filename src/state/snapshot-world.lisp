@@ -113,40 +113,49 @@
 (defvar *hkey-cache* (make-array 4096 :initial-element nil) "address -> keccak (replay thread).")
 (defvar *hslot-cache* (make-array 65536 :initial-element nil) "slot -> keccak (replay thread).")
 
-(defun cached-key-hash (cache n width &optional normalize)
+(defun cached-key-hash (cache n width)
   (let* ((i (logand (u256-word n 0) (1- (length cache)))) (e (svref cache i)))
     (if (and e (eql (car e) n))
         (cdr e)
-        (let ((h (if normalize (slot-key-hash n t) (key-hash n width))))
-          (setf (svref cache i) (cons n h)) h))))
+        (let ((h (key-hash n width))) (setf (svref cache i) (cons n h)) h))))
 (defun addr-hkey (addr) (cached-key-hash *hkey-cache* addr 20))
-(defun slot-hslot (slot &optional (normalize (chain-slot-key-normalize)))
-  (cached-key-hash *hslot-cache* slot 32 normalize))
+(defun slot-hslot (slot) (cached-key-hash *hslot-cache* slot 32))
+
+(defvar *hslot-norm-cache* nil "slot -> keccak(NormalizeStateKey(slot)) (replay thread; lazy).")
+(defun slot-hslot-normalized (slot)
+  "Direct-mapped cache for Coreth NormalizeStateKey(slot) -> keccak (replay thread)."
+  (let* ((cache (or *hslot-norm-cache*
+                    (setf *hslot-norm-cache* (make-array 65536 :initial-element nil))))
+         (i (logand (u256-word slot 0) (1- (length cache))))
+         (e (svref cache i)))
+    (if (and e (eql (car e) slot))
+        (cdr e)
+        (let ((h (slot-key-hash slot t)))
+          (setf (svref cache i) (cons slot h)) h))))
 
 (defun snap-fault-account (addr)
   "The fault hook: ADDR's fields from the stack (fault-account! called it on the account's
    first touch)."
   (incf (getf *snap-stats* :acct-faults))
-  (let ((norm (chain-slot-key-normalize)))
-    (multiple-value-bind (found nonce balance codehash exists-empty code multi-coin)
-        (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr))
-                                          (if norm (lambda (s) (slot-hslot s t)) #'slot-hslot)) ; @veil snap-fault-account/view
-      (when found
-        (with-acct (tb a) *current-world* addr
-          (when (plusp nonce) (setf (acct-nonce tb a) nonce))
-          (when (plusp balance) (setf (acct-balance tb a) balance))
-          (unless (= codehash eita.state.snapshot:+empty-code-hash+)
-            (setf (acct-code tb a)
-                  (or code
-                        (gethash codehash *code-intern*)
-                        (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
-                          (unless code
-                            (error "account ~X names code ~X that no layer and no base holds" addr codehash))
-                          ;; seed the code hash memo: no keccak for code read by hash
-                          (setf (gethash code *code-hash-memo*) codehash)
-                          (intern-code codehash code)))))
-          (when exists-empty (acct-set-flag! tb a +acct-marked+))
-          (when multi-coin (acct-set-flag! tb a +acct-multi-coin+)))))))
+  (multiple-value-bind (found nonce balance codehash exists-empty code multi-coin)
+      (eita.state.snapshot:view-account *layers* *base* addr (lambda () (addr-hkey addr))
+                                        (if (chain-slot-key-normalize) #'slot-hslot-normalized #'slot-hslot)) ; @veil snap-fault-account/view
+    (when found
+      (with-acct (tb a) *current-world* addr
+        (when (plusp nonce) (setf (acct-nonce tb a) nonce))
+        (when (plusp balance) (setf (acct-balance tb a) balance))
+        (unless (= codehash eita.state.snapshot:+empty-code-hash+)
+          (setf (acct-code tb a)
+                (or code
+                      (gethash codehash *code-intern*)
+                      (let ((code (eita.state.snapshot:view-code *layers* *base* codehash))) ; @veil snap-fault-account/code
+                        (unless code
+                          (error "account ~X names code ~X that no layer and no base holds" addr codehash))
+                        ;; seed the code hash memo: no keccak for code read by hash
+                        (setf (gethash code *code-hash-memo*) codehash)
+                        (intern-code codehash code)))))
+        (when exists-empty (acct-set-flag! tb a +acct-marked+))
+        (when multi-coin (acct-set-flag! tb a +acct-multi-coin+))))))
 
 (defun snap-fault-slot (addr slot)
   "A slot is faulted iff its key is present in ADDR's packed table (fault-slot! calls
@@ -156,12 +165,13 @@
    the stack below is not read."
   (with-acct (tb a) *current-world* addr
     (incf (getf *snap-stats* :slot-faults))
-    (let ((norm (chain-slot-key-normalize)))
-      (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+)
-                                    0
-                                    (eita.state.snapshot:view-slot *layers* *base* addr slot ; @veil snap-fault-slot/view
-                                                                   (lambda () (addr-hkey addr))
-                                                                   (lambda () (slot-hslot slot norm))))))))
+    (acct-slot-put! tb a slot (if (acct-flag-p tb a +acct-wiped+)
+                                  0
+                                  (eita.state.snapshot:view-slot *layers* *base* addr slot ; @veil snap-fault-slot/view
+                                                                 (lambda () (addr-hkey addr))
+                                                                 (if (chain-slot-key-normalize)
+                                                                     (lambda () (slot-hslot-normalized slot))
+                                                                     (lambda () (slot-hslot slot))))))))
 
 (defun snap-wipe (addr) (with-acct (tb a) *current-world* addr (acct-set-flag! tb a +acct-wiped+)))
 
